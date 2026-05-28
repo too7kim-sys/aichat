@@ -14,7 +14,11 @@ node_modules/
 dist/
 .vite/
 
-# Editor
-.vscode/
+# Editor — keep shared .vscode debug config, ignore only user-local files
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 .DS_Store

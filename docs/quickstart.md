@@ -31,7 +31,28 @@ npm run dev
 3. 비교 모드: 활성화된 모든 Provider에 동시에 질의되어 컬럼별로 응답 비교
 4. 메시지는 자동으로 SQLite (`backend/aichat.db`)에 저장되어 새로고침 후에도 유지
 
-## 4. 동작 검증
+## 4. VSCode 디버그 (F5)
+
+`.vscode/`에 디버그 구성이 포함되어 있다. 처음 한 번만 의존성 설치:
+
+```
+Ctrl+Shift+P → "Tasks: Run Task" → "backend: install deps"
+Ctrl+Shift+P → "Tasks: Run Task" → "frontend: install deps"
+```
+
+이후 F5 → 실행할 구성 선택:
+
+| 구성 | 설명 |
+|------|------|
+| **Full Stack: Backend + Frontend (Chrome)** | uvicorn + Vite + Chrome 자동 기동 (권장) |
+| Full Stack: Backend + Vite (no browser) | 서버만 띄우고 브라우저는 수동 열기 |
+| Backend: FastAPI (uvicorn) | 백엔드만 디버그 (브레이크포인트 가능) |
+| Frontend: Chrome | Chrome만 디버그 (Vite 자동 시작) |
+| Frontend: Vite dev server | npm run dev를 Node 디버거로 실행 |
+
+브레이크포인트: Python은 `backend/app/**/*.py`, TS는 `frontend/src/**/*.tsx`에 그대로 설정 가능.
+
+## 5. 동작 검증
 
 ```bash
 # 서버 헬스

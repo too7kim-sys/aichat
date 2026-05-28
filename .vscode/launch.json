@@ -1,0 +1,69 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: FastAPI (uvicorn)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--host", "127.0.0.1",
+        "--port", "8000"
+      ],
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "jinja": true,
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Frontend: Vite dev server",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Frontend: Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "preLaunchTask": "vite: dev",
+      "postDebugTask": "vite: stop",
+      "sourceMaps": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: Backend + Frontend (Chrome)",
+      "configurations": [
+        "Backend: FastAPI (uvicorn)",
+        "Frontend: Chrome"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "group": "FullStack",
+        "order": 1
+      }
+    },
+    {
+      "name": "Full Stack: Backend + Vite (no browser)",
+      "configurations": [
+        "Backend: FastAPI (uvicorn)",
+        "Frontend: Vite dev server"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "group": "FullStack",
+        "order": 2
+      }
+    }
+  ]
+}
