@@ -27,7 +27,6 @@
       "request": "launch",
       "cwd": "${workspaceFolder}/frontend",
       "runtimeExecutable": "npm",
-      "windows": { "runtimeExecutable": "npm.cmd" },
       "runtimeArgs": ["run", "dev"],
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]

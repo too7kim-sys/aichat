@@ -3,17 +3,9 @@
   "tasks": [
     {
       "label": "vite: dev",
-      "type": "shell",
-      "command": "npm run dev",
-      "windows": {
-        "command": "npm.cmd run dev",
-        "options": {
-          "shell": {
-            "executable": "powershell.exe",
-            "args": ["-NoProfile", "-Command"]
-          }
-        }
-      },
+      "type": "npm",
+      "script": "dev",
+      "path": "frontend",
       "options": {
         "cwd": "${workspaceFolder}/frontend"
       },
@@ -66,17 +58,9 @@
     },
     {
       "label": "frontend: install deps",
-      "type": "shell",
-      "command": "npm install",
-      "windows": {
-        "command": "npm.cmd install",
-        "options": {
-          "shell": {
-            "executable": "powershell.exe",
-            "args": ["-NoProfile", "-Command"]
-          }
-        }
-      },
+      "type": "npm",
+      "script": "install",
+      "path": "frontend",
       "options": {
         "cwd": "${workspaceFolder}/frontend"
       },
