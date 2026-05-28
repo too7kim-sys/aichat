@@ -14,7 +14,9 @@
       ],
       "cwd": "${workspaceFolder}/backend",
       "envFile": "${workspaceFolder}/backend/.env",
-      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+      "linux":   { "python": "${workspaceFolder}/backend/.venv/bin/python" },
+      "osx":     { "python": "${workspaceFolder}/backend/.venv/bin/python" },
       "jinja": true,
       "justMyCode": false,
       "console": "integratedTerminal"
@@ -25,6 +27,7 @@
       "request": "launch",
       "cwd": "${workspaceFolder}/frontend",
       "runtimeExecutable": "npm",
+      "windows": { "runtimeExecutable": "npm.cmd" },
       "runtimeArgs": ["run", "dev"],
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
@@ -32,6 +35,16 @@
     {
       "name": "Frontend: Chrome",
       "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "preLaunchTask": "vite: dev",
+      "postDebugTask": "vite: stop",
+      "sourceMaps": true
+    },
+    {
+      "name": "Frontend: Edge",
+      "type": "msedge",
       "request": "launch",
       "url": "http://localhost:5173",
       "webRoot": "${workspaceFolder}/frontend/src",
@@ -48,10 +61,16 @@
         "Frontend: Chrome"
       ],
       "stopAll": true,
-      "presentation": {
-        "group": "FullStack",
-        "order": 1
-      }
+      "presentation": { "group": "FullStack", "order": 1 }
+    },
+    {
+      "name": "Full Stack: Backend + Frontend (Edge)",
+      "configurations": [
+        "Backend: FastAPI (uvicorn)",
+        "Frontend: Edge"
+      ],
+      "stopAll": true,
+      "presentation": { "group": "FullStack", "order": 2 }
     },
     {
       "name": "Full Stack: Backend + Vite (no browser)",
@@ -60,10 +79,7 @@
         "Frontend: Vite dev server"
       ],
       "stopAll": true,
-      "presentation": {
-        "group": "FullStack",
-        "order": 2
-      }
+      "presentation": { "group": "FullStack", "order": 3 }
     }
   ]
 }

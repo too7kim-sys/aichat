@@ -1,7 +1,8 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+  "python.defaultInterpreterPath": "${workspaceFolder}\\backend\\.venv\\Scripts\\python.exe",
   "python.terminal.activateEnvInCurrentTerminal": true,
   "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
   "[python]": {
     "editor.tabSize": 4,
     "editor.formatOnSave": false
@@ -12,5 +13,6 @@
     "**/__pycache__": true,
     "**/.pytest_cache": true,
     "**/*.pyc": true
-  }
+  },
+  "files.eol": "\n"
 }

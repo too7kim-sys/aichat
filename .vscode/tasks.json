@@ -5,6 +5,15 @@
       "label": "vite: dev",
       "type": "shell",
       "command": "npm run dev",
+      "windows": {
+        "command": "npm.cmd run dev",
+        "options": {
+          "shell": {
+            "executable": "powershell.exe",
+            "args": ["-NoProfile", "-Command"]
+          }
+        }
+      },
       "options": {
         "cwd": "${workspaceFolder}/frontend"
       },
@@ -33,13 +42,23 @@
     {
       "label": "vite: stop",
       "type": "shell",
-      "command": "echo 'Vite stopped (terminate task panel manually if needed)'",
-      "presentation": { "reveal": "silent" }
+      "command": "echo Vite stopped",
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
     },
     {
       "label": "backend: install deps",
       "type": "shell",
       "command": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+      "windows": {
+        "command": "py -3 -m venv .venv ; .\\.venv\\Scripts\\pip.exe install -r requirements.txt",
+        "options": {
+          "shell": {
+            "executable": "powershell.exe",
+            "args": ["-NoProfile", "-Command"]
+          }
+        }
+      },
       "options": {
         "cwd": "${workspaceFolder}/backend"
       },
@@ -49,6 +68,15 @@
       "label": "frontend: install deps",
       "type": "shell",
       "command": "npm install",
+      "windows": {
+        "command": "npm.cmd install",
+        "options": {
+          "shell": {
+            "executable": "powershell.exe",
+            "args": ["-NoProfile", "-Command"]
+          }
+        }
+      },
       "options": {
         "cwd": "${workspaceFolder}/frontend"
       },

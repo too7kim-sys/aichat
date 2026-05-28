@@ -2,12 +2,28 @@
 
 ## 1. Backend
 
+**Windows (PowerShell)**
+
+```powershell
+cd backend
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env   # OPENAI_API_KEY / ANTHROPIC_API_KEY 채우기
+uvicorn app.main:app --reload --port 8000
+```
+
+> PowerShell 스크립트 실행이 차단되면 한 번만:
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+**macOS / Linux**
+
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # OPENAI_API_KEY / ANTHROPIC_API_KEY 채우기
+cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -45,9 +61,10 @@ Ctrl+Shift+P → "Tasks: Run Task" → "frontend: install deps"
 | 구성 | 설명 |
 |------|------|
 | **Full Stack: Backend + Frontend (Chrome)** | uvicorn + Vite + Chrome 자동 기동 (권장) |
+| Full Stack: Backend + Frontend (Edge) | Chrome 대신 Edge로 디버그 |
 | Full Stack: Backend + Vite (no browser) | 서버만 띄우고 브라우저는 수동 열기 |
-| Backend: FastAPI (uvicorn) | 백엔드만 디버그 (브레이크포인트 가능) |
-| Frontend: Chrome | Chrome만 디버그 (Vite 자동 시작) |
+| Backend: FastAPI (uvicorn) | 백엔드만 디버그 (`.venv\Scripts\python.exe` 자동 선택) |
+| Frontend: Chrome / Edge | 브라우저만 디버그 (Vite 자동 시작) |
 | Frontend: Vite dev server | npm run dev를 Node 디버거로 실행 |
 
 브레이크포인트: Python은 `backend/app/**/*.py`, TS는 `frontend/src/**/*.tsx`에 그대로 설정 가능.
