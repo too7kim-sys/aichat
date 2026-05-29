@@ -9,11 +9,11 @@ from .base import ChatMessage, LLMProvider
 
 class OllamaProvider(LLMProvider):
     name = "ollama"
-    label = "Ollama (llama3.1)"
 
     def __init__(self) -> None:
         self.model = settings.ollama_model
         self.base_url = settings.ollama_base_url.rstrip("/")
+        self.label = f"Ollama ({self.model})"
 
     @property
     def enabled(self) -> bool:
