@@ -2,12 +2,12 @@
 
 ## 1. 개요
 
-Ollama 3.1 (로컬), OpenAI ChatGPT, Anthropic Claude 세 가지 LLM을 통합하여 다음 기능을 제공한다.
+Ollama 서버(로컬 또는 사내)와 연동하여 다음 기능을 제공한다.
 
-- **단일 응답 모드**: 사용자가 선택한 모델 1개와 대화
-- **병렬 비교 모드**: 동일 질문을 3개 모델에 동시 전송하고 응답을 나란히 비교
 - **대화 히스토리 저장**: 세션/메시지를 SQLite에 영구 저장
 - **스트리밍 응답**: SSE (Server-Sent Events) 기반 토큰 단위 실시간 출력
+- **선택적 웹 검색**: Tavily로 실시간 정보를 가져와 LLM 컨텍스트에 주입
+- **확장 가능한 Provider 추상화**: 향후 다른 LLM 추가 시 한 파일만 작성하면 됨
 
 ## 2. 아키텍처
 
@@ -27,8 +27,8 @@ Ollama 3.1 (로컬), OpenAI ChatGPT, Anthropic Claude 세 가지 LLM을 통합�
                                                  │           │         │
                                                  │  ┌────────┼───────┐ │
                                                  │  │        │       │ │
-                                                 │  ▼        ▼       ▼ │
-                                                 │ Ollama  OpenAI Claude
+                                                 │  ▼                  │
+                                                 │ Ollama              │
                                                  │           │         │
                                                  │  ┌────────▼───────┐ │
                                                  │  │ SQLite (async) │ │
@@ -45,12 +45,10 @@ class LLMProvider(ABC):
     async def stream(self, messages: list[Message]) -> AsyncIterator[str]: ...
 ```
 
-세 가지 구현체:
-- `OllamaProvider`  → `http://localhost:11434/api/chat`
-- `OpenAIProvider`  → `openai` SDK, model `gpt-4o-mini` 기본
-- `ClaudeProvider`  → `anthropic` SDK, model `claude-sonnet-4-6` 기본
+현재 구현체:
+- `OllamaProvider`  → `{OLLAMA_BASE_URL}/api/chat`, `OLLAMA_MODEL`로 모델 지정
 
-각 Provider는 공통 메시지 포맷(`{role, content}`)을 받아 자체 포맷으로 변환하여 호출하고, 응답 청크를 평문 문자열로 yield 한다.
+Provider는 공통 메시지 포맷(`{role, content}`)을 받아 자체 포맷으로 변환하여 호출하고, 응답 청크를 평문 문자열로 yield 한다. 새 Provider 추가 시 `LLMProvider`를 상속한 클래스 1개 작성 + `registry.py`에 등록만 하면 된다.
 
 ### 2.2 병렬 비교 실행
 
@@ -106,14 +104,17 @@ Message
 ### SSE 이벤트 포맷
 
 ```
+event: sources
+data: {"sources":[{"title":"...","url":"..."}],"error":null}
+
 event: token
-data: {"provider":"claude","delta":"안녕"}
+data: {"provider":"ollama","delta":"안녕"}
 
 event: done
-data: {"provider":"claude","tokens_out":42,"latency_ms":1280}
+data: {"provider":"ollama","tokens_out":42,"latency_ms":1280}
 
 event: error
-data: {"provider":"openai","message":"rate limit"}
+data: {"provider":"ollama","message":"connection refused"}
 ```
 
 ## 5. 디렉터리 구조
@@ -131,9 +132,9 @@ aichat/
 │   │   ├── providers/
 │   │   │   ├── base.py
 │   │   │   ├── ollama.py
-│   │   │   ├── openai.py
-│   │   │   ├── claude.py
 │   │   │   └── registry.py
+│   │   ├── search/             # Tavily 웹 검색
+│   │   │   └── tavily.py
 │   │   └── routers/
 │   │       ├── chat.py
 │   │       └── sessions.py
@@ -159,29 +160,28 @@ aichat/
 
 `.env`:
 ```
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+TAVILY_API_KEY=tvly-...        # 선택. 웹 검색 토글 사용 시 필요
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.1
-OPENAI_MODEL=gpt-4o-mini
-CLAUDE_MODEL=claude-sonnet-4-6
 DATABASE_URL=sqlite+aiosqlite:///./aichat.db
+CORS_ORIGINS=http://localhost:5173
 ```
 
-키가 없는 Provider는 `/api/providers` 응답에서 `enabled: false`로 노출되어 UI에서 비활성화된다.
+`OLLAMA_BASE_URL`이 비어있으면 Provider가 `enabled: false`로 노출되고 UI에서 비활성화된다.
 
-## 7. 시퀀스: 비교 모드 1턴
+## 7. 시퀀스: 단일 채팅 1턴 (웹 검색 ON)
 
 ```
-User → FE: "양자컴퓨터를 한 줄로 설명해줘"
-FE   → BE: POST /api/sessions/{id}/compare  (Accept: text/event-stream)
-BE   → DB: INSERT user message
-BE   → [Ollama, OpenAI, Claude] async tasks 시작
-LLMs → BE: 토큰 청크 (각자 속도로 도착)
-BE   → FE: event: token / provider:<name> / delta:<text>   (큐 라운드로빈)
-LLMs → BE: 스트림 종료
-BE   → DB: INSERT assistant message × 3
-BE   → FE: event: done / provider:<name>
+User → FE: "오늘 환율 알려줘" + 웹 검색 토글 ON
+FE   → BE: POST /api/sessions/{id}/chat (web_search=true)
+BE   → Tavily: search("오늘 환율 알려줘")
+Tavily → BE: 상위 5개 결과 + 요약
+BE   → FE: event: sources (UI가 출처 박스 렌더)
+BE   → Ollama: stream(system=[검색 컨텍스트] + history + user)
+Ollama → BE → FE: event: token (반복)
+Ollama → BE: 스트림 종료
+BE   → DB: INSERT user + assistant 메시지
+BE   → FE: event: done
 ```
 
 ## 8. MVP 범위 vs 향후 확장

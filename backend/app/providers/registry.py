@@ -1,11 +1,7 @@
 from .base import LLMProvider
-from .claude import ClaudeProvider
 from .ollama import OllamaProvider
-from .openai import OpenAIProvider
 
-_providers: dict[str, LLMProvider] = {
-    p.name: p for p in [OllamaProvider(), OpenAIProvider(), ClaudeProvider()]
-}
+_providers: dict[str, LLMProvider] = {p.name: p for p in [OllamaProvider()]}
 
 
 def all_providers() -> list[LLMProvider]:

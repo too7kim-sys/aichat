@@ -9,7 +9,7 @@ cd backend
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy .env.example .env   # OPENAI_API_KEY / ANTHROPIC_API_KEY 채우기
+copy .env.example .env   # TAVILY_API_KEY (선택) · OLLAMA 설정 확인
 uvicorn app.main:app --reload --port 9000
 ```
 
@@ -28,7 +28,7 @@ uvicorn app.main:app --reload --port 9000
 ```
 
 - `OLLAMA_BASE_URL` 기본값 `http://localhost:11434`. 별도 호스트면 .env에 명시.
-- 키가 비어있으면 해당 Provider만 비활성화되고 서버는 정상 기동된다.
+- `OLLAMA_MODEL`은 그 서버에 `ollama pull`로 받아둔 모델명과 일치해야 한다.
 
 ## 2. Frontend
 
@@ -43,8 +43,8 @@ npm run dev
 ## 3. 사용 흐름
 
 1. 사이드바에서 **+ 단일 채팅** 또는 **+ 비교 채팅** 생성
-2. 단일 모드: 헤더 드롭다운에서 Ollama / ChatGPT / Claude 선택
-3. 비교 모드: 활성화된 모든 Provider에 동시에 질의되어 컬럼별로 응답 비교
+2. 단일 모드: 헤더에 Ollama 모델명 표시
+3. 비교 모드: 현재 Ollama 단일 Provider라 단일 모드와 동일하게 표시 (향후 Provider 추가 시 컬럼별 비교)
 4. 메시지는 자동으로 SQLite (`backend/aichat.db`)에 저장되어 새로고침 후에도 유지
 5. **웹 검색**: 입력창 좌측의 `웹 검색 OFF/ON` 토글. ON이면 메시지 전송 시 Tavily에서 검색 → 결과를 LLM 컨텍스트로 주입 → 답변 위에 출처 링크 표시. `TAVILY_API_KEY` 필요 ([app.tavily.com](https://app.tavily.com), 월 1,000회 무료).
 
