@@ -16,6 +16,10 @@ class Session(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     title: Mapped[str] = mapped_column(String(200), default="New chat")
+    # Legacy column kept for backward compatibility with pre-existing
+    # databases that still have a NOT NULL constraint on it. Always written
+    # as "single" and never read by the current code.
+    mode: Mapped[str] = mapped_column(String(20), default="single")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
