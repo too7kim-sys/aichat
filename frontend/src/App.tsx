@@ -42,39 +42,27 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>Multi-LLM Chat</h1>
-        <div className="provider-status">
-          {providers.map((p) => (
-            <span key={p.name} className={`pill ${p.enabled ? "on" : "off"}`}>
-              {p.label}
-            </span>
-          ))}
-        </div>
-      </header>
-      <div className="layout">
-        <Sidebar
-          sessions={sessions}
-          activeId={activeId}
-          onSelect={setActiveId}
-          onCreate={handleCreate}
-          onDelete={handleDelete}
-        />
-        <main className="main">
-          {activeId ? (
-            <ChatPanel
-              key={activeId}
-              sessionId={activeId}
-              providers={providers}
-              onTitleSync={refreshSessions}
-            />
-          ) : (
-            <div className="empty">
-              왼쪽에서 새 채팅을 만들거나 기존 세션을 선택하세요.
-            </div>
-          )}
-        </main>
-      </div>
+      <Sidebar
+        sessions={sessions}
+        activeId={activeId}
+        onSelect={setActiveId}
+        onCreate={handleCreate}
+        onDelete={handleDelete}
+      />
+      <main className="main">
+        {activeId ? (
+          <ChatPanel
+            key={activeId}
+            sessionId={activeId}
+            providers={providers}
+            onTitleSync={refreshSessions}
+          />
+        ) : (
+          <div className="empty">
+            왼쪽에서 새 대화를 시작하세요.
+          </div>
+        )}
+      </main>
     </div>
   );
 }

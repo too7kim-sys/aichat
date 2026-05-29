@@ -6,14 +6,23 @@ interface Props {
 }
 
 export function MessageBubble({ role, provider, content, streaming }: Props) {
-  return (
-    <div className={`bubble ${role}`}>
-      {role === "assistant" && provider && (
-        <div className="bubble-header">{provider}</div>
-      )}
-      <div className="bubble-content">
+  if (role === "user") {
+    return (
+      <div className="bubble user">
         {content}
         {streaming && <span className="cursor">▍</span>}
+      </div>
+    );
+  }
+  return (
+    <div className="bubble assistant">
+      <div className="avatar">A</div>
+      <div className="body">
+        {provider && <div className="bubble-header">{provider}</div>}
+        <div className="content">
+          {content}
+          {streaming && <span className="cursor">▍</span>}
+        </div>
       </div>
     </div>
   );
