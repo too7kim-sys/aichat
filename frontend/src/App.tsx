@@ -21,15 +21,23 @@ export default function App() {
   }, []);
 
   async function handleCreate(mode: Mode) {
-    const s = await api.createSession("New chat", mode);
-    await refreshSessions();
-    setActiveId(s.id);
+    try {
+      const s = await api.createSession("New chat", mode);
+      await refreshSessions();
+      setActiveId(s.id);
+    } catch (e) {
+      alert(`세션 생성 실패: ${e instanceof Error ? e.message : String(e)}\n\n백엔드(http://localhost:8000)가 실행 중인지 확인하세요.`);
+    }
   }
 
   async function handleDelete(id: string) {
-    await api.deleteSession(id);
-    const list = await refreshSessions();
-    if (activeId === id) setActiveId(list[0]?.id ?? null);
+    try {
+      await api.deleteSession(id);
+      const list = await refreshSessions();
+      if (activeId === id) setActiveId(list[0]?.id ?? null);
+    } catch (e) {
+      alert(`세션 삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   return (
