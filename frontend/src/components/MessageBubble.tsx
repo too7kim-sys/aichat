@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MarkdownContent } from "./MarkdownContent";
 
 interface Props {
   role: "user" | "assistant";
@@ -62,8 +63,14 @@ export function MessageBubble({ role, provider, content, streaming }: Props) {
       <div className="body">
         {provider && <div className="bubble-header">{provider}</div>}
         <div className="content">
-          {content}
-          {streaming && <span className="cursor">▍</span>}
+          {streaming ? (
+            <>
+              {content}
+              <span className="cursor">▍</span>
+            </>
+          ) : (
+            <MarkdownContent content={content} />
+          )}
         </div>
         {!streaming && content && (
           <div className="bubble-actions">
