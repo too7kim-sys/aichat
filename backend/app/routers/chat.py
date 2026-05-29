@@ -90,8 +90,9 @@ async def _stream_one(
             }
         )
     except Exception as exc:  # noqa: BLE001
+        message = f"{type(exc).__name__}: {exc}"
         yield "error", json.dumps(
-            {"provider": provider.name, "message": str(exc)}, ensure_ascii=False
+            {"provider": provider.name, "message": message}, ensure_ascii=False
         )
 
 
@@ -118,6 +119,8 @@ async def chat_single(
             async for evt, data in _stream_one(provider, history):
                 if evt == "token":
                     chunks.append(json.loads(data)["delta"])
+                elif evt == "error":
+                    chunks.append(f"[error: {json.loads(data)['message']}]")
                 yield {"event": evt, "data": data}
         finally:
             captured[provider.name] = (
@@ -190,6 +193,8 @@ async def chat_compare(
                 pname = obj.get("provider")
                 if evt == "token" and pname in buffers:
                     buffers[pname].append(obj.get("delta", ""))
+                elif evt == "error" and pname in buffers:
+                    buffers[pname].append(f"[error: {obj.get('message', '')}]")
                 if evt == "done" and pname:
                     timings[pname] = obj.get("latency_ms", 0)
                 yield {"event": evt, "data": data}

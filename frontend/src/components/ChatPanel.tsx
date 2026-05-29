@@ -54,6 +54,8 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     else buffers[activeProvider] = "";
     setLiveAssistant({ ...buffers });
 
+    const errors: string[] = [];
+
     try {
       await streamChat(sessionId, text, {
         compare: isCompare,
@@ -64,12 +66,14 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
         },
         onDone: () => {},
         onError: (provider, message) => {
+          errors.push(`${provider}: ${message}`);
           buffers[provider] = (buffers[provider] ?? "") + `\n[error: ${message}]`;
           setLiveAssistant({ ...buffers });
         },
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      errors.push(msg);
       const target = isCompare ? "__all__" : activeProvider;
       buffers[target] = (buffers[target] ?? "") + `\n[error: ${msg}]`;
       setLiveAssistant({ ...buffers });
@@ -82,6 +86,9 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
       setStreaming(false);
       if (refreshed.title === "New chat" && text) {
         onTitleSync?.(text.slice(0, 30));
+      }
+      if (errors.length) {
+        alert(`응답 실패:\n\n${errors.join("\n")}`);
       }
     }
   }
