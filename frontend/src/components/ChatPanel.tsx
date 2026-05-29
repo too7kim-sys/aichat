@@ -20,9 +20,23 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
   const [liveSources, setLiveSources] = useState<SearchSource[] | null>(null);
   const [attachments, setAttachments] = useState<ExtractedFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [streamStartedAt, setStreamStartedAt] = useState<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (streamStartedAt === null) {
+      setElapsedSec(0);
+      return;
+    }
+    const tick = () =>
+      setElapsedSec(Math.floor((Date.now() - streamStartedAt) / 1000));
+    tick();
+    const id = window.setInterval(tick, 500);
+    return () => window.clearInterval(id);
+  }, [streamStartedAt]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -86,6 +100,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     setStreaming(true);
     setLiveAssistant("");
     setLiveSources(webSearch ? [] : null);
+    setStreamStartedAt(Date.now());
 
     const errors: string[] = [];
     const sentAttachments = attachments;
@@ -128,6 +143,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
       setLiveSources(null);
       setAttachments([]);
       setStreaming(false);
+      setStreamStartedAt(null);
       if (refreshed.title === "New chat" && text) {
         onTitleSync?.(text.slice(0, 30));
       }
@@ -135,6 +151,12 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
         alert(`응답 실패:\n\n${errors.join("\n")}`);
       }
     }
+  }
+
+  function formatElapsed(s: number): string {
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, "0");
+    return `${m}:${ss}`;
   }
 
   return (
@@ -155,13 +177,26 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
             />
           ))}
           {livePrompt && <MessageBubble role="user" content={livePrompt} />}
-          {liveAssistant !== null && (
-            <MessageBubble
-              role="assistant"
-              provider={activeProviderLabel}
-              content={liveAssistant}
-              streaming
-            />
+          {liveAssistant !== null && liveAssistant === "" ? (
+            <div className="bubble assistant">
+              <div className="avatar">A</div>
+              <div className="body">
+                <div className="bubble-header">{activeProviderLabel}</div>
+                <div className="content thinking">
+                  <span className="spinner" />
+                  응답 생성 중... {formatElapsed(elapsedSec)}
+                </div>
+              </div>
+            </div>
+          ) : (
+            liveAssistant !== null && (
+              <MessageBubble
+                role="assistant"
+                provider={`${activeProviderLabel} · ${formatElapsed(elapsedSec)}`}
+                content={liveAssistant}
+                streaming
+              />
+            )
           )}
           {liveSources && (
             <div className="sources">
@@ -261,7 +296,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
                 onClick={send}
                 disabled={streaming || uploading || !prompt.trim() || !activeProvider}
               >
-                {streaming ? "전송 중" : "전송"}
+                {streaming ? `생성 중 ${formatElapsed(elapsedSec)}` : "전송"}
               </button>
             </div>
           </div>
