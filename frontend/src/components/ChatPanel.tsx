@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, streamChat } from "../api/client";
+import { api, streamChat, type SearchSource } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 
@@ -18,12 +18,15 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     [provider: string]: string;
   } | null>(null);
   const [livePrompt, setLivePrompt] = useState<string | null>(null);
+  const [webSearch, setWebSearch] = useState(false);
+  const [liveSources, setLiveSources] = useState<SearchSource[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.getSession(sessionId).then(setSession);
     setLiveAssistant(null);
     setLivePrompt(null);
+    setLiveSources(null);
   }, [sessionId]);
 
   useEffect(() => {
@@ -53,6 +56,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     if (isCompare) enabledProviders.forEach((p) => (buffers[p.name] = ""));
     else buffers[activeProvider] = "";
     setLiveAssistant({ ...buffers });
+    setLiveSources(webSearch ? [] : null);
 
     const errors: string[] = [];
 
@@ -60,6 +64,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
       await streamChat(sessionId, text, {
         compare: isCompare,
         provider: isCompare ? undefined : activeProvider,
+        webSearch,
         onToken: (provider, delta) => {
           buffers[provider] = (buffers[provider] ?? "") + delta;
           setLiveAssistant({ ...buffers });
@@ -69,6 +74,10 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
           errors.push(`${provider}: ${message}`);
           buffers[provider] = (buffers[provider] ?? "") + `\n[error: ${message}]`;
           setLiveAssistant({ ...buffers });
+        },
+        onSources: (sources, error) => {
+          if (error) errors.push(`web search: ${error}`);
+          setLiveSources(sources);
         },
       });
     } catch (e) {
@@ -83,6 +92,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
       setSession(refreshed);
       setLiveAssistant(null);
       setLivePrompt(null);
+      setLiveSources(null);
       setStreaming(false);
       if (refreshed.title === "New chat" && text) {
         onTitleSync?.(text.slice(0, 30));
@@ -134,7 +144,35 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
         )}
       </div>
 
+      {liveSources && (
+        <div className="sources">
+          <strong>웹 검색 출처</strong>
+          {liveSources.length === 0 ? (
+            <span className="sources-status"> · 검색 중...</span>
+          ) : (
+            <ol>
+              {liveSources.map((s, i) => (
+                <li key={i}>
+                  <a href={s.url} target="_blank" rel="noopener noreferrer">
+                    {s.title || s.url}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+
       <div className="composer">
+        <button
+          type="button"
+          className={`web-toggle ${webSearch ? "on" : ""}`}
+          onClick={() => setWebSearch((v) => !v)}
+          disabled={streaming}
+          title="웹 검색 결과를 LLM 컨텍스트에 포함"
+        >
+          웹 검색 {webSearch ? "ON" : "OFF"}
+        </button>
         <textarea
           value={prompt}
           placeholder="메시지를 입력하세요... (Shift+Enter 줄바꿈)"

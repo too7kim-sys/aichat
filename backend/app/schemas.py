@@ -40,6 +40,7 @@ class SessionCreate(BaseModel):
 class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
     provider: str | None = None  # required for /chat, ignored for /compare
+    web_search: bool = False
 
 
 class ProviderInfo(BaseModel):

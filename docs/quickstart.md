@@ -46,6 +46,7 @@ npm run dev
 2. 단일 모드: 헤더 드롭다운에서 Ollama / ChatGPT / Claude 선택
 3. 비교 모드: 활성화된 모든 Provider에 동시에 질의되어 컬럼별로 응답 비교
 4. 메시지는 자동으로 SQLite (`backend/aichat.db`)에 저장되어 새로고침 후에도 유지
+5. **웹 검색**: 입력창 좌측의 `웹 검색 OFF/ON` 토글. ON이면 메시지 전송 시 Tavily에서 검색 → 결과를 LLM 컨텍스트로 주입 → 답변 위에 출처 링크 표시. `TAVILY_API_KEY` 필요 ([app.tavily.com](https://app.tavily.com), 월 1,000회 무료).
 
 ## 4. VSCode 디버그 (F5)
 

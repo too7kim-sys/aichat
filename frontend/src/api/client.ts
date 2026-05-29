@@ -26,16 +26,27 @@ export const api = {
     json<void>(`/sessions/${id}`, { method: "DELETE" }),
 };
 
+export interface SearchSource {
+  title: string;
+  url: string;
+}
+
 export interface StreamHandlers {
   onToken: (provider: string, delta: string) => void;
   onDone: (provider: string, info: { latency_ms?: number }) => void;
   onError: (provider: string, message: string) => void;
+  onSources?: (sources: SearchSource[], error: string | null) => void;
 }
 
 export async function streamChat(
   sessionId: string,
   prompt: string,
-  opts: { compare: boolean; provider?: string; signal?: AbortSignal } & StreamHandlers
+  opts: {
+    compare: boolean;
+    provider?: string;
+    webSearch?: boolean;
+    signal?: AbortSignal;
+  } & StreamHandlers
 ) {
   const path = opts.compare
     ? `/sessions/${sessionId}/compare`
@@ -44,7 +55,11 @@ export async function streamChat(
   await fetchEventSource(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, provider: opts.provider }),
+    body: JSON.stringify({
+      prompt,
+      provider: opts.provider,
+      web_search: !!opts.webSearch,
+    }),
     signal: opts.signal,
     openWhenHidden: true,
     async onopen(res) {
@@ -60,12 +75,24 @@ export async function streamChat(
     },
     onmessage(ev) {
       if (!ev.data) return; // ignore keepalive / empty pings
-      if (ev.event !== "token" && ev.event !== "done" && ev.event !== "error") return;
-      let data: { provider?: string; delta?: string; message?: string; latency_ms?: number };
+      const known = ev.event === "token" || ev.event === "done" || ev.event === "error" || ev.event === "sources";
+      if (!known) return;
+      let data: {
+        provider?: string;
+        delta?: string;
+        message?: string;
+        latency_ms?: number;
+        sources?: SearchSource[];
+        error?: string | null;
+      };
       try {
         data = JSON.parse(ev.data);
       } catch {
         console.warn("SSE: non-JSON data ignored", ev.event, ev.data);
+        return;
+      }
+      if (ev.event === "sources") {
+        opts.onSources?.(data.sources ?? [], data.error ?? null);
         return;
       }
       const provider = data.provider ?? "unknown";

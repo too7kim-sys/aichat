@@ -13,6 +13,8 @@ from .. import models, schemas
 from ..database import SessionLocal, get_db
 from ..providers.base import ChatMessage, LLMProvider
 from ..providers.registry import enabled_providers, get_provider
+from ..search import TavilyError, format_as_context
+from ..search import search as tavily_search
 
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
 
@@ -40,6 +42,23 @@ def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMe
         history.append(ChatMessage(role=m.role, content=m.content))
     history.append(ChatMessage(role="user", content=new_user_prompt))
     return history
+
+
+async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], str | None]:
+    """Return (system_context_message, sources_for_ui, error_message)."""
+    try:
+        result = await tavily_search(prompt)
+    except TavilyError as exc:
+        return None, [], str(exc)
+    except Exception as exc:  # noqa: BLE001 - network/parsing failures
+        return None, [], f"{type(exc).__name__}: {exc}"
+    context = format_as_context(result)
+    sources = [
+        {"title": r.get("title") or "", "url": r.get("url") or ""}
+        for r in (result.get("results") or [])
+        if r.get("url")
+    ]
+    return ChatMessage(role="system", content=context), sources, None
 
 
 async def _persist_messages(
@@ -110,12 +129,28 @@ async def chat_single(
 
     session = await _load_session(db, session_id)
     history = _build_history(session, payload.prompt)
+
+    search_sources: list[dict] = []
+    search_error: str | None = None
+    if payload.web_search:
+        sys_msg, search_sources, search_error = await _run_web_search(payload.prompt)
+        if sys_msg is not None:
+            history.insert(0, sys_msg)
+
     captured: dict[str, tuple[str, int]] = {}
     chunks: list[str] = []
     start = time.monotonic()
 
     async def event_gen():
         try:
+            if search_sources or search_error:
+                yield {
+                    "event": "sources",
+                    "data": json.dumps(
+                        {"sources": search_sources, "error": search_error},
+                        ensure_ascii=False,
+                    ),
+                }
             async for evt, data in _stream_one(provider, history):
                 if evt == "token":
                     chunks.append(json.loads(data)["delta"])
@@ -182,12 +217,27 @@ async def chat_compare(
     session = await _load_session(db, session_id)
     history = _build_history(session, payload.prompt)
 
+    search_sources: list[dict] = []
+    search_error: str | None = None
+    if payload.web_search:
+        sys_msg, search_sources, search_error = await _run_web_search(payload.prompt)
+        if sys_msg is not None:
+            history.insert(0, sys_msg)
+
     buffers: dict[str, list[str]] = {p.name: [] for p in providers}
     timings: dict[str, int] = {}
     start = time.monotonic()
 
     async def event_gen():
         try:
+            if search_sources or search_error:
+                yield {
+                    "event": "sources",
+                    "data": json.dumps(
+                        {"sources": search_sources, "error": search_error},
+                        ensure_ascii=False,
+                    ),
+                }
             async for evt, data in _merge_streams(providers, history):
                 obj = json.loads(data)
                 pname = obj.get("provider")
