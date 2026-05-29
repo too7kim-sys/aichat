@@ -47,6 +47,17 @@ export async function streamChat(
     body: JSON.stringify({ prompt, provider: opts.provider }),
     signal: opts.signal,
     openWhenHidden: true,
+    async onopen(res) {
+      if (res.ok && res.headers.get("content-type")?.includes("text/event-stream")) return;
+      const body = await res.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).detail ?? body;
+      } catch {
+        // not JSON, keep raw text
+      }
+      throw new Error(`${res.status} ${detail}`);
+    },
     onmessage(ev) {
       const data = JSON.parse(ev.data);
       if (ev.event === "token") opts.onToken(data.provider, data.delta);

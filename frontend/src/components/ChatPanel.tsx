@@ -69,6 +69,10 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
         },
       });
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const target = isCompare ? "__all__" : activeProvider;
+      buffers[target] = (buffers[target] ?? "") + `\n[error: ${msg}]`;
+      setLiveAssistant({ ...buffers });
       console.error(e);
     } finally {
       const refreshed = await api.getSession(sessionId);
