@@ -26,7 +26,16 @@ class OllamaProvider(LLMProvider):
             "stream": True,
         }
         url = f"{self.base_url}/api/chat"
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=5.0)) as client:
+        # No read timeout: large models with long attached context can take
+        # minutes to emit the first token. Connect timeout stays short so
+        # we fail fast if the server is unreachable.
+        timeout = httpx.Timeout(
+            connect=10.0,
+            read=None,
+            write=60.0,
+            pool=10.0,
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
