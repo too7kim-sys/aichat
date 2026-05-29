@@ -42,12 +42,11 @@ npm run dev
 
 ## 3. 사용 흐름
 
-1. 사이드바에서 **+ 단일 채팅** 또는 **+ 비교 채팅** 생성
-2. 단일 모드: 헤더에 Ollama 모델명 표시
-3. 비교 모드: 현재 Ollama 단일 Provider라 단일 모드와 동일하게 표시 (향후 Provider 추가 시 컬럼별 비교)
-4. 메시지는 자동으로 SQLite (`backend/aichat.db`)에 저장되어 새로고침 후에도 유지
-5. **웹 검색**: 입력창 좌측의 `웹 검색 OFF/ON` 토글. ON이면 메시지 전송 시 Tavily에서 검색 → 결과를 LLM 컨텍스트로 주입 → 답변 위에 출처 링크 표시. `TAVILY_API_KEY` 필요 ([app.tavily.com](https://app.tavily.com), 월 1,000회 무료).
-6. **파일 첨부 & 요약**: 입력창의 `📎 첨부` 버튼으로 PDF / DOCX / 이미지 / 텍스트 업로드. 백엔드가 텍스트 추출(스캔 PDF·이미지는 Tesseract OCR) → system 메시지로 LLM에 주입. 첨부는 다음 메시지에만 적용되고 전송 후 자동 제거된다 (세션 동안 클라이언트 메모리 보관).
+1. 사이드바의 **+ 새 대화**로 세션 생성
+2. 헤더에 현재 사용 중인 Ollama 모델명 표시
+3. 메시지는 자동으로 SQLite (`backend/aichat.db`)에 저장되어 새로고침 후에도 유지
+4. **웹 검색**: 입력창 좌측의 `🌐 웹 검색 OFF/ON` 토글. ON이면 메시지 전송 시 Tavily에서 검색 → 결과를 LLM 컨텍스트로 주입 → 답변 위에 출처 링크 표시. `TAVILY_API_KEY` 필요 ([app.tavily.com](https://app.tavily.com), 월 1,000회 무료).
+5. **파일 첨부 & 요약**: 입력창의 `📎 첨부` 버튼으로 PDF / DOCX / 이미지 / 텍스트 업로드. 백엔드가 텍스트 추출(스캔 PDF·이미지는 Tesseract OCR) → system 메시지로 LLM에 주입. 첨부는 다음 메시지에만 적용되고 전송 후 자동 제거된다 (세션 동안 클라이언트 메모리 보관).
 
 ### OCR 사전 설치 (Windows)
 
@@ -100,5 +99,5 @@ curl localhost:9000/api/providers
 # 세션 생성
 curl -X POST localhost:9000/api/sessions \
      -H 'Content-Type: application/json' \
-     -d '{"title":"test","mode":"compare"}'
+     -d '{"title":"test"}'
 ```

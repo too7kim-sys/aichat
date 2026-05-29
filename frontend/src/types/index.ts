@@ -1,5 +1,3 @@
-export type Mode = "single" | "compare";
-
 export interface ProviderInfo {
   name: string;
   label: string;
@@ -18,7 +16,6 @@ export interface Message {
 export interface Session {
   id: string;
   title: string;
-  mode: Mode;
   created_at: string;
   updated_at: string;
 }

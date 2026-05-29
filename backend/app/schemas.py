@@ -20,7 +20,6 @@ class MessageOut(BaseModel):
 class SessionOut(BaseModel):
     id: str
     title: str
-    mode: Literal["single", "compare"]
     created_at: datetime
     updated_at: datetime
 
@@ -34,7 +33,6 @@ class SessionDetail(SessionOut):
 
 class SessionCreate(BaseModel):
     title: str = "New chat"
-    mode: Literal["single", "compare"] = "single"
 
 
 class AttachmentIn(BaseModel):
@@ -44,7 +42,7 @@ class AttachmentIn(BaseModel):
 
 class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
-    provider: str | None = None  # required for /chat, ignored for /compare
+    provider: str | None = None
     web_search: bool = False
     attachments: list[AttachmentIn] = []
 

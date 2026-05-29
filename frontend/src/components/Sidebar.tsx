@@ -1,10 +1,10 @@
-import type { Mode, Session } from "../types";
+import type { Session } from "../types";
 
 interface Props {
   sessions: Session[];
   activeId: string | null;
   onSelect: (id: string) => void;
-  onCreate: (mode: Mode) => void;
+  onCreate: () => void;
   onDelete: (id: string) => void;
 }
 
@@ -39,12 +39,11 @@ export function Sidebar({ sessions, activeId, onSelect, onCreate, onDelete }: Pr
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">Multi-LLM Chat</div>
+      <div className="sidebar-brand">Chat</div>
       <div className="sidebar-actions">
-        <button className="primary" onClick={() => onCreate("single")}>
+        <button className="primary" onClick={onCreate}>
           + 새 대화
         </button>
-        <button onClick={() => onCreate("compare")}>+ 비교 대화</button>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto" }}>
@@ -82,7 +81,6 @@ function SessionGroup({
             onClick={() => onSelect(s.id)}
           >
             <span className="session-title">{s.title}</span>
-            {s.mode === "compare" && <span className="session-mode">비교</span>}
             <button
               className="delete-btn"
               onClick={(e) => {

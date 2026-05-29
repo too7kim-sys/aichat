@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import { ChatPanel } from "./components/ChatPanel";
 import { Sidebar } from "./components/Sidebar";
-import type { Mode, ProviderInfo, Session } from "./types";
+import type { ProviderInfo, Session } from "./types";
 
 export default function App() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -20,13 +20,16 @@ export default function App() {
     refreshSessions();
   }, []);
 
-  async function handleCreate(mode: Mode) {
+  async function handleCreate() {
     try {
-      const s = await api.createSession("New chat", mode);
+      const s = await api.createSession("New chat");
       await refreshSessions();
       setActiveId(s.id);
     } catch (e) {
-      alert(`세션 생성 실패: ${e instanceof Error ? e.message : String(e)}\n\n백엔드(http://localhost:9000)가 실행 중인지 확인하세요.`);
+      alert(
+        `세션 생성 실패: ${e instanceof Error ? e.message : String(e)}\n\n` +
+          `백엔드(http://localhost:9000)가 실행 중인지 확인하세요.`
+      );
     }
   }
 
@@ -58,9 +61,7 @@ export default function App() {
             onTitleSync={refreshSessions}
           />
         ) : (
-          <div className="empty">
-            왼쪽에서 새 대화를 시작하세요.
-          </div>
+          <div className="empty">왼쪽에서 새 대화를 시작하세요.</div>
         )}
       </main>
     </div>

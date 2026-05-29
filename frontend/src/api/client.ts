@@ -1,5 +1,5 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import type { Mode, ProviderInfo, Session, SessionDetail } from "../types";
+import type { ProviderInfo, Session, SessionDetail } from "../types";
 
 const BASE = "/api";
 
@@ -41,10 +41,10 @@ export const api = {
   listProviders: () => json<ProviderInfo[]>("/providers"),
   listSessions: () => json<Session[]>("/sessions"),
   getSession: (id: string) => json<SessionDetail>(`/sessions/${id}`),
-  createSession: (title: string, mode: Mode) =>
+  createSession: (title: string) =>
     json<Session>("/sessions", {
       method: "POST",
-      body: JSON.stringify({ title, mode }),
+      body: JSON.stringify({ title }),
     }),
   deleteSession: (id: string) =>
     json<void>(`/sessions/${id}`, { method: "DELETE" }),
@@ -67,18 +67,13 @@ export async function streamChat(
   sessionId: string,
   prompt: string,
   opts: {
-    compare: boolean;
-    provider?: string;
+    provider: string;
     webSearch?: boolean;
     attachments?: { filename: string; text: string }[];
     signal?: AbortSignal;
   } & StreamHandlers
 ) {
-  const path = opts.compare
-    ? `/sessions/${sessionId}/compare`
-    : `/sessions/${sessionId}/chat`;
-
-  await fetchEventSource(`${BASE}${path}`, {
+  await fetchEventSource(`${BASE}/sessions/${sessionId}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

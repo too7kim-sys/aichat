@@ -1,4 +1,3 @@
-import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
@@ -12,13 +11,11 @@ from sse_starlette.sse import EventSourceResponse
 from .. import models, schemas
 from ..database import SessionLocal, get_db
 from ..providers.base import ChatMessage, LLMProvider
-from ..providers.registry import enabled_providers, get_provider
+from ..providers.registry import get_provider
 from ..search import TavilyError, format_as_context
 from ..search import search as tavily_search
 
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
-
-_SENTINEL = object()
 
 
 async def _load_session(db: AsyncSession, session_id: str) -> models.Session:
@@ -34,12 +31,9 @@ async def _load_session(db: AsyncSession, session_id: str) -> models.Session:
 
 
 def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMessage]:
-    history: list[ChatMessage] = []
-    for m in session.messages:
-        # In compare mode multiple assistant messages share a turn; keep only the
-        # most recent assistant reply per turn by using the last one before each
-        # user message. For MVP simplicity we include all in chronological order.
-        history.append(ChatMessage(role=m.role, content=m.content))
+    history: list[ChatMessage] = [
+        ChatMessage(role=m.role, content=m.content) for m in session.messages
+    ]
     history.append(ChatMessage(role="user", content=new_user_prompt))
     return history
 
@@ -135,7 +129,7 @@ async def chat_single(
     db: AsyncSession = Depends(get_db),
 ):
     if not payload.provider:
-        raise HTTPException(400, "provider is required for single chat")
+        raise HTTPException(400, "provider is required")
     provider = get_provider(payload.provider)
     if provider is None or not provider.enabled:
         raise HTTPException(400, f"provider '{payload.provider}' not available")
@@ -180,103 +174,5 @@ async def chat_single(
                 int((time.monotonic() - start) * 1000),
             )
             await _persist_messages(session_id, payload.prompt, captured)
-
-    return EventSourceResponse(event_gen())
-
-
-async def _merge_streams(
-    providers: list[LLMProvider], history: list[ChatMessage]
-) -> AsyncIterator[tuple[str, str]]:
-    """Round-robin merge of multiple provider streams into one event stream."""
-    queues: dict[str, asyncio.Queue] = {p.name: asyncio.Queue() for p in providers}
-
-    async def runner(p: LLMProvider) -> None:
-        async for evt, data in _stream_one(p, history):
-            await queues[p.name].put((evt, data))
-        await queues[p.name].put(_SENTINEL)
-
-    tasks = [asyncio.create_task(runner(p)) for p in providers]
-    remaining = set(queues.keys())
-
-    try:
-        while remaining:
-            # Wait for any queue to have an item
-            get_tasks = {
-                asyncio.create_task(queues[name].get()): name for name in remaining
-            }
-            done, pending = await asyncio.wait(
-                get_tasks.keys(), return_when=asyncio.FIRST_COMPLETED
-            )
-            for t in done:
-                name = get_tasks[t]
-                item = t.result()
-                if item is _SENTINEL:
-                    remaining.discard(name)
-                else:
-                    yield item
-            for t in pending:
-                t.cancel()
-    finally:
-        for t in tasks:
-            t.cancel()
-
-
-@router.post("/{session_id}/compare")
-async def chat_compare(
-    session_id: str,
-    payload: schemas.ChatRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    providers = enabled_providers()
-    if not providers:
-        raise HTTPException(503, "no providers configured")
-
-    session = await _load_session(db, session_id)
-    history = _build_history(session, payload.prompt)
-
-    attach_msg = _attachments_message(payload.attachments)
-    if attach_msg is not None:
-        history.insert(0, attach_msg)
-
-    search_sources: list[dict] = []
-    search_error: str | None = None
-    if payload.web_search:
-        sys_msg, search_sources, search_error = await _run_web_search(payload.prompt)
-        if sys_msg is not None:
-            history.insert(0, sys_msg)
-
-    buffers: dict[str, list[str]] = {p.name: [] for p in providers}
-    timings: dict[str, int] = {}
-    start = time.monotonic()
-
-    async def event_gen():
-        try:
-            if search_sources or search_error:
-                yield {
-                    "event": "sources",
-                    "data": json.dumps(
-                        {"sources": search_sources, "error": search_error},
-                        ensure_ascii=False,
-                    ),
-                }
-            async for evt, data in _merge_streams(providers, history):
-                obj = json.loads(data)
-                pname = obj.get("provider")
-                if evt == "token" and pname in buffers:
-                    buffers[pname].append(obj.get("delta", ""))
-                elif evt == "error" and pname in buffers:
-                    buffers[pname].append(f"[error: {obj.get('message', '')}]")
-                if evt == "done" and pname:
-                    timings[pname] = obj.get("latency_ms", 0)
-                yield {"event": evt, "data": data}
-        finally:
-            results = {
-                name: (
-                    "".join(parts),
-                    timings.get(name, int((time.monotonic() - start) * 1000)),
-                )
-                for name, parts in buffers.items()
-            }
-            await _persist_messages(session_id, payload.prompt, results)
 
     return EventSourceResponse(event_gen())

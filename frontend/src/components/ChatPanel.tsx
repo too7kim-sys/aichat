@@ -14,9 +14,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
   const [prompt, setPrompt] = useState("");
   const [activeProvider, setActiveProvider] = useState<string>("");
   const [streaming, setStreaming] = useState(false);
-  const [liveAssistant, setLiveAssistant] = useState<{
-    [provider: string]: string;
-  } | null>(null);
+  const [liveAssistant, setLiveAssistant] = useState<string | null>(null);
   const [livePrompt, setLivePrompt] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
   const [liveSources, setLiveSources] = useState<SearchSource[] | null>(null);
@@ -41,6 +39,18 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     setAttachments([]);
   }, [sessionId]);
 
+  useEffect(() => {
+    const enabled = providers.filter((p) => p.enabled);
+    if (!activeProvider && enabled.length) setActiveProvider(enabled[0].name);
+  }, [providers, activeProvider]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [session, liveAssistant]);
+
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     setUploading(true);
@@ -63,57 +73,41 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  useEffect(() => {
-    const enabled = providers.filter((p) => p.enabled);
-    if (!activeProvider && enabled.length) setActiveProvider(enabled[0].name);
-  }, [providers, activeProvider]);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [session, liveAssistant]);
-
   if (!session) return <div className="chat-panel">불러오는 중...</div>;
-  const isCompare = session.mode === "compare";
   const enabledProviders = providers.filter((p) => p.enabled);
+  const activeProviderLabel =
+    enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";
 
   async function send() {
-    if (!prompt.trim() || streaming) return;
+    if (!prompt.trim() || streaming || !activeProvider) return;
     const text = prompt;
     setPrompt("");
     setLivePrompt(text);
     setStreaming(true);
-
-    const buffers: { [k: string]: string } = {};
-    if (isCompare) enabledProviders.forEach((p) => (buffers[p.name] = ""));
-    else buffers[activeProvider] = "";
-    setLiveAssistant({ ...buffers });
+    setLiveAssistant("");
     setLiveSources(webSearch ? [] : null);
 
     const errors: string[] = [];
-
     const sentAttachments = attachments;
+    let buffer = "";
 
     try {
       await streamChat(sessionId, text, {
-        compare: isCompare,
-        provider: isCompare ? undefined : activeProvider,
+        provider: activeProvider,
         webSearch,
         attachments: sentAttachments.map((a) => ({
           filename: a.filename,
           text: a.text,
         })),
-        onToken: (provider, delta) => {
-          buffers[provider] = (buffers[provider] ?? "") + delta;
-          setLiveAssistant({ ...buffers });
+        onToken: (_provider, delta) => {
+          buffer += delta;
+          setLiveAssistant(buffer);
         },
         onDone: () => {},
-        onError: (provider, message) => {
-          errors.push(`${provider}: ${message}`);
-          buffers[provider] = (buffers[provider] ?? "") + `\n[error: ${message}]`;
-          setLiveAssistant({ ...buffers });
+        onError: (_provider, message) => {
+          errors.push(message);
+          buffer += `\n[error: ${message}]`;
+          setLiveAssistant(buffer);
         },
         onSources: (sources, error) => {
           if (error) errors.push(`web search: ${error}`);
@@ -123,9 +117,8 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       errors.push(msg);
-      const target = isCompare ? "__all__" : activeProvider;
-      buffers[target] = (buffers[target] ?? "") + `\n[error: ${msg}]`;
-      setLiveAssistant({ ...buffers });
+      buffer += `\n[error: ${msg}]`;
+      setLiveAssistant(buffer);
       console.error(e);
     } finally {
       const refreshed = await api.getSession(sessionId);
@@ -144,34 +137,30 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     }
   }
 
-  const activeProviderLabel =
-    enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";
-
   return (
     <div className="chat-panel">
       <header className="chat-header">
         <h2>{session.title}</h2>
-        <span className="model-info">
-          {isCompare
-            ? `비교 · ${enabledProviders.map((p) => p.label).join(" / ")}`
-            : activeProviderLabel}
-        </span>
+        <span className="model-info">{activeProviderLabel}</span>
       </header>
 
       <div className="messages" ref={scrollRef}>
         <div className="messages-inner">
-          {isCompare ? (
-            <CompareLayout
-              messages={session.messages}
-              providers={enabledProviders}
-              live={liveAssistant}
-              livePrompt={livePrompt}
+          {session.messages.map((m) => (
+            <MessageBubble
+              key={m.id}
+              role={m.role}
+              provider={m.provider}
+              content={m.content}
             />
-          ) : (
-            <SingleLayout
-              messages={session.messages}
-              live={liveAssistant}
-              livePrompt={livePrompt}
+          ))}
+          {livePrompt && <MessageBubble role="user" content={livePrompt} />}
+          {liveAssistant !== null && (
+            <MessageBubble
+              role="assistant"
+              provider={activeProviderLabel}
+              content={liveAssistant}
+              streaming
             />
           )}
           {liveSources && (
@@ -270,7 +259,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
               <button
                 className="send-btn"
                 onClick={send}
-                disabled={streaming || uploading || !prompt.trim()}
+                disabled={streaming || uploading || !prompt.trim() || !activeProvider}
               >
                 {streaming ? "전송 중" : "전송"}
               </button>
@@ -279,102 +268,5 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
         </div>
       </div>
     </div>
-  );
-}
-
-function SingleLayout({
-  messages,
-  live,
-  livePrompt,
-}: {
-  messages: SessionDetail["messages"];
-  live: { [k: string]: string } | null;
-  livePrompt: string | null;
-}) {
-  return (
-    <>
-      {messages.map((m) => (
-        <MessageBubble
-          key={m.id}
-          role={m.role}
-          provider={m.provider}
-          content={m.content}
-        />
-      ))}
-      {livePrompt && <MessageBubble role="user" content={livePrompt} />}
-      {live &&
-        Object.entries(live).map(([provider, content]) => (
-          <MessageBubble
-            key={`live-${provider}`}
-            role="assistant"
-            provider={provider}
-            content={content}
-            streaming
-          />
-        ))}
-    </>
-  );
-}
-
-function CompareLayout({
-  messages,
-  providers,
-  live,
-  livePrompt,
-}: {
-  messages: SessionDetail["messages"];
-  providers: ProviderInfo[];
-  live: { [k: string]: string } | null;
-  livePrompt: string | null;
-}) {
-  // group: array of turns. Each turn: { user, replies: {provider: content} }
-  type Turn = { user: string; replies: { [k: string]: string } };
-  const turns: Turn[] = [];
-  let current: Turn | null = null;
-  for (const m of messages) {
-    if (m.role === "user") {
-      current = { user: m.content, replies: {} };
-      turns.push(current);
-    } else if (current && m.provider) {
-      current.replies[m.provider] = m.content;
-    }
-  }
-
-  return (
-    <>
-      {turns.map((t, i) => (
-        <div key={i} className="turn">
-          <MessageBubble role="user" content={t.user} />
-          <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${providers.length}, 1fr)` }}>
-            {providers.map((p) => (
-              <MessageBubble
-                key={p.name}
-                role="assistant"
-                provider={p.label}
-                content={t.replies[p.name] ?? ""}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-      {livePrompt && (
-        <div className="turn">
-          <MessageBubble role="user" content={livePrompt} />
-          {live && (
-            <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${providers.length}, 1fr)` }}>
-              {providers.map((p) => (
-                <MessageBubble
-                  key={p.name}
-                  role="assistant"
-                  provider={p.label}
-                  content={live[p.name] ?? ""}
-                  streaming
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </>
   );
 }

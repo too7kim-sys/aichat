@@ -21,7 +21,7 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
 async def create_session(
     payload: schemas.SessionCreate, db: AsyncSession = Depends(get_db)
 ):
-    session = models.Session(title=payload.title, mode=payload.mode)
+    session = models.Session(title=payload.title)
     db.add(session)
     await db.commit()
     await db.refresh(session)

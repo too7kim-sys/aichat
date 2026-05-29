@@ -246,17 +246,6 @@ body {
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-.compare-grid {
-  display: grid;
-  gap: 14px;
-}
-.compare-grid .bubble.assistant {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-}
-
 /* ── Sources box ─────────────────────────────────── */
 .sources {
   max-width: 760px;
