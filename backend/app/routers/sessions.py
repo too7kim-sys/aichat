@@ -41,6 +41,24 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
     return session
 
 
+@router.patch("/{session_id}", response_model=schemas.SessionOut)
+async def update_session(
+    session_id: str,
+    payload: schemas.SessionUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(models.Session).where(models.Session.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(404, "session not found")
+    session.title = payload.title.strip()
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(

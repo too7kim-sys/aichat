@@ -6,7 +6,7 @@ import { MessageBubble } from "./MessageBubble";
 interface Props {
   sessionId: string;
   providers: ProviderInfo[];
-  onTitleSync?: (title: string) => void;
+  onTitleSync?: () => void;
 }
 
 export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
@@ -22,9 +22,12 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
   const [uploading, setUploading] = useState(false);
   const [streamStartedAt, setStreamStartedAt] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (streamStartedAt === null) {
@@ -87,6 +90,32 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  function startEditTitle() {
+    if (!session) return;
+    setTitleDraft(session.title);
+    setEditingTitle(true);
+    setTimeout(() => titleInputRef.current?.select(), 0);
+  }
+
+  async function commitTitle() {
+    if (!session) return;
+    const next = titleDraft.trim();
+    setEditingTitle(false);
+    if (!next || next === session.title) return;
+    try {
+      const updated = await api.updateSession(session.id, next);
+      setSession({ ...session, title: updated.title });
+      onTitleSync?.();
+    } catch (e) {
+      alert(`제목 변경 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  function cancelEditTitle() {
+    setEditingTitle(false);
+    setTitleDraft("");
+  }
+
   if (!session) return <div className="chat-panel">불러오는 중...</div>;
   const enabledProviders = providers.filter((p) => p.enabled);
   const activeProviderLabel =
@@ -144,9 +173,8 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
       setAttachments([]);
       setStreaming(false);
       setStreamStartedAt(null);
-      if (refreshed.title === "New chat" && text) {
-        onTitleSync?.(text.slice(0, 30));
-      }
+      // Backend may have auto-titled the session; tell the sidebar to refetch.
+      onTitleSync?.();
       if (errors.length) {
         alert(`응답 실패:\n\n${errors.join("\n")}`);
       }
@@ -162,7 +190,33 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
   return (
     <div className="chat-panel">
       <header className="chat-header">
-        <h2>{session.title}</h2>
+        {editingTitle ? (
+          <input
+            ref={titleInputRef}
+            className="title-input"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitTitle();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancelEditTitle();
+              }
+            }}
+            maxLength={200}
+          />
+        ) : (
+          <h2
+            className="chat-title"
+            onClick={startEditTitle}
+            title="클릭하여 제목 수정"
+          >
+            {session.title}
+          </h2>
+        )}
         <span className="model-info">{activeProviderLabel}</span>
       </header>
 

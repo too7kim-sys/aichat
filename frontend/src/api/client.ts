@@ -48,6 +48,11 @@ export const api = {
     }),
   deleteSession: (id: string) =>
     json<void>(`/sessions/${id}`, { method: "DELETE" }),
+  updateSession: (id: string, title: string) =>
+    json<Session>(`/sessions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
   extractFile: uploadExtract,
 };
 

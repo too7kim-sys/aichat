@@ -454,3 +454,37 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── Editable title ───────────────────────────────── */
+.chat-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: text;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.12s;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-title:hover {
+  background: var(--bg-sidebar);
+}
+.title-input {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  outline: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  width: 60%;
+  max-width: 480px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}

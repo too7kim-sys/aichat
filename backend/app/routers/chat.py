@@ -68,6 +68,13 @@ async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], 
     return ChatMessage(role="system", content=context), sources, None
 
 
+def _derive_title(prompt: str, limit: int = 40) -> str:
+    cleaned = " ".join(prompt.split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rstrip() + "..."
+
+
 async def _persist_messages(
     session_id: str,
     user_prompt: str,
@@ -92,6 +99,13 @@ async def _persist_messages(
                     tokens_out=len(content.split()),
                 )
             )
+        # Auto-title a fresh session from the first user prompt.
+        result = await db.execute(
+            select(models.Session).where(models.Session.id == session_id)
+        )
+        session = result.scalar_one_or_none()
+        if session is not None and session.title == "New chat":
+            session.title = _derive_title(user_prompt)
         await db.commit()
 
 
