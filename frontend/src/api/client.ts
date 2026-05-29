@@ -13,6 +13,30 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface ExtractedFile {
+  filename: string;
+  text: string;
+  char_count: number;
+  method: string;
+}
+
+async function uploadExtract(file: File): Promise<ExtractedFile> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${BASE}/files/extract`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const body = await res.text();
+    let detail = body;
+    try {
+      detail = JSON.parse(body).detail ?? body;
+    } catch {
+      // not JSON
+    }
+    throw new Error(`${res.status} ${detail}`);
+  }
+  return res.json();
+}
+
 export const api = {
   listProviders: () => json<ProviderInfo[]>("/providers"),
   listSessions: () => json<Session[]>("/sessions"),
@@ -24,6 +48,7 @@ export const api = {
     }),
   deleteSession: (id: string) =>
     json<void>(`/sessions/${id}`, { method: "DELETE" }),
+  extractFile: uploadExtract,
 };
 
 export interface SearchSource {
@@ -45,6 +70,7 @@ export async function streamChat(
     compare: boolean;
     provider?: string;
     webSearch?: boolean;
+    attachments?: { filename: string; text: string }[];
     signal?: AbortSignal;
   } & StreamHandlers
 ) {
@@ -59,6 +85,7 @@ export async function streamChat(
       prompt,
       provider: opts.provider,
       web_search: !!opts.webSearch,
+      attachments: opts.attachments ?? [],
     }),
     signal: opts.signal,
     openWhenHidden: true,

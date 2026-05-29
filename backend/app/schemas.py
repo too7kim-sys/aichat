@@ -37,10 +37,16 @@ class SessionCreate(BaseModel):
     mode: Literal["single", "compare"] = "single"
 
 
+class AttachmentIn(BaseModel):
+    filename: str
+    text: str
+
+
 class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
     provider: str | None = None  # required for /chat, ignored for /compare
     web_search: bool = False
+    attachments: list[AttachmentIn] = []
 
 
 class ProviderInfo(BaseModel):

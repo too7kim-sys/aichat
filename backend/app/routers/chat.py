@@ -44,6 +44,19 @@ def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMe
     return history
 
 
+def _attachments_message(
+    attachments: list[schemas.AttachmentIn],
+) -> ChatMessage | None:
+    if not attachments:
+        return None
+    parts: list[str] = ["[Attached files]"]
+    for a in attachments:
+        parts.append(
+            f"\n--- File: {a.filename} ({len(a.text)} chars) ---\n{a.text}"
+        )
+    return ChatMessage(role="system", content="\n".join(parts))
+
+
 async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], str | None]:
     """Return (system_context_message, sources_for_ui, error_message)."""
     try:
@@ -129,6 +142,10 @@ async def chat_single(
 
     session = await _load_session(db, session_id)
     history = _build_history(session, payload.prompt)
+
+    attach_msg = _attachments_message(payload.attachments)
+    if attach_msg is not None:
+        history.insert(0, attach_msg)
 
     search_sources: list[dict] = []
     search_error: str | None = None
@@ -216,6 +233,10 @@ async def chat_compare(
 
     session = await _load_session(db, session_id)
     history = _build_history(session, payload.prompt)
+
+    attach_msg = _attachments_message(payload.attachments)
+    if attach_msg is not None:
+        history.insert(0, attach_msg)
 
     search_sources: list[dict] = []
     search_error: str | None = None

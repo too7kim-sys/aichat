@@ -47,6 +47,24 @@ npm run dev
 3. 비교 모드: 현재 Ollama 단일 Provider라 단일 모드와 동일하게 표시 (향후 Provider 추가 시 컬럼별 비교)
 4. 메시지는 자동으로 SQLite (`backend/aichat.db`)에 저장되어 새로고침 후에도 유지
 5. **웹 검색**: 입력창 좌측의 `웹 검색 OFF/ON` 토글. ON이면 메시지 전송 시 Tavily에서 검색 → 결과를 LLM 컨텍스트로 주입 → 답변 위에 출처 링크 표시. `TAVILY_API_KEY` 필요 ([app.tavily.com](https://app.tavily.com), 월 1,000회 무료).
+6. **파일 첨부 & 요약**: 입력창의 `📎 첨부` 버튼으로 PDF / DOCX / 이미지 / 텍스트 업로드. 백엔드가 텍스트 추출(스캔 PDF·이미지는 Tesseract OCR) → system 메시지로 LLM에 주입. 첨부는 다음 메시지에만 적용되고 전송 후 자동 제거된다 (세션 동안 클라이언트 메모리 보관).
+
+### OCR 사전 설치 (Windows)
+
+이미지·스캔 PDF의 텍스트를 읽으려면 Tesseract 바이너리가 필요하다. 관리자 PowerShell:
+
+```powershell
+winget install UB-Mannheim.TesseractOCR
+```
+
+설치 후 `.env`:
+
+```env
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
+OCR_LANGUAGES=eng+kor
+```
+
+한국어 인식은 설치 마법사의 "Additional script data → Korean" 체크 후 가능.
 
 ## 4. VSCode 디버그 (F5)
 

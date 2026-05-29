@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, streamChat, type SearchSource } from "../api/client";
+import { api, streamChat, type ExtractedFile, type SearchSource } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 
@@ -20,8 +20,11 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
   const [livePrompt, setLivePrompt] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
   const [liveSources, setLiveSources] = useState<SearchSource[] | null>(null);
+  const [attachments, setAttachments] = useState<ExtractedFile[]>([]);
+  const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -35,7 +38,30 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
     setLiveAssistant(null);
     setLivePrompt(null);
     setLiveSources(null);
+    setAttachments([]);
   }, [sessionId]);
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    const failures: string[] = [];
+    const additions: ExtractedFile[] = [];
+    for (const f of Array.from(files)) {
+      try {
+        additions.push(await api.extractFile(f));
+      } catch (e) {
+        failures.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    setAttachments((prev) => [...prev, ...additions]);
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (failures.length) alert(`첨부 실패:\n\n${failures.join("\n")}`);
+  }
+
+  function removeAttachment(idx: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }
 
   useEffect(() => {
     const enabled = providers.filter((p) => p.enabled);
@@ -68,11 +94,17 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
 
     const errors: string[] = [];
 
+    const sentAttachments = attachments;
+
     try {
       await streamChat(sessionId, text, {
         compare: isCompare,
         provider: isCompare ? undefined : activeProvider,
         webSearch,
+        attachments: sentAttachments.map((a) => ({
+          filename: a.filename,
+          text: a.text,
+        })),
         onToken: (provider, delta) => {
           buffers[provider] = (buffers[provider] ?? "") + delta;
           setLiveAssistant({ ...buffers });
@@ -101,6 +133,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
       setLiveAssistant(null);
       setLivePrompt(null);
       setLiveSources(null);
+      setAttachments([]);
       setStreaming(false);
       if (refreshed.title === "New chat" && text) {
         onTitleSync?.(text.slice(0, 30));
@@ -164,10 +197,36 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
 
       <div className="composer-wrap">
         <div className="composer">
+          {(attachments.length > 0 || uploading) && (
+            <div className="attachments">
+              {attachments.map((a, i) => (
+                <div key={i} className="attachment-chip">
+                  <span className="attachment-name" title={a.filename}>
+                    {a.filename}
+                  </span>
+                  <span className="attachment-meta">
+                    {a.method} · {a.char_count.toLocaleString()}자
+                  </span>
+                  <button
+                    type="button"
+                    className="attachment-remove"
+                    onClick={() => removeAttachment(i)}
+                    disabled={streaming}
+                    aria-label="제거"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {uploading && (
+                <div className="attachment-chip uploading">업로드 중...</div>
+              )}
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={prompt}
-            placeholder="무엇이든 물어보세요"
+            placeholder="무엇이든 물어보세요. 파일을 첨부해 요약을 요청할 수 있어요."
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -180,6 +239,23 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
           />
           <div className="composer-actions">
             <div className="composer-left">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.gif,.bmp,.tif,.tiff,.webp,.html,.xml,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.h,.cs,.rb,.php,.sh,.sql,.css,.scss,.toml,.yaml,.yml,.log"
+                style={{ display: "none" }}
+                onChange={(e) => handleFiles(e.target.files)}
+              />
+              <button
+                type="button"
+                className="attach-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={streaming || uploading}
+                title="파일 첨부 (PDF / DOCX / 이미지 / 텍스트)"
+              >
+                📎 첨부
+              </button>
               <button
                 type="button"
                 className={`web-toggle ${webSearch ? "on" : ""}`}
@@ -194,7 +270,7 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
               <button
                 className="send-btn"
                 onClick={send}
-                disabled={streaming || !prompt.trim()}
+                disabled={streaming || uploading || !prompt.trim()}
               >
                 {streaming ? "전송 중" : "전송"}
               </button>

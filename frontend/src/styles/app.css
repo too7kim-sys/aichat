@@ -376,3 +376,67 @@ body {
   border: 2px solid var(--bg);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* ── Attachments ─────────────────────────────────── */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-size: 12px;
+  max-width: 320px;
+}
+.attachment-chip.uploading {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.attachment-name {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+.attachment-meta {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.attachment-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 2px;
+  line-height: 1;
+}
+.attachment-remove:hover { color: var(--danger); }
+.attachment-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.attach-btn {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.12s;
+}
+.attach-btn:hover:not(:disabled) { background: var(--bg-sidebar); }
+.attach-btn:disabled { opacity: 0.5; cursor: not-allowed; }

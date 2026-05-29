@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     cors_origins: str = "http://localhost:5173"
 
+    tesseract_cmd: str = ""  # e.g. C:\\Program Files\\Tesseract-OCR\\tesseract.exe
+    ocr_languages: str = "eng+kor"
+    max_upload_bytes: int = 5 * 1024 * 1024  # 5 MB
+    max_attachment_chars: int = 50_000
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
