@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api/client";
-import { ChatPanel } from "./components/ChatPanel";
+import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
 import { Sidebar } from "./components/Sidebar";
+import { ArtifactProvider } from "./artifact/ArtifactContext";
+import { ArtifactPanel } from "./artifact/ArtifactPanel";
 import type { ProviderInfo, Session } from "./types";
 
 export default function App() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const chatRef = useRef<ChatPanelHandle | null>(null);
 
   async function refreshSessions() {
     const list = await api.listSessions();
@@ -44,26 +47,32 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <Sidebar
-        sessions={sessions}
-        activeId={activeId}
-        onSelect={setActiveId}
-        onCreate={handleCreate}
-        onDelete={handleDelete}
-      />
-      <main className="main">
-        {activeId ? (
-          <ChatPanel
-            key={activeId}
-            sessionId={activeId}
-            providers={providers}
-            onTitleSync={refreshSessions}
-          />
-        ) : (
-          <div className="empty">왼쪽에서 새 대화를 시작하세요.</div>
-        )}
-      </main>
-    </div>
+    <ArtifactProvider>
+      <div className="app">
+        <Sidebar
+          sessions={sessions}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onCreate={handleCreate}
+          onDelete={handleDelete}
+        />
+        <main className="main">
+          {activeId ? (
+            <ChatPanel
+              key={activeId}
+              ref={chatRef}
+              sessionId={activeId}
+              providers={providers}
+              onTitleSync={refreshSessions}
+            />
+          ) : (
+            <div className="empty">왼쪽에서 새 대화를 시작하세요.</div>
+          )}
+        </main>
+        <ArtifactPanel
+          onSendToChat={(snippet) => chatRef.current?.appendToPrompt(snippet)}
+        />
+      </div>
+    </ArtifactProvider>
   );
 }

@@ -2,9 +2,12 @@ import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { useArtifacts } from "../artifact/ArtifactContext";
 
 interface Props {
   content: string;
+  /** Optional title for artifacts spawned from this content (e.g., turn index). */
+  artifactTitlePrefix?: string;
 }
 
 function CodeCopy({ text }: { text: string }) {
@@ -42,7 +45,17 @@ function extractText(node: ReactNode): string {
   return "";
 }
 
-export function MarkdownContent({ content }: Props) {
+export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
+  const artifacts = useArtifacts();
+
+  function openInPanel(code: string, lang: string) {
+    artifacts.push({
+      title: `${artifactTitlePrefix ? artifactTitlePrefix + " - " : ""}${lang || "code"}`,
+      language: lang || "plaintext",
+      code,
+    });
+  }
+
   return (
     <div className="markdown">
       <ReactMarkdown
@@ -58,7 +71,6 @@ export function MarkdownContent({ content }: Props) {
           },
           pre({ node: _n, children, ...rest }) {
             const text = extractText(children).replace(/\n$/, "");
-            // Try to find language from the inner <code class="language-xxx">
             let lang = "";
             // @ts-expect-error - traverse markdown AST
             const codeChild = Array.isArray(children) ? children[0] : children;
@@ -70,7 +82,17 @@ export function MarkdownContent({ content }: Props) {
               <div className="code-block">
                 <div className="code-header">
                   <span className="code-lang">{lang || "text"}</span>
-                  <CodeCopy text={text} />
+                  <div className="code-header-actions">
+                    <button
+                      type="button"
+                      className="code-copy"
+                      onClick={() => openInPanel(text, lang)}
+                      title="우측 사이드 패널의 에디터에서 열기"
+                    >
+                      사이드에서 열기
+                    </button>
+                    <CodeCopy text={text} />
+                  </div>
                 </div>
                 <pre {...rest}>{children}</pre>
               </div>

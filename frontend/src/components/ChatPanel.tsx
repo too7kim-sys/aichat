@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { api, streamChat, type ExtractedFile, type SearchSource } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
+import { useArtifacts } from "../artifact/ArtifactContext";
 
 interface Props {
   sessionId: string;
@@ -9,7 +10,14 @@ interface Props {
   onTitleSync?: () => void;
 }
 
-export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
+export interface ChatPanelHandle {
+  appendToPrompt: (text: string) => void;
+}
+
+export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
+  { sessionId, providers, onTitleSync },
+  ref
+) {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [prompt, setPrompt] = useState("");
   const [activeProvider, setActiveProvider] = useState<string>("");
@@ -28,6 +36,14 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const artifactsState = useArtifacts();
+
+  useImperativeHandle(ref, () => ({
+    appendToPrompt(text: string) {
+      setPrompt((prev) => (prev ? prev + text : text));
+      window.setTimeout(() => textareaRef.current?.focus(), 0);
+    },
+  }));
 
   useEffect(() => {
     if (streamStartedAt === null) {
@@ -217,19 +233,38 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
             {session.title}
           </h2>
         )}
-        <span className="model-info">{activeProviderLabel}</span>
+        <div className="chat-header-right">
+          <span className="model-info">{activeProviderLabel}</span>
+          {artifactsState.artifacts.length > 0 && (
+            <button
+              type="button"
+              className="panel-toggle"
+              onClick={() => artifactsState.setOpen(!artifactsState.open)}
+              title="코드 사이드 패널 토글"
+            >
+              {artifactsState.open ? "패널 닫기" : `패널 열기 (${artifactsState.artifacts.length})`}
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="messages" ref={scrollRef}>
         <div className="messages-inner">
-          {session.messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              role={m.role}
-              provider={m.provider}
-              content={m.content}
-            />
-          ))}
+          {(() => {
+            let turn = 0;
+            return session.messages.map((m) => {
+              if (m.role === "user") turn += 1;
+              return (
+                <MessageBubble
+                  key={m.id}
+                  role={m.role}
+                  provider={m.provider}
+                  content={m.content}
+                  artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
+                />
+              );
+            });
+          })()}
           {livePrompt && <MessageBubble role="user" content={livePrompt} />}
           {liveAssistant !== null && liveAssistant === "" ? (
             <div className="bubble assistant">
@@ -358,4 +393,4 @@ export function ChatPanel({ sessionId, providers, onTitleSync }: Props) {
       </div>
     </div>
   );
-}
+});

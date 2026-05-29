@@ -38,12 +38,29 @@ def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMe
     return history
 
 
+_CODE_EXTS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".rs", ".go",
+    ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".sh", ".sql",
+    ".css", ".scss", ".html", ".json", ".yaml", ".yml", ".toml",
+}
+
+
 def _attachments_message(
     attachments: list[schemas.AttachmentIn],
 ) -> ChatMessage | None:
     if not attachments:
         return None
+    has_code = any(
+        any(a.filename.lower().endswith(ext) for ext in _CODE_EXTS)
+        for a in attachments
+    )
     parts: list[str] = ["[Attached files]"]
+    if has_code:
+        parts.append(
+            "When responding about code, prefer rendering full file contents in "
+            "fenced code blocks tagged with the correct language (```python, "
+            "```typescript, etc.) so the UI can pick them up as editable artifacts."
+        )
     for a in attachments:
         parts.append(
             f"\n--- File: {a.filename} ({len(a.text)} chars) ---\n{a.text}"

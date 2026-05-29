@@ -6,6 +6,7 @@ interface Props {
   provider?: string | null;
   content: string;
   streaming?: boolean;
+  artifactTitlePrefix?: string;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -45,7 +46,13 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function MessageBubble({ role, provider, content, streaming }: Props) {
+export function MessageBubble({
+  role,
+  provider,
+  content,
+  streaming,
+  artifactTitlePrefix,
+}: Props) {
   if (role === "user") {
     return (
       <div className="bubble-row user-row">
@@ -69,7 +76,7 @@ export function MessageBubble({ role, provider, content, streaming }: Props) {
               <span className="cursor">▍</span>
             </>
           ) : (
-            <MarkdownContent content={content} />
+            <MarkdownContent content={content} artifactTitlePrefix={artifactTitlePrefix} />
           )}
         </div>
         {!streaming && content && (
