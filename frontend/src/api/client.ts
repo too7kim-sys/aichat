@@ -59,10 +59,19 @@ export async function streamChat(
       throw new Error(`${res.status} ${detail}`);
     },
     onmessage(ev) {
-      const data = JSON.parse(ev.data);
-      if (ev.event === "token") opts.onToken(data.provider, data.delta);
-      else if (ev.event === "done") opts.onDone(data.provider, data);
-      else if (ev.event === "error") opts.onError(data.provider, data.message);
+      if (!ev.data) return; // ignore keepalive / empty pings
+      if (ev.event !== "token" && ev.event !== "done" && ev.event !== "error") return;
+      let data: { provider?: string; delta?: string; message?: string; latency_ms?: number };
+      try {
+        data = JSON.parse(ev.data);
+      } catch {
+        console.warn("SSE: non-JSON data ignored", ev.event, ev.data);
+        return;
+      }
+      const provider = data.provider ?? "unknown";
+      if (ev.event === "token") opts.onToken(provider, data.delta ?? "");
+      else if (ev.event === "done") opts.onDone(provider, { latency_ms: data.latency_ms });
+      else if (ev.event === "error") opts.onError(provider, data.message ?? "unknown error");
     },
     onerror(err) {
       throw err;
