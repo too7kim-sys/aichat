@@ -10,7 +10,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env   # OPENAI_API_KEY / ANTHROPIC_API_KEY 채우기
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 9000
 ```
 
 > PowerShell 스크립트 실행이 차단되면 한 번만:
@@ -24,7 +24,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 9000
 ```
 
 - `OLLAMA_BASE_URL` 기본값 `http://localhost:11434`. 별도 호스트면 .env에 명시.
@@ -38,7 +38,7 @@ npm install
 npm run dev
 ```
 
-브라우저에서 http://localhost:5173 접속. Vite dev 서버가 `/api`를 8000번으로 프록시한다.
+브라우저에서 http://localhost:5173 접속. Vite dev 서버가 `/api`를 9000번으로 프록시한다.
 
 ## 3. 사용 흐름
 
@@ -73,13 +73,13 @@ Ctrl+Shift+P → "Tasks: Run Task" → "frontend: install deps"
 
 ```bash
 # 서버 헬스
-curl localhost:8000/api/health
+curl localhost:9000/api/health
 
 # Provider 상태
-curl localhost:8000/api/providers
+curl localhost:9000/api/providers
 
 # 세션 생성
-curl -X POST localhost:8000/api/sessions \
+curl -X POST localhost:9000/api/sessions \
      -H 'Content-Type: application/json' \
      -d '{"title":"test","mode":"compare"}'
 ```

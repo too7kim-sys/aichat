@@ -10,7 +10,7 @@
         "app.main:app",
         "--reload",
         "--host", "127.0.0.1",
-        "--port", "8000"
+        "--port", "9000"
       ],
       "cwd": "${workspaceFolder}/backend",
       "envFile": "${workspaceFolder}/backend/.env",

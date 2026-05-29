@@ -26,7 +26,7 @@ export default function App() {
       await refreshSessions();
       setActiveId(s.id);
     } catch (e) {
-      alert(`세션 생성 실패: ${e instanceof Error ? e.message : String(e)}\n\n백엔드(http://localhost:8000)가 실행 중인지 확인하세요.`);
+      alert(`세션 생성 실패: ${e instanceof Error ? e.message : String(e)}\n\n백엔드(http://localhost:9000)가 실행 중인지 확인하세요.`);
     }
   }
 
