@@ -121,6 +121,40 @@ export async function readFileText(file: ProjectFile): Promise<string> {
   return blob.text();
 }
 
+/**
+ * Read the current contents of a path inside the project root, or return
+ * null if the file doesn't exist yet. Throws on permission errors so the
+ * caller can distinguish "new file" from "unreadable".
+ */
+export async function readPath(
+  root: FileSystemDirectoryHandle,
+  relativePath: string
+): Promise<string | null> {
+  const parts = relativePath.split("/").filter(Boolean);
+  if (parts.length === 0) return null;
+  const fileName = parts.pop()!;
+  let dir = root;
+  for (const seg of parts) {
+    try {
+      dir = await dir.getDirectoryHandle(seg, { create: false });
+    } catch {
+      return null;
+    }
+  }
+  let handle: FileSystemFileHandle;
+  try {
+    handle = await dir.getFileHandle(fileName, { create: false });
+  } catch {
+    return null;
+  }
+  const f = await handle.getFile();
+  if (f.size > MAX_FILE_BYTES) {
+    throw new Error(`기존 파일이 1MB를 초과합니다 (${f.size} bytes)`);
+  }
+  return f.text();
+}
+
+
 export async function writeFile(
   root: FileSystemDirectoryHandle,
   relativePath: string,

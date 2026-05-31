@@ -1008,3 +1008,124 @@ body {
 }
 .tree-row:hover .tree-add { opacity: 1; }
 .tree-add:hover { color: var(--accent); background: var(--accent-soft); }
+
+/* ── Diff preview modal ───────────────────────────── */
+.diff-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 14, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 32px;
+}
+.diff-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  width: min(1100px, 100%);
+  height: min(720px, 90vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.diff-modal.small {
+  height: auto;
+  min-height: 120px;
+  max-width: 480px;
+  padding: 20px;
+  gap: 14px;
+}
+.diff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.diff-title {
+  font-weight: 600;
+  margin-right: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.diff-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.diff-badge.new { background: #e6f3ea; color: #2d7a4f; }
+.diff-badge.modify { background: var(--accent-soft); color: var(--accent-hover); }
+.diff-close {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.diff-close:hover { color: var(--text); }
+.diff-body { flex: 1; min-height: 0; }
+.diff-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.diff-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.diff-hint kbd {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.diff-actions {
+  display: flex;
+  gap: 8px;
+}
+.diff-actions button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.diff-actions button:hover {
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+}
+.diff-actions button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.diff-actions button.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.diff-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 28px;
+}

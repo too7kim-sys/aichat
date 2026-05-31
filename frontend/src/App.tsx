@@ -1,13 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "./api/client";
 import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
 import { Sidebar } from "./components/Sidebar";
 import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
-import { ArtifactPanel } from "./artifact/ArtifactPanel";
 import { ProjectProvider, useProject } from "./project/ProjectContext";
-import { writeFile } from "./project/fsAccess";
+import { readPath, writeFile } from "./project/fsAccess";
+import { useDiffPreview } from "./project/DiffPreview";
 import type { ProviderInfo, Session } from "./types";
 import type { ProjectFile } from "./project/fsAccess";
+
+// Monaco editor is ~400 kB minified. Split it off the main bundle so the
+// chat UI loads instantly; the panel chunk fetches on first use.
+const ArtifactPanel = lazy(() =>
+  import("./artifact/ArtifactPanel").then((m) => ({ default: m.ArtifactPanel }))
+);
 
 export default function App() {
   return (
@@ -26,6 +32,7 @@ function AppInner() {
   const chatRef = useRef<ChatPanelHandle | null>(null);
   const artifacts = useArtifacts();
   const project = useProject();
+  const diff = useDiffPreview();
 
   async function refreshSessions() {
     const list = await api.listSessions();
@@ -85,7 +92,8 @@ function AppInner() {
   }
 
   async function handleSaveArtifactToProject(filename: string, code: string) {
-    if (!project.root) {
+    const root = project.root;
+    if (!root) {
       alert("먼저 사이드바 '프로젝트' 탭에서 폴더를 선택해주세요.");
       return;
     }
@@ -94,9 +102,13 @@ function AppInner() {
       filename
     );
     if (!target) return;
+    const confirmed = await diff.open(
+      { filename: target, proposed: code, language: guessLangFromPath(target) },
+      () => readPath(root, target)
+    );
+    if (!confirmed) return;
     try {
-      await writeFile(project.root, target, code);
-      alert(`저장됨: ${target}`);
+      await writeFile(root, target, code);
       project.refresh();
     } catch (e) {
       alert(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -127,11 +139,14 @@ function AppInner() {
           <div className="empty">왼쪽에서 새 대화를 시작하세요.</div>
         )}
       </main>
-      <ArtifactPanel
-        onSendToChat={(snippet) => chatRef.current?.appendToPrompt(snippet)}
-        onSaveToProject={handleSaveArtifactToProject}
-        projectAvailable={!!project.root}
-      />
+      <Suspense fallback={null}>
+        <ArtifactPanel
+          onSendToChat={(snippet) => chatRef.current?.appendToPrompt(snippet)}
+          onSaveToProject={handleSaveArtifactToProject}
+          projectAvailable={!!project.root}
+        />
+      </Suspense>
+      {diff.node}
     </div>
   );
 }

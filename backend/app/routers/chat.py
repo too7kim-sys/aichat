@@ -10,6 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import models, schemas
 from ..database import SessionLocal, get_db
+from ..config import settings
 from ..providers.base import ChatMessage, LLMProvider
 from ..providers.registry import get_provider
 from ..search import TavilyError, format_as_context
@@ -31,8 +32,13 @@ async def _load_session(db: AsyncSession, session_id: str) -> models.Session:
 
 
 def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMessage]:
+    # Sliding window: keep only the last N persisted messages so the
+    # context length sent to Ollama doesn't grow unbounded across a long
+    # conversation. The new user prompt is always appended on top.
+    limit = max(1, settings.max_history_messages)
+    recent = list(session.messages)[-limit:]
     history: list[ChatMessage] = [
-        ChatMessage(role=m.role, content=m.content) for m in session.messages
+        ChatMessage(role=m.role, content=m.content) for m in recent
     ]
     history.append(ChatMessage(role="user", content=new_user_prompt))
     return history

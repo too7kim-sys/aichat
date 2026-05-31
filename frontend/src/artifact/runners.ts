@@ -1,4 +1,4 @@
-import { loadPyodideOnce } from "./pyodideLoader";
+import PyodideWorker from "./pyodideWorker?worker";
 
 export interface RunResult {
   ok: boolean;
@@ -16,37 +16,64 @@ export function detectRunnable(lang: string): Runnable | null {
   return null;
 }
 
-export async function runPython(
+// ── Pyodide Web Worker (singleton) ────────────────────────────────────
+let _worker: Worker | null = null;
+let _runCounter = 0;
+
+function getWorker(): Worker {
+  if (_worker) return _worker;
+  _worker = new PyodideWorker();
+  return _worker;
+}
+
+interface WorkerMsg {
+  type: "progress" | "stdout" | "stderr" | "done" | "error";
+  message?: string;
+  chunk?: string;
+  id?: string;
+}
+
+export function runPython(
   code: string,
   onProgress?: (msg: string) => void
 ): Promise<RunResult> {
   const start = performance.now();
-  const lines: string[] = [];
-  try {
-    const py = await loadPyodideOnce(onProgress);
-    py.setStdout({ batched: (s) => lines.push(s) });
-    py.setStderr({ batched: (s) => lines.push(s) });
-    onProgress?.("실행 중...");
-    await py.runPythonAsync(code);
-    return {
-      ok: true,
-      durationMs: Math.round(performance.now() - start),
-      output: lines.join("") || "(출력 없음)",
+  const id = `run-${++_runCounter}`;
+  const buf: string[] = [];
+  return new Promise((resolve) => {
+    const worker = getWorker();
+    const handle = (ev: MessageEvent<WorkerMsg>) => {
+      const m = ev.data;
+      if (m.type === "progress") {
+        onProgress?.(m.message ?? "");
+        return;
+      }
+      if (m.id !== id) return;
+      if (m.type === "stdout" || m.type === "stderr") {
+        buf.push(m.chunk ?? "");
+      } else if (m.type === "done") {
+        worker.removeEventListener("message", handle);
+        resolve({
+          ok: true,
+          durationMs: Math.round(performance.now() - start),
+          output: buf.join("") || "(출력 없음)",
+        });
+      } else if (m.type === "error") {
+        worker.removeEventListener("message", handle);
+        resolve({
+          ok: false,
+          durationMs: Math.round(performance.now() - start),
+          output:
+            buf.join("") + (buf.length ? "\n" : "") + (m.message ?? "unknown error"),
+        });
+      }
     };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return {
-      ok: false,
-      durationMs: Math.round(performance.now() - start),
-      output: lines.join("") + (lines.length ? "\n" : "") + msg,
-    };
-  }
+    worker.addEventListener("message", handle);
+    worker.postMessage({ type: "run", code, id });
+  });
 }
 
-/**
- * Run JavaScript in a same-origin sandboxed iframe and collect console output
- * via postMessage. Times out after 5 s.
- */
+// ── JS sandbox (iframe + postMessage) ─────────────────────────────────
 export function runJavaScript(code: string, timeoutMs = 5000): Promise<RunResult> {
   return new Promise((resolve) => {
     const start = performance.now();
@@ -68,8 +95,6 @@ export function runJavaScript(code: string, timeoutMs = 5000): Promise<RunResult
     };
 
     function onMessage(ev: MessageEvent) {
-      // Only accept messages from our own iframe (which has a null origin
-      // because it's sandboxed without allow-same-origin).
       if (ev.source !== iframe.contentWindow) return;
       const data = ev.data;
       if (!data || data.channel !== channel) return;
@@ -86,8 +111,6 @@ export function runJavaScript(code: string, timeoutMs = 5000): Promise<RunResult
       finish(false);
     }, timeoutMs);
 
-    // Escape any literal </script> in user code so it cannot break out of
-    // the surrounding <script> block.
     const safeCode = code.replace(/<\/script/gi, "<\\/script");
     const srcDoc = `<!doctype html><html><body><script>
 (function(){

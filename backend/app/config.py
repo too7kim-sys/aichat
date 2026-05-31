@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     cors_origins: str = "http://localhost:5173"
 
+    # Sliding window: only the most recent N messages (user + assistant)
+    # are sent to the LLM. System messages (attachments, web search)
+    # are always kept and don't count against this limit.
+    max_history_messages: int = 30
+
     tesseract_cmd: str = ""  # e.g. C:\\Program Files\\Tesseract-OCR\\tesseract.exe
     ocr_languages: str = "eng+kor"
     max_upload_bytes: int = 5 * 1024 * 1024  # 5 MB
