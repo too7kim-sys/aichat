@@ -13,6 +13,11 @@ venv/
 node_modules/
 dist/
 .vite/
+*.tsbuildinfo
+
+# Emitted JS from tsc in the React source tree (the source of truth is .ts/.tsx)
+frontend/src/**/*.js
+!frontend/vite.config.ts.js
 
 # Editor — keep shared .vscode debug config, ignore only user-local files
 .vscode/*

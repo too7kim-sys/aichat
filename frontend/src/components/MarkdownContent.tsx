@@ -39,8 +39,8 @@ function extractText(node: ReactNode): string {
   if (typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(extractText).join("");
   if (typeof node === "object" && "props" in node) {
-    // @ts-expect-error - ReactNode children traversal
-    return extractText(node.props.children);
+    const props = (node as { props: { children?: ReactNode } }).props;
+    return extractText(props.children);
   }
   return "";
 }
@@ -72,9 +72,9 @@ export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
           pre({ node: _n, children, ...rest }) {
             const text = extractText(children).replace(/\n$/, "");
             let lang = "";
-            // @ts-expect-error - traverse markdown AST
-            const codeChild = Array.isArray(children) ? children[0] : children;
-            // @ts-expect-error - props is optional
+            const codeChild = (Array.isArray(children) ? children[0] : children) as
+              | { props?: { className?: string } }
+              | undefined;
             const cls = codeChild?.props?.className ?? "";
             const m = /language-([\w+-]+)/.exec(cls);
             if (m) lang = m[1];

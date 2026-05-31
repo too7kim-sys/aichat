@@ -67,12 +67,22 @@ export async function buildTree(
   basePath = "",
   depth = 0
 ): Promise<ProjectTreeNode[]> {
-  if (depth >= MAX_DEPTH) return [];
+  if (depth >= MAX_DEPTH) {
+    return [
+      {
+        kind: "dir",
+        name: "… (max depth reached)",
+        path: `${basePath}/__truncated__`,
+        children: [],
+      },
+    ];
+  }
   const out: ProjectTreeNode[] = [];
   for await (const [name, child] of (dir as unknown as AsyncIterable<
     [string, FileSystemHandle]
   >)) {
-    if (name.startsWith(".") && SKIP_DIRS.has(name)) continue;
+    // Skip hidden entries and known vendor/build folders.
+    if (name.startsWith(".")) continue;
     if (SKIP_DIRS.has(name)) continue;
     const path = basePath ? `${basePath}/${name}` : name;
     if (child.kind === "directory") {

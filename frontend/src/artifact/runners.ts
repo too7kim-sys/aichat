@@ -68,6 +68,9 @@ export function runJavaScript(code: string, timeoutMs = 5000): Promise<RunResult
     };
 
     function onMessage(ev: MessageEvent) {
+      // Only accept messages from our own iframe (which has a null origin
+      // because it's sandboxed without allow-same-origin).
+      if (ev.source !== iframe.contentWindow) return;
       const data = ev.data;
       if (!data || data.channel !== channel) return;
       if (data.type === "log") outputs.push(data.value + "\n");
@@ -83,6 +86,9 @@ export function runJavaScript(code: string, timeoutMs = 5000): Promise<RunResult
       finish(false);
     }, timeoutMs);
 
+    // Escape any literal </script> in user code so it cannot break out of
+    // the surrounding <script> block.
+    const safeCode = code.replace(/<\/script/gi, "<\\/script");
     const srcDoc = `<!doctype html><html><body><script>
 (function(){
   const ch = ${JSON.stringify(channel)};
@@ -99,7 +105,7 @@ export function runJavaScript(code: string, timeoutMs = 5000): Promise<RunResult
   window.addEventListener('unhandledrejection', e => send('error', String(e.reason)));
   (async () => {
     try {
-      ${code}
+      ${safeCode}
       send('done');
     } catch (e) { send('error', e.message || String(e)); }
   })();

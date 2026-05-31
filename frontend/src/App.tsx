@@ -38,6 +38,13 @@ function AppInner() {
     refreshSessions();
   }, []);
 
+  // Wipe artifact panel state whenever the user switches sessions so old
+  // code tabs don't bleed into a new conversation.
+  useEffect(() => {
+    artifacts.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
   async function handleCreate() {
     try {
       const s = await api.createSession("New chat");

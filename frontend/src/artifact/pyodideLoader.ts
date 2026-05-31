@@ -49,15 +49,21 @@ export async function loadPyodideOnce(
 
   _loadingPromise = (async () => {
     onProgress?.("Pyodide 스크립트 다운로드 중...");
-    await injectScript(`${PYODIDE_CDN}pyodide.js`);
-    if (!window.loadPyodide) {
-      throw new Error("window.loadPyodide is unavailable after script load");
+    try {
+      await injectScript(`${PYODIDE_CDN}pyodide.js`);
+      if (!window.loadPyodide) {
+        throw new Error("window.loadPyodide is unavailable after script load");
+      }
+      onProgress?.("Python 런타임 초기화 중 (~10MB, 처음 한 번만)...");
+      const py = await window.loadPyodide({ indexURL: PYODIDE_CDN });
+      _pyodide = py;
+      onProgress?.("준비 완료");
+      return py;
+    } catch (err) {
+      // Remove the (possibly broken) script tag so a retry can re-inject.
+      document.querySelector('script[data-pyodide="1"]')?.remove();
+      throw err;
     }
-    onProgress?.("Python 런타임 초기화 중 (~10MB, 처음 한 번만)...");
-    const py = await window.loadPyodide({ indexURL: PYODIDE_CDN });
-    _pyodide = py;
-    onProgress?.("준비 완료");
-    return py;
   })();
 
   try {

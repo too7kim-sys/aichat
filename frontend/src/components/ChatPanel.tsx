@@ -38,6 +38,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const artifactsState = useArtifacts();
+  const abortRef = useRef<AbortController | null>(null);
+  const aliveRef = useRef(true);
+
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
 
   useImperativeHandle(ref, () => ({
     appendToPrompt(text: string) {
@@ -157,11 +167,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     const errors: string[] = [];
     const sentAttachments = attachments;
     let buffer = "";
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
 
     try {
       await streamChat(sessionId, text, {
         provider: activeProvider,
         webSearch,
+        signal: controller.signal,
         attachments: sentAttachments.map((a) => ({
           filename: a.filename,
           text: a.text,
@@ -188,16 +202,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       setLiveAssistant(buffer);
       console.error(e);
     } finally {
-      const refreshed = await api.getSession(sessionId);
-      setSession(refreshed);
+      abortRef.current = null;
+      if (!aliveRef.current) return;
+      try {
+        const refreshed = await api.getSession(sessionId);
+        if (!aliveRef.current) return;
+        setSession(refreshed);
+        if (refreshed.title === "New chat" || text) {
+          onTitleSync?.();
+        }
+      } catch {
+        // ignore refetch failure - already showed errors above
+      }
       setLiveAssistant(null);
       setLivePrompt(null);
       setLiveSources(null);
       setAttachments([]);
       setStreaming(false);
       setStreamStartedAt(null);
-      // Backend may have auto-titled the session; tell the sidebar to refetch.
-      onTitleSync?.();
       if (errors.length) {
         alert(`응답 실패:\n\n${errors.join("\n")}`);
       }

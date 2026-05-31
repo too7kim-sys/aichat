@@ -3,7 +3,7 @@ import time
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
@@ -116,13 +116,24 @@ async def _persist_messages(
                     tokens_out=len(content.split()),
                 )
             )
-        # Auto-title a fresh session from the first user prompt.
+        # Auto-title a fresh session on its very first user prompt. We
+        # guard on both the default title and a zero existing message count
+        # so a user who deliberately renames a session back to "New chat"
+        # doesn't get clobbered on the next turn.
         result = await db.execute(
             select(models.Session).where(models.Session.id == session_id)
         )
         session = result.scalar_one_or_none()
         if session is not None and session.title == "New chat":
-            session.title = _derive_title(user_prompt)
+            existing_count = await db.scalar(
+                select(func.count(models.Message.id)).where(
+                    models.Message.session_id == session_id,
+                    models.Message.role == "user",
+                )
+            )
+            # The new user message we just added is included; treat 1 as first.
+            if (existing_count or 0) <= 1:
+                session.title = _derive_title(user_prompt)
         await db.commit()
 
 

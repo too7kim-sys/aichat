@@ -16,6 +16,7 @@ interface ArtifactState {
   setActive: (id: string) => void;
   setOpen: (open: boolean) => void;
   updateCode: (id: string, code: string) => void;
+  clear: () => void;
 }
 
 const Ctx = createContext<ArtifactState | null>(null);
@@ -54,6 +55,12 @@ export function ArtifactProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  function clear() {
+    setArtifacts([]);
+    setActiveId(null);
+    setOpen(false);
+  }
+
   return (
     <Ctx.Provider
       value={{
@@ -65,6 +72,7 @@ export function ArtifactProvider({ children }: { children: ReactNode }) {
         setActive: setActiveId,
         setOpen,
         updateCode,
+        clear,
       }}
     >
       {children}
