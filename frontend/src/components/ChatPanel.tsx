@@ -8,6 +8,9 @@ interface Props {
   sessionId: string;
   providers: ProviderInfo[];
   onTitleSync?: () => void;
+  onApplyFiles?: (
+    files: { path: string; language: string; content: string }[]
+  ) => void;
 }
 
 export interface ChatPanelHandle {
@@ -16,7 +19,7 @@ export interface ChatPanelHandle {
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
-  { sessionId, providers, onTitleSync },
+  { sessionId, providers, onTitleSync, onApplyFiles },
   ref
 ) {
   const [session, setSession] = useState<SessionDetail | null>(null);
@@ -290,6 +293,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   provider={m.provider}
                   content={m.content}
                   artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
+                  onApplyFiles={m.role === "assistant" ? onApplyFiles : undefined}
                 />
               );
             });
@@ -409,13 +413,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               </button>
             </div>
             <div className="composer-right">
-              <button
-                className="send-btn"
-                onClick={send}
-                disabled={streaming || uploading || !prompt.trim() || !activeProvider}
-              >
-                {streaming ? `생성 중 ${formatElapsed(elapsedSec)}` : "전송"}
-              </button>
+              {streaming ? (
+                <button
+                  className="stop-btn"
+                  onClick={() => abortRef.current?.abort()}
+                  title="응답 생성을 중단"
+                >
+                  ■ 중단 {formatElapsed(elapsedSec)}
+                </button>
+              ) : (
+                <button
+                  className="send-btn"
+                  onClick={send}
+                  disabled={uploading || !prompt.trim() || !activeProvider}
+                >
+                  전송
+                </button>
+              )}
             </div>
           </div>
         </div>

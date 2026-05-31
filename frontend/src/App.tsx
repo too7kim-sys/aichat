@@ -91,6 +91,31 @@ function AppInner() {
     chatRef.current.addAttachmentFromText(file.path, content);
   }
 
+  async function handleApplyFiles(
+    files: { path: string; language: string; content: string }[]
+  ) {
+    const root = project.root;
+    if (!root) {
+      alert("먼저 사이드바 '프로젝트' 탭에서 폴더를 선택해주세요.");
+      return;
+    }
+    let applied = 0;
+    for (const f of files) {
+      const outcome = await diff.open(
+        { filename: f.path, proposed: f.content, language: f.language || guessLangFromPath(f.path) },
+        () => readPath(root, f.path)
+      );
+      if (!outcome.confirmed) continue;
+      try {
+        await writeFile(root, f.path, outcome.content);
+        applied += 1;
+      } catch (e) {
+        alert(`${f.path} 저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (applied > 0) project.refresh();
+  }
+
   async function handleSaveArtifactToProject(filename: string, code: string) {
     const root = project.root;
     if (!root) {
@@ -102,13 +127,13 @@ function AppInner() {
       filename
     );
     if (!target) return;
-    const confirmed = await diff.open(
+    const outcome = await diff.open(
       { filename: target, proposed: code, language: guessLangFromPath(target) },
       () => readPath(root, target)
     );
-    if (!confirmed) return;
+    if (!outcome.confirmed) return;
     try {
-      await writeFile(root, target, code);
+      await writeFile(root, target, outcome.content);
       project.refresh();
     } catch (e) {
       alert(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -134,6 +159,7 @@ function AppInner() {
             sessionId={activeId}
             providers={providers}
             onTitleSync={refreshSessions}
+            onApplyFiles={handleApplyFiles}
           />
         ) : (
           <div className="empty">왼쪽에서 새 대화를 시작하세요.</div>

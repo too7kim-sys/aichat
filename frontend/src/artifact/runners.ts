@@ -4,6 +4,8 @@ export interface RunResult {
   ok: boolean;
   durationMs: number;
   output: string;
+  /** Base64-encoded PNGs captured from matplotlib figures (Python only). */
+  images?: string[];
 }
 
 export type Runnable = "python" | "javascript" | "html";
@@ -27,9 +29,10 @@ function getWorker(): Worker {
 }
 
 interface WorkerMsg {
-  type: "progress" | "stdout" | "stderr" | "done" | "error";
+  type: "progress" | "stdout" | "stderr" | "image" | "done" | "error";
   message?: string;
   chunk?: string;
+  pngBase64?: string;
   id?: string;
 }
 
@@ -40,6 +43,7 @@ export function runPython(
   const start = performance.now();
   const id = `run-${++_runCounter}`;
   const buf: string[] = [];
+  const images: string[] = [];
   return new Promise((resolve) => {
     const worker = getWorker();
     const handle = (ev: MessageEvent<WorkerMsg>) => {
@@ -51,12 +55,15 @@ export function runPython(
       if (m.id !== id) return;
       if (m.type === "stdout" || m.type === "stderr") {
         buf.push(m.chunk ?? "");
+      } else if (m.type === "image" && m.pngBase64) {
+        images.push(m.pngBase64);
       } else if (m.type === "done") {
         worker.removeEventListener("message", handle);
         resolve({
           ok: true,
           durationMs: Math.round(performance.now() - start),
-          output: buf.join("") || "(출력 없음)",
+          output: buf.join("") || (images.length ? "" : "(출력 없음)"),
+          images: images.length ? images : undefined,
         });
       } else if (m.type === "error") {
         worker.removeEventListener("message", handle);
@@ -65,6 +72,7 @@ export function runPython(
           durationMs: Math.round(performance.now() - start),
           output:
             buf.join("") + (buf.length ? "\n" : "") + (m.message ?? "unknown error"),
+          images: images.length ? images : undefined,
         });
       }
     };

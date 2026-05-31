@@ -247,8 +247,23 @@ export function ArtifactPanel({
                       className={`artifact-output-status ${runResult.ok ? "ok" : "fail"}`}
                     >
                       {runResult.ok ? "✓ 완료" : "✗ 오류"} · {runResult.durationMs}ms
+                      {runResult.images && runResult.images.length > 0 &&
+                        ` · 그림 ${runResult.images.length}개`}
                     </div>
-                    <pre className="artifact-output-body">{runResult.output}</pre>
+                    {runResult.output && (
+                      <pre className="artifact-output-body">{runResult.output}</pre>
+                    )}
+                    {runResult.images && runResult.images.length > 0 && (
+                      <div className="artifact-output-images">
+                        {runResult.images.map((b64, i) => (
+                          <img
+                            key={i}
+                            src={`data:image/png;base64,${b64}`}
+                            alt={`figure ${i + 1}`}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </>
                 )}
                 {!running && !runResult && (

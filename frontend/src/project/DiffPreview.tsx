@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import type { DiffOnMount } from "@monaco-editor/react";
 
 const DiffEditor = lazy(() =>
   import("@monaco-editor/react").then((m) => ({ default: m.DiffEditor }))
@@ -12,7 +13,8 @@ interface Props {
   current: string | null;
   language: string;
   onCancel: () => void;
-  onConfirm: () => void;
+  /** Resolves with the (possibly edited) right-side content. */
+  onConfirm: (finalContent: string) => void;
 }
 
 export function DiffPreview({
@@ -23,15 +25,29 @@ export function DiffPreview({
   onCancel,
   onConfirm,
 }: Props) {
+  const editedRef = useRef<string>(next);
+  // Reset the buffer whenever the proposed input changes (different artifact).
+  useEffect(() => {
+    editedRef.current = next;
+  }, [next]);
   // Esc cancels, Cmd/Ctrl+Enter confirms.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onCancel();
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onConfirm();
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        onConfirm(editedRef.current);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel, onConfirm]);
+
+  const handleMount: DiffOnMount = (editor) => {
+    const modified = editor.getModifiedEditor();
+    modified.onDidChangeModelContent(() => {
+      editedRef.current = modified.getValue();
+    });
+  };
 
   const isNew = current === null;
 
@@ -63,8 +79,9 @@ export function DiffPreview({
               modified={next}
               language={language}
               theme="vs"
+              onMount={handleMount}
               options={{
-                readOnly: true,
+                readOnly: false,
                 renderSideBySide: true,
                 originalEditable: false,
                 automaticLayout: true,
@@ -81,7 +98,7 @@ export function DiffPreview({
           </div>
           <div className="diff-actions">
             <button onClick={onCancel}>취소</button>
-            <button className="primary" onClick={onConfirm}>
+            <button className="primary" onClick={() => onConfirm(editedRef.current)}>
               {isNew ? "새 파일로 저장" : "변경사항 저장"}
             </button>
           </div>
@@ -109,14 +126,18 @@ interface State {
  * displays the modal once the current content is loaded; the returned
  * Promise resolves to true if the user confirmed.
  */
+export type DiffOutcome =
+  | { confirmed: false }
+  | { confirmed: true; content: string };
+
 export function useDiffPreview() {
   const [state, setState] = useState<State | null>(null);
-  const [resolver, setResolver] = useState<((ok: boolean) => void) | null>(null);
+  const [resolver, setResolver] = useState<((r: DiffOutcome) => void) | null>(null);
 
   async function open(
     request: DiffRequest,
     fetchCurrent: () => Promise<string | null>
-  ): Promise<boolean> {
+  ): Promise<DiffOutcome> {
     setState({ request, current: null, loading: true, error: null });
     try {
       const current = await fetchCurrent();
@@ -129,16 +150,16 @@ export function useDiffPreview() {
         error: e instanceof Error ? e.message : String(e),
       });
     }
-    return new Promise<boolean>((res) => setResolver(() => res));
+    return new Promise<DiffOutcome>((res) => setResolver(() => res));
   }
 
   function cancel() {
-    resolver?.(false);
+    resolver?.({ confirmed: false });
     setResolver(null);
     setState(null);
   }
-  function confirm() {
-    resolver?.(true);
+  function confirm(content: string) {
+    resolver?.({ confirmed: true, content });
     setResolver(null);
     setState(null);
   }
@@ -157,7 +178,10 @@ export function useDiffPreview() {
         <div className="diff-modal small" onClick={(e) => e.stopPropagation()}>
           <div className="diff-loading">파일 읽기 실패: {state.error}</div>
           <div className="diff-actions">
-            <button className="primary" onClick={confirm}>
+            <button
+              className="primary"
+              onClick={() => confirm(state.request.proposed)}
+            >
               그대로 저장
             </button>
             <button onClick={cancel}>취소</button>

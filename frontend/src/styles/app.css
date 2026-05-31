@@ -1129,3 +1129,50 @@ body {
   font-size: 13px;
   padding: 28px;
 }
+
+/* ── Stop / Apply files / Inline figures ──────────── */
+.stop-btn {
+  padding: 8px 16px;
+  background: var(--danger);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.stop-btn:hover { background: #a83838; }
+
+.apply-files-btn {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.bubble.assistant:hover .apply-files-btn { opacity: 1; }
+.apply-files-btn:hover { background: var(--accent); color: white; }
+
+.artifact-output-images {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: white;
+  border-top: 1px solid #2a2f38;
+  max-height: 60%;
+  overflow-y: auto;
+}
+.artifact-output-images img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #2a2f38;
+  border-radius: 6px;
+  background: white;
+}
