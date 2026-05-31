@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { useArtifacts, type Artifact } from "./ArtifactContext";
+import { detectRunnable, run, type RunResult } from "./runners";
 
 const PREVIEW_LANGS = new Set(["html", "htm"]);
 
@@ -39,17 +40,40 @@ export function ArtifactPanel({
 }) {
   const { artifacts, activeId, open, setActive, remove, setOpen, updateCode } =
     useArtifacts();
-  const [view, setView] = useState<"code" | "preview">("code");
+  const [view, setView] = useState<"code" | "preview" | "output">("code");
+  const [running, setRunning] = useState(false);
+  const [runProgress, setRunProgress] = useState<string>("");
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
 
   const active = useMemo(
     () => artifacts.find((a) => a.id === activeId) ?? null,
     [artifacts, activeId]
   );
 
+  // Reset transient run state whenever the user switches to a different artifact.
+  useEffect(() => {
+    setRunResult(null);
+    setRunProgress("");
+  }, [activeId]);
+
   if (!open) return null;
 
   const previewSrc = active ? buildPreviewSrcDoc(active) : null;
   const canPreview = previewSrc !== null;
+  const runnable = active ? detectRunnable(active.language) : null;
+  const canRun = runnable === "python" || runnable === "javascript";
+
+  async function handleRun() {
+    if (!active || running || !canRun) return;
+    setRunning(true);
+    setRunProgress("");
+    setRunResult(null);
+    setView("output");
+    const result = await run(active.code, active.language, setRunProgress);
+    setRunResult(result);
+    setRunProgress("");
+    setRunning(false);
+  }
 
   function download() {
     if (!active) return;
@@ -129,8 +153,26 @@ export function ArtifactPanel({
               >
                 미리보기
               </button>
+              <button
+                className={view === "output" ? "active" : ""}
+                onClick={() => setView("output")}
+                disabled={!runResult && !running}
+                title={runResult || running ? "" : "아직 실행하지 않음"}
+              >
+                출력
+              </button>
             </div>
             <div className="artifact-actions">
+              {canRun && (
+                <button
+                  className="run-btn"
+                  onClick={handleRun}
+                  disabled={running}
+                  title={runnable === "python" ? "Pyodide로 실행" : "샌드박스 iframe에서 실행"}
+                >
+                  {running ? "실행 중..." : "▶ 실행"}
+                </button>
+              )}
               <button onClick={copy} title="클립보드로 복사">복사</button>
               <button onClick={download} title="파일로 저장">다운로드</button>
               {onSendToChat && (
@@ -142,7 +184,7 @@ export function ArtifactPanel({
           </div>
 
           <div className="artifact-body">
-            {view === "code" ? (
+            {view === "code" && (
               <Editor
                 height="100%"
                 language={normalizeLang(active.language)}
@@ -158,16 +200,41 @@ export function ArtifactPanel({
                   automaticLayout: true,
                 }}
               />
-            ) : previewSrc !== null ? (
-              <iframe
-                title="preview"
-                className="artifact-preview"
-                sandbox="allow-scripts"
-                srcDoc={previewSrc}
-              />
-            ) : (
-              <div className="artifact-empty">
-                이 언어는 브라우저 미리보기를 지원하지 않습니다.
+            )}
+            {view === "preview" &&
+              (previewSrc !== null ? (
+                <iframe
+                  title="preview"
+                  className="artifact-preview"
+                  sandbox="allow-scripts"
+                  srcDoc={previewSrc}
+                />
+              ) : (
+                <div className="artifact-empty">
+                  이 언어는 브라우저 미리보기를 지원하지 않습니다.
+                </div>
+              ))}
+            {view === "output" && (
+              <div className="artifact-output">
+                {running && (
+                  <div className="artifact-output-status">
+                    <span className="spinner" />
+                    {runProgress || "실행 중..."}
+                  </div>
+                )}
+                {runResult && (
+                  <>
+                    <div
+                      className={`artifact-output-status ${runResult.ok ? "ok" : "fail"}`}
+                    >
+                      {runResult.ok ? "✓ 완료" : "✗ 오류"} · {runResult.durationMs}ms
+                    </div>
+                    <pre className="artifact-output-body">{runResult.output}</pre>
+                  </>
+                )}
+                {!running && !runResult && (
+                  <div className="artifact-empty">▶ 실행 버튼을 눌러주세요.</div>
+                )}
               </div>
             )}
           </div>
