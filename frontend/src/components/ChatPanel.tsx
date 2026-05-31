@@ -12,6 +12,7 @@ interface Props {
 
 export interface ChatPanelHandle {
   appendToPrompt: (text: string) => void;
+  addAttachmentFromText: (filename: string, text: string) => void;
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
@@ -42,6 +43,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     appendToPrompt(text: string) {
       setPrompt((prev) => (prev ? prev + text : text));
       window.setTimeout(() => textareaRef.current?.focus(), 0);
+    },
+    addAttachmentFromText(filename: string, text: string) {
+      setAttachments((prev) => [
+        ...prev,
+        { filename, text, char_count: text.length, method: "project" },
+      ]);
     },
   }));
 

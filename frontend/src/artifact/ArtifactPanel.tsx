@@ -35,8 +35,12 @@ function buildPreviewSrcDoc(a: Artifact): string | null {
 
 export function ArtifactPanel({
   onSendToChat,
+  onSaveToProject,
+  projectAvailable,
 }: {
   onSendToChat?: (snippet: string) => void;
+  onSaveToProject?: (filename: string, code: string) => void;
+  projectAvailable?: boolean;
 }) {
   const { artifacts, activeId, open, setActive, remove, setOpen, updateCode } =
     useArtifacts();
@@ -178,6 +182,21 @@ export function ArtifactPanel({
               {onSendToChat && (
                 <button onClick={sendToChat} title="채팅 입력창에 이 코드 삽입">
                   채팅에 보내기
+                </button>
+              )}
+              {onSaveToProject && (
+                <button
+                  onClick={() =>
+                    active && onSaveToProject(active.title, active.code)
+                  }
+                  disabled={!projectAvailable}
+                  title={
+                    projectAvailable
+                      ? "선택한 프로젝트 폴더에 저장"
+                      : "프로젝트 폴더를 먼저 선택하세요"
+                  }
+                >
+                  프로젝트에 저장
                 </button>
               )}
             </div>
