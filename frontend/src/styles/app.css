@@ -1465,3 +1465,45 @@ body {
   cursor: pointer;
 }
 .chat-loading button.primary:hover { background: var(--accent-hover); }
+
+/* ── Model selector: show selection clearly ───────── */
+.model-info-dot {
+  color: #4a9c5f;
+  font-size: 9px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.model-info-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+  color: var(--text);
+}
+.model-info-caret {
+  color: var(--text-muted);
+  margin-left: 6px;
+  font-size: 10px;
+}
+
+.popover-list li {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.popover-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.popover-list li.active {
+  background: var(--accent-soft);
+}
+.popover-list li.active .popover-name {
+  color: var(--accent-hover);
+  font-weight: 700;
+}

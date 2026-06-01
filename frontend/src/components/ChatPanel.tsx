@@ -310,31 +310,39 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               disabled={streaming || models.length === 0}
               title={
                 models.length
-                  ? "Ollama 모델 변경"
+                  ? `현재 모델: ${model || "(기본)"} — 클릭해 변경`
                   : "Ollama 서버에 연결되지 않음"
               }
             >
-              {activeProviderLabel} {models.length > 0 && "▾"}
+              <span className="model-info-dot" aria-hidden>●</span>{" "}
+              <span className="model-info-name">{model || defaultLabel}</span>
+              {models.length > 0 && <span className="model-info-caret">▾</span>}
             </button>
             {modelMenuOpen && (
               <div className="popover model-popover" role="menu">
                 <div className="popover-header">Ollama 모델</div>
                 <ul className="popover-list">
-                  {models.map((m) => (
-                    <li
-                      key={m.name}
-                      className={m.name === model ? "active" : ""}
-                      onClick={() => {
-                        setModel(m.name);
-                        setModelMenuOpen(false);
-                      }}
-                    >
-                      <span className="popover-name">{m.name}</span>
-                      <span className="popover-meta">
-                        {m.parameter_size ?? formatBytes(m.size)}
-                      </span>
-                    </li>
-                  ))}
+                  {models.map((m) => {
+                    const active = m.name === model;
+                    return (
+                      <li
+                        key={m.name}
+                        className={active ? "active" : ""}
+                        onClick={() => {
+                          setModel(m.name);
+                          setModelMenuOpen(false);
+                        }}
+                      >
+                        <span className="popover-check" aria-hidden>
+                          {active ? "✓" : ""}
+                        </span>
+                        <span className="popover-name">{m.name}</span>
+                        <span className="popover-meta">
+                          {m.parameter_size ?? formatBytes(m.size)}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
