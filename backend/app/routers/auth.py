@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import audit, models, schemas
+from .. import audit, models, schemas, tokens
 from ..auth import (
     create_access_token,
     dummy_verify,
@@ -10,7 +10,9 @@ from ..auth import (
     hash_password,
     verify_password,
 )
+from ..config import settings
 from ..database import get_db
+from ..email import send_reset_email, send_verify_email
 from ..security import validate_password
 from ._rate_limit import enforce_rate_limit
 
@@ -53,10 +55,19 @@ async def signup(
     db.add(user)
     await db.flush()  # populate user.id for the audit row
     await audit.record(db, request, audit.SIGNUP, user_id=user.id)
+    verify_raw = await tokens.issue(
+        db, user, tokens.KIND_VERIFY, hours=settings.verify_token_hours
+    )
     await db.commit()
     await db.refresh(user)
-    token, expires = create_access_token(user.id)
-    return schemas.AuthResponse(user=user, access_token=token, expires_at=expires)
+    try:
+        await send_verify_email(user.email, user.name, verify_raw)
+    except Exception:
+        # Send failure shouldn't block signup; the user can request a
+        # resend from the verification banner.
+        pass
+    access, expires = create_access_token(user.id)
+    return schemas.AuthResponse(user=user, access_token=access, expires_at=expires)
 
 
 @router.post("/login", response_model=schemas.AuthResponse)
@@ -87,8 +98,113 @@ async def login(
 
     await audit.record(db, request, audit.LOGIN_OK, user_id=user.id)
     await db.commit()
-    token, expires = create_access_token(user.id)
-    return schemas.AuthResponse(user=user, access_token=token, expires_at=expires)
+    access, expires = create_access_token(user.id)
+    return schemas.AuthResponse(user=user, access_token=access, expires_at=expires)
+
+
+# ── Email verification ────────────────────────────────────────────
+
+
+@router.post("/verify-email/send", status_code=204)
+async def resend_verify_email(
+    request: Request,
+    user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    enforce_rate_limit(
+        "verify-resend", request, limit=5, window_seconds=600
+    )
+    if user.email_verified:
+        raise HTTPException(400, "이미 인증된 이메일입니다")
+    raw = await tokens.issue(
+        db, user, tokens.KIND_VERIFY, hours=settings.verify_token_hours
+    )
+    await db.commit()
+    try:
+        await send_verify_email(user.email, user.name, raw)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"메일 전송 실패: {type(exc).__name__}")
+
+
+@router.post("/verify-email", response_model=schemas.UserOut)
+async def verify_email(
+    payload: schemas.VerifyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    enforce_rate_limit("verify-consume", request, limit=20, window_seconds=600)
+    user = await tokens.consume(db, payload.token, tokens.KIND_VERIFY)
+    if user is None:
+        raise HTTPException(400, "유효하지 않거나 만료된 인증 링크입니다")
+    user.email_verified = True
+    await audit.record(db, request, "email_verified", user_id=user.id)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+# ── Password reset ────────────────────────────────────────────────
+
+
+@router.post("/password-reset/request", status_code=204)
+async def request_password_reset(
+    payload: schemas.PasswordResetRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    enforce_rate_limit(
+        "password-reset", request, limit=5, window_seconds=600
+    )
+    email = payload.email.lower()
+    user = (
+        await db.execute(select(models.User).where(models.User.email == email))
+    ).scalar_one_or_none()
+    # Always succeed silently so the response doesn't reveal whether the
+    # email is registered.
+    if user is None:
+        return
+    raw = await tokens.issue(
+        db, user, tokens.KIND_RESET, hours=settings.reset_token_hours
+    )
+    await audit.record(
+        db, request, "password_reset_request", user_id=user.id
+    )
+    await db.commit()
+    try:
+        await send_reset_email(user.email, user.name, raw)
+    except Exception:
+        # Don't surface delivery failures to the requester — that would
+        # also leak enumeration. Operators see it in the server log.
+        pass
+
+
+@router.post("/password-reset/confirm", response_model=schemas.AuthResponse)
+async def confirm_password_reset(
+    payload: schemas.PasswordResetConfirm,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    enforce_rate_limit(
+        "password-reset-confirm", request, limit=20, window_seconds=600
+    )
+    user = await tokens.consume(db, payload.token, tokens.KIND_RESET)
+    if user is None:
+        raise HTTPException(400, "유효하지 않거나 만료된 재설정 링크입니다")
+    try:
+        validate_password(payload.new_password, email=user.email, name=user.name)
+    except ValueError as exc:
+        # Token is already consumed; failing here is fine because the
+        # user just needs to request another link.
+        raise HTTPException(400, str(exc))
+    user.password_hash = hash_password(payload.new_password)
+    # A password reset proves email control, so mark the account verified
+    # if it wasn't already.
+    user.email_verified = True
+    await audit.record(db, request, "password_reset_complete", user_id=user.id)
+    await db.commit()
+    await db.refresh(user)
+    access, expires = create_access_token(user.id)
+    return schemas.AuthResponse(user=user, access_token=access, expires_at=expires)
 
 
 # ── /me ────────────────────────────────────────────────────────────

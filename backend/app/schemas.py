@@ -75,10 +75,24 @@ class UserOut(BaseModel):
     id: str
     email: EmailStr
     name: str
+    email_verified: bool
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class VerifyRequest(BaseModel):
+    token: str = Field(min_length=8, max_length=128)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class AuthResponse(BaseModel):

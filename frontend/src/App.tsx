@@ -8,8 +8,12 @@ import { readPath, writeFile } from "./project/fsAccess";
 import { useDiffPreview } from "./project/DiffPreview";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AuthForm } from "./auth/AuthForm";
+import { ForgotPasswordForm } from "./auth/ForgotPasswordForm";
 import { MyPage } from "./auth/MyPage";
+import { ResetPasswordForm } from "./auth/ResetPasswordForm";
 import { UserMenu } from "./auth/UserMenu";
+import { VerifyBanner } from "./auth/VerifyBanner";
+import { auth as authApi } from "./api/client";
 import type { ProviderInfo, Session } from "./types";
 import type { ProjectFile } from "./project/fsAccess";
 
@@ -32,15 +36,108 @@ export default function App() {
 }
 
 function AuthGate() {
-  const { user, loading } = useAuth();
+  const { user, loading, refresh } = useAuth();
   const [view, setView] = useState<"chat" | "mypage">("chat");
+  const [authView, setAuthView] = useState<"login" | "forgot">("login");
+  const [urlState, setUrlState] = useState<{
+    kind: "reset" | "verify-pending" | "verify-done" | "verify-error" | null;
+    token?: string;
+    message?: string;
+  }>({ kind: null });
+
+  // Parse ?reset / ?verify on first render. Reset flows even when not
+  // authenticated; verify auto-consumes the token then drops it from the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reset = params.get("reset");
+    const verify = params.get("verify");
+    if (reset) {
+      setUrlState({ kind: "reset", token: reset });
+      return;
+    }
+    if (verify) {
+      setUrlState({ kind: "verify-pending" });
+      authApi
+        .verifyEmail(verify)
+        .then(async () => {
+          window.history.replaceState({}, "", "/");
+          await refresh();
+          setUrlState({
+            kind: "verify-done",
+            message: "이메일이 인증되었습니다.",
+          });
+        })
+        .catch((e) => {
+          setUrlState({
+            kind: "verify-error",
+            message:
+              e instanceof Error ? e.message.replace(/^\d+\s/, "") : "오류",
+          });
+        });
+    }
+  }, [refresh]);
+
+  if (urlState.kind === "reset" && urlState.token) {
+    return (
+      <ResetPasswordForm
+        token={urlState.token}
+        onDone={() => setUrlState({ kind: null })}
+      />
+    );
+  }
+  if (urlState.kind === "verify-pending") {
+    return <div className="app-loading">이메일 인증 중...</div>;
+  }
+  if (urlState.kind === "verify-error") {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <h1 className="auth-brand">Chat</h1>
+          <h2 className="auth-title">인증 실패</h2>
+          <p className="auth-note">{urlState.message}</p>
+          <button
+            type="button"
+            className="auth-submit"
+            onClick={() => {
+              window.history.replaceState({}, "", "/");
+              setUrlState({ kind: null });
+            }}
+          >
+            계속
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) return <div className="app-loading">불러오는 중...</div>;
-  if (!user) return <AuthForm />;
+  if (!user) {
+    if (authView === "forgot") {
+      return <ForgotPasswordForm onBack={() => setAuthView("login")} />;
+    }
+    return <AuthForm onForgot={() => setAuthView("forgot")} />;
+  }
   if (view === "mypage") return <MyPage onBack={() => setView("chat")} />;
-  return <AppInner onOpenMyPage={() => setView("mypage")} />;
+  return (
+    <AppInner
+      onOpenMyPage={() => setView("mypage")}
+      verifyFlash={
+        urlState.kind === "verify-done" ? urlState.message ?? "" : null
+      }
+      onDismissFlash={() => setUrlState({ kind: null })}
+    />
+  );
 }
 
-function AppInner({ onOpenMyPage }: { onOpenMyPage: () => void }) {
+function AppInner({
+  onOpenMyPage,
+  verifyFlash,
+  onDismissFlash,
+}: {
+  onOpenMyPage: () => void;
+  verifyFlash: string | null;
+  onDismissFlash: () => void;
+}) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -168,6 +265,13 @@ function AppInner({ onOpenMyPage }: { onOpenMyPage: () => void }) {
       />
       <main className="main">
         <div className="app-header-strip">
+          <VerifyBanner />
+          {verifyFlash && (
+            <div className="verify-flash">
+              {verifyFlash}
+              <button onClick={onDismissFlash}>닫기</button>
+            </div>
+          )}
           <UserMenu onOpenMyPage={onOpenMyPage} />
         </div>
         {activeId ? (

@@ -35,6 +35,16 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_user_id "
                     "ON sessions(user_id)"
                 )
+            ucols = await conn.exec_driver_sql("PRAGMA table_info(users)")
+            uexisting = {row[1] for row in ucols.fetchall()}
+            if uexisting and "email_verified" not in uexisting:
+                # Default existing accounts to verified so they don't get
+                # locked out by the new column — only fresh signups go
+                # through verification.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN email_verified BOOLEAN "
+                    "NOT NULL DEFAULT 1"
+                )
         # Quiet the unused-import + text linters in environments where
         # neither branch above runs.
         _ = text

@@ -81,6 +81,7 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
+  email_verified: boolean;
   created_at: string;
 }
 export interface AuthResponse {
@@ -120,6 +121,24 @@ export const auth = {
   deleteMe: () => json<void>("/me", { method: "DELETE" }),
   myAudit: (limit = 50) =>
     json<AuditEvent[]>(`/me/audit?limit=${limit}`),
+
+  resendVerify: () =>
+    json<void>("/auth/verify-email/send", { method: "POST" }),
+  verifyEmail: (token: string) =>
+    json<AuthUser>("/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  requestPasswordReset: (email: string) =>
+    json<void>("/auth/password-reset/request", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  confirmPasswordReset: (token: string, new_password: string) =>
+    json<AuthResponse>("/auth/password-reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password }),
+    }),
 };
 
 export const api = {

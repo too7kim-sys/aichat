@@ -1682,3 +1682,76 @@ body {
   max-width: 240px;
 }
 .mypage-hint { font-size: 12px; color: var(--text-muted); margin: 0; }
+
+/* ── Verify banner + flash + auth-note ────────────── */
+.auth-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  background: var(--bg-sidebar);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.verify-banner {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--accent-hover);
+}
+.verify-banner strong { font-weight: 600; }
+.verify-banner button {
+  margin-left: auto;
+  padding: 4px 12px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.verify-banner button:hover { background: var(--accent-hover); }
+.verify-banner button:disabled { opacity: 0.6; cursor: not-allowed; }
+.verify-banner-msg {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.verify-flash {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: #e6f3ea;
+  border: 1px solid #6c9b50;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #2d7a4f;
+}
+.verify-flash button {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  color: #2d7a4f;
+}
+
+.app-header-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 8px 16px 0;
+}
+.app-header-strip .verify-banner { flex: 1; }

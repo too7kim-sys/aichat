@@ -13,6 +13,23 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_hours: int = 24 * 14
 
+    # Email delivery. Leave SMTP_HOST empty for a stdout-only fallback
+    # so the verification / reset links still print during dev without
+    # any account setup.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False  # use this when port == 465
+
+    # Where verification + reset links should land in the browser.
+    app_base_url: str = "http://localhost:5173"
+
+    verify_token_hours: int = 24
+    reset_token_hours: int = 1
+
     cors_origins: str = "http://localhost:5173"
 
     # Sliding window: only the most recent N messages (user + assistant)

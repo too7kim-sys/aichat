@@ -1,0 +1,88 @@
+"""Email sender (aiosmtplib) with a stdout fallback for dev.
+
+When SMTP_HOST is empty we log the full message to the server log so the
+verification / reset links are still recoverable during local
+development without any SMTP account."""
+from __future__ import annotations
+
+import logging
+from email.message import EmailMessage
+
+import aiosmtplib
+
+from .config import settings
+
+log = logging.getLogger("uvicorn.error")
+
+
+def _from_addr() -> str:
+    return settings.smtp_from or settings.smtp_username or "no-reply@localhost"
+
+
+async def send_email(*, to: str, subject: str, body_text: str) -> None:
+    msg = EmailMessage()
+    msg["From"] = _from_addr()
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.set_content(body_text)
+
+    if not settings.smtp_host:
+        # Dev fallback: dump to log instead of attempting SMTP.
+        log.warning(
+            "[email-dev] SMTP_HOST not set — printing email to log:\n"
+            "  To: %s\n  Subject: %s\n  Body:\n%s",
+            to,
+            subject,
+            body_text,
+        )
+        return
+
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username or None,
+            password=settings.smtp_password or None,
+            start_tls=settings.smtp_use_tls and not settings.smtp_use_ssl,
+            use_tls=settings.smtp_use_ssl,
+            timeout=15,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.error("SMTP send failed (%s): %s", type(exc).__name__, exc)
+        raise
+
+
+def verify_url(token: str) -> str:
+    base = settings.app_base_url.rstrip("/")
+    return f"{base}/?verify={token}"
+
+
+def reset_url(token: str) -> str:
+    base = settings.app_base_url.rstrip("/")
+    return f"{base}/?reset={token}"
+
+
+async def send_verify_email(to: str, name: str, token: str) -> None:
+    link = verify_url(token)
+    body = (
+        f"안녕하세요 {name or to.split('@', 1)[0]}님,\n\n"
+        f"Chat 가입을 완료하려면 아래 링크를 클릭해 이메일을 인증해 주세요. "
+        f"링크는 {settings.verify_token_hours}시간 동안 유효합니다.\n\n"
+        f"{link}\n\n"
+        f"본인이 가입하지 않았다면 이 메일을 무시하셔도 됩니다.\n"
+    )
+    await send_email(to=to, subject="[Chat] 이메일 인증", body_text=body)
+
+
+async def send_reset_email(to: str, name: str, token: str) -> None:
+    link = reset_url(token)
+    body = (
+        f"안녕하세요 {name or to.split('@', 1)[0]}님,\n\n"
+        f"비밀번호 재설정 요청을 받았습니다. 아래 링크를 클릭해 새 비밀번호를 "
+        f"설정해 주세요. 링크는 {settings.reset_token_hours}시간 동안 유효합니다.\n\n"
+        f"{link}\n\n"
+        f"본인이 요청하지 않았다면 이 메일을 무시하셔도 됩니다. "
+        f"계정은 그대로 유지됩니다.\n"
+    )
+    await send_email(to=to, subject="[Chat] 비밀번호 재설정", body_text=body)

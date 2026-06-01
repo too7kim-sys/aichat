@@ -5,9 +5,10 @@ import { PasswordStrength } from "./PasswordStrength";
 interface Props {
   /** "login" or "signup" - controls form fields shown. */
   initialMode?: "login" | "signup";
+  onForgot?: () => void;
 }
 
-export function AuthForm({ initialMode = "login" }: Props) {
+export function AuthForm({ initialMode = "login", onForgot }: Props) {
   const { login, signup } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">(initialMode);
   const [email, setEmail] = useState("");
@@ -96,6 +97,14 @@ export function AuthForm({ initialMode = "login" }: Props) {
             ? "로그인"
             : "회원가입"}
         </button>
+
+        {mode === "login" && onForgot && (
+          <div className="auth-switch">
+            <button type="button" onClick={onForgot}>
+              비밀번호를 잊으셨나요?
+            </button>
+          </div>
+        )}
 
         <div className="auth-switch">
           {mode === "login" ? (

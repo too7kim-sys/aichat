@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -18,6 +18,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(80), default="")
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -26,6 +27,30 @@ class User(Base):
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    email_tokens: Mapped[list["EmailToken"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class EmailToken(Base):
+    """Short-lived single-use token for email verification or password reset.
+
+    The raw token is only ever sent to the user via email; we store its
+    SHA-256 hash so a DB leak doesn't grant an attacker live links."""
+    __tablename__ = "email_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # "verify" or "reset" — keep loose for future kinds.
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="email_tokens")
 
 
 class Session(Base):
