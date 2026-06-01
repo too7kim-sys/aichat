@@ -18,7 +18,7 @@
       "linux":   { "python": "${workspaceFolder}/backend/.venv/bin/python" },
       "osx":     { "python": "${workspaceFolder}/backend/.venv/bin/python" },
       "jinja": true,
-      "justMyCode": false,
+      "justMyCode": true,
       "console": "integratedTerminal"
     },
     {
