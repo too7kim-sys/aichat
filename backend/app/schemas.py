@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class MessageOut(BaseModel):
@@ -56,3 +56,39 @@ class ProviderInfo(BaseModel):
     label: str
     model: str
     enabled: bool
+
+
+# ── Auth ─────────────────────────────────────────────────────────────
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(default="", max_length=80)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    email: EmailStr
+    name: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    user: UserOut
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+
+
+class UserUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    current_password: str | None = None
+    new_password: str | None = Field(default=None, min_length=8, max_length=128)

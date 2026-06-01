@@ -6,6 +6,10 @@ import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
 import { ProjectProvider, useProject } from "./project/ProjectContext";
 import { readPath, writeFile } from "./project/fsAccess";
 import { useDiffPreview } from "./project/DiffPreview";
+import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { AuthForm } from "./auth/AuthForm";
+import { MyPage } from "./auth/MyPage";
+import { UserMenu } from "./auth/UserMenu";
 import type { ProviderInfo, Session } from "./types";
 import type { ProjectFile } from "./project/fsAccess";
 
@@ -17,15 +21,26 @@ const ArtifactPanel = lazy(() =>
 
 export default function App() {
   return (
-    <ArtifactProvider>
-      <ProjectProvider>
-        <AppInner />
-      </ProjectProvider>
-    </ArtifactProvider>
+    <AuthProvider>
+      <ArtifactProvider>
+        <ProjectProvider>
+          <AuthGate />
+        </ProjectProvider>
+      </ArtifactProvider>
+    </AuthProvider>
   );
 }
 
-function AppInner() {
+function AuthGate() {
+  const { user, loading } = useAuth();
+  const [view, setView] = useState<"chat" | "mypage">("chat");
+  if (loading) return <div className="app-loading">불러오는 중...</div>;
+  if (!user) return <AuthForm />;
+  if (view === "mypage") return <MyPage onBack={() => setView("chat")} />;
+  return <AppInner onOpenMyPage={() => setView("mypage")} />;
+}
+
+function AppInner({ onOpenMyPage }: { onOpenMyPage: () => void }) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -152,6 +167,9 @@ function AppInner() {
         onAddProjectFileToContext={handleAddProjectFileToContext}
       />
       <main className="main">
+        <div className="app-header-strip">
+          <UserMenu onOpenMyPage={onOpenMyPage} />
+        </div>
         {activeId ? (
           <ChatPanel
             key={activeId}

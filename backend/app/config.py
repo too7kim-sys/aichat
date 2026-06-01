@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
+    # Auth — change JWT_SECRET in .env for any non-local deployment.
+    jwt_secret: str = "dev-only-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_hours: int = 24 * 14
+
     cors_origins: str = "http://localhost:5173"
 
     # Sliding window: only the most recent N messages (user + assistant)

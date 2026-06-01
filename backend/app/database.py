@@ -15,9 +15,29 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 
 
 async def init_db() -> None:
+    from sqlalchemy import text
+
     from . import models  # noqa: F401 - register tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight, idempotent migration for pre-auth SQLite DBs that
+        # already have a `sessions` table without a `user_id` column.
+        # (Full migrations would need Alembic; this covers the only schema
+        # change we've shipped that breaks existing dev DBs.)
+        if settings.database_url.startswith("sqlite"):
+            cols = await conn.exec_driver_sql("PRAGMA table_info(sessions)")
+            existing = {row[1] for row in cols.fetchall()}
+            if "user_id" not in existing:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN user_id VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_user_id "
+                    "ON sessions(user_id)"
+                )
+        # Quiet the unused-import + text linters in environments where
+        # neither branch above runs.
+        _ = text
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:

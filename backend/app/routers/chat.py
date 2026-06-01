@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from .. import models, schemas
+from ..auth import get_current_user
 from ..database import SessionLocal, get_db
 from ..config import settings
 from ..providers.base import ChatMessage, LLMProvider
@@ -19,10 +20,12 @@ from ..search import search as tavily_search
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
 
 
-async def _load_session(db: AsyncSession, session_id: str) -> models.Session:
+async def _load_session(
+    db: AsyncSession, session_id: str, user_id: str
+) -> models.Session:
     result = await db.execute(
         select(models.Session)
-        .where(models.Session.id == session_id)
+        .where(models.Session.id == session_id, models.Session.user_id == user_id)
         .options(selectinload(models.Session.messages))
     )
     session = result.scalar_one_or_none()
@@ -175,6 +178,7 @@ async def chat_single(
     session_id: str,
     payload: schemas.ChatRequest,
     db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
 ):
     if not payload.provider:
         raise HTTPException(400, "provider is required")
@@ -182,7 +186,7 @@ async def chat_single(
     if provider is None or not provider.enabled:
         raise HTTPException(400, f"provider '{payload.provider}' not available")
 
-    session = await _load_session(db, session_id)
+    session = await _load_session(db, session_id, user.id)
     history = _build_history(session, payload.prompt)
 
     attach_msg = _attachments_message(payload.attachments)

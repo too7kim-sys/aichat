@@ -11,6 +11,23 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
 class Session(Base):
     __tablename__ = "sessions"
 
@@ -20,11 +37,17 @@ class Session(Base):
     # databases that still have a NOT NULL constraint on it. Always written
     # as "single" and never read by the current code.
     mode: Mapped[str] = mapped_column(String(20), default="single")
+    # Nullable so pre-auth sessions stored before the user feature still
+    # round-trip; new sessions are always owned by an authenticated user.
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
+    user: Mapped["User | None"] = relationship(back_populates="sessions")
     messages: Mapped[list["Message"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
