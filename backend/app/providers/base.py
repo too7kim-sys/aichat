@@ -19,8 +19,6 @@ class LLMProvider(ABC):
         return True
 
     @abstractmethod
-    def stream(
-        self, messages: list[ChatMessage], model: str | None = None
-    ) -> AsyncIterator[str]:
-        """Yield response text chunks. Override the configured model per call."""
+    def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
+        """Yield response text chunks."""
         raise NotImplementedError

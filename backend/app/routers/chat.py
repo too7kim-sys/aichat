@@ -144,15 +144,13 @@ async def _persist_messages(
 
 
 async def _stream_one(
-    provider: LLMProvider,
-    history: list[ChatMessage],
-    model: str | None = None,
+    provider: LLMProvider, history: list[ChatMessage]
 ) -> AsyncIterator[tuple[str, str]]:
     """Yield (event_type, data_json) tuples for a single provider."""
     start = time.monotonic()
     buf: list[str] = []
     try:
-        async for delta in provider.stream(history, model=model):
+        async for delta in provider.stream(history):
             buf.append(delta)
             yield "token", json.dumps(
                 {"provider": provider.name, "delta": delta}, ensure_ascii=False
@@ -212,7 +210,7 @@ async def chat_single(
                         ensure_ascii=False,
                     ),
                 }
-            async for evt, data in _stream_one(provider, history, model=payload.model):
+            async for evt, data in _stream_one(provider, history):
                 if evt == "token":
                     chunks.append(json.loads(data)["delta"])
                 elif evt == "error":

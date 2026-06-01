@@ -1,11 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import {
-  api,
-  streamChat,
-  type ExtractedFile,
-  type OllamaModel,
-  type SearchSource,
-} from "../api/client";
+import { api, streamChat, type ExtractedFile, type SearchSource } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
@@ -52,29 +46,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const project = useProject();
   const abortRef = useRef<AbortController | null>(null);
   const aliveRef = useRef(true);
-  const [models, setModels] = useState<OllamaModel[]>([]);
-  const [model, setModel] = useState<string>("");
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
-
-  // Fetch the live model list from the Ollama server once.
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .listOllamaModels()
-      .then((res) => {
-        if (cancelled) return;
-        setModels(res.models);
-        if (!model) setModel(res.current);
-      })
-      .catch(() => {
-        /* Ollama may be unreachable; leave the menu empty. */
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -171,40 +143,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     }
   }
 
-  async function clearConversation() {
-    if (!session) return;
-    const ok = window.confirm(
-      `이 세션의 메시지를 모두 삭제할까요?\n(세션 자체는 유지됩니다)`
-    );
-    if (!ok) return;
-    try {
-      await api.clearMessages(session.id);
-      const refreshed = await api.getSession(session.id);
-      setSession(refreshed);
-    } catch (e) {
-      alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-
-  function saveConversation() {
-    if (!session) return;
-    const lines: string[] = [`# ${session.title}`, ""];
-    for (const m of session.messages) {
-      const who =
-        m.role === "user" ? "**User**" : `**Assistant (${m.provider ?? "?"})**`;
-      lines.push(who, "", m.content, "");
-    }
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${session.title.replace(/[^\w가-힣.\-]+/g, "-").slice(0, 60) || "chat"}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   function startEditTitle() {
     if (!session) return;
     setTitleDraft(session.title);
@@ -233,9 +171,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
   if (!session) return <div className="chat-panel">불러오는 중...</div>;
   const enabledProviders = providers.filter((p) => p.enabled);
-  const defaultLabel =
+  const activeProviderLabel =
     enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";
-  const activeProviderLabel = model ? `Ollama (${model})` : defaultLabel;
 
   async function send() {
     if (!prompt.trim() || streaming || !activeProvider) return;
@@ -257,7 +194,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     try {
       await streamChat(sessionId, text, {
         provider: activeProvider,
-        model: model || undefined,
         webSearch,
         signal: controller.signal,
         attachments: sentAttachments.map((a) => ({
@@ -504,7 +440,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                       : "사이드바에서 프로젝트 폴더를 먼저 선택하세요"
                   }
                 >
-                  📁
+                  📁 프로젝트
                 </button>
                 {filePickerOpen && project.root && (
                   <ProjectFilePopover
@@ -513,50 +449,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   />
                 )}
               </div>
-              <div className="composer-popover-wrap">
-                <button
-                  type="button"
-                  className="icon-btn"
-                  onClick={() => setModelMenuOpen((v) => !v)}
-                  disabled={streaming || models.length === 0}
-                  title={
-                    models.length
-                      ? `현재: ${model || "(기본)"}`
-                      : "Ollama 서버에 연결되지 않음"
-                  }
-                >
-                  🤖 {model ? truncMid(model, 16) : "모델"} ▾
-                </button>
-                {modelMenuOpen && (
-                  <ModelMenu
-                    models={models}
-                    current={model}
-                    onPick={(m) => {
-                      setModel(m);
-                      setModelMenuOpen(false);
-                    }}
-                    onClose={() => setModelMenuOpen(false)}
-                  />
-                )}
-              </div>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={clearConversation}
-                disabled={streaming || !session?.messages.length}
-                title="현재 세션의 메시지 모두 삭제"
-              >
-                🧹
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={saveConversation}
-                disabled={!session?.messages.length}
-                title="대화 전체를 .md 파일로 다운로드"
-              >
-                💾
-              </button>
             </div>
             <div className="composer-right">
               {streaming ? (
@@ -583,47 +475,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     </div>
   );
 });
-
-function truncMid(s: string, n: number): string {
-  if (s.length <= n) return s;
-  const half = Math.floor((n - 1) / 2);
-  return s.slice(0, half) + "…" + s.slice(s.length - half);
-}
-
-function ModelMenu({
-  models,
-  current,
-  onPick,
-  onClose,
-}: {
-  models: OllamaModel[];
-  current: string;
-  onPick: (name: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="popover" role="menu">
-      <div className="popover-header">Ollama 모델</div>
-      <ul className="popover-list">
-        {models.map((m) => (
-          <li
-            key={m.name}
-            className={m.name === current ? "active" : ""}
-            onClick={() => onPick(m.name)}
-          >
-            <span className="popover-name">{m.name}</span>
-            <span className="popover-meta">
-              {m.parameter_size ?? formatBytes(m.size)}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <button className="popover-close" onClick={onClose}>
-        닫기
-      </button>
-    </div>
-  );
-}
 
 function ProjectFilePopover({
   onClose,
@@ -702,9 +553,3 @@ function PopoverTree({
   );
 }
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}

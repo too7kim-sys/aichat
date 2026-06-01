@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
-from .routers import chat, files, ollama, sessions
+from .routers import chat, files, sessions
 from .schemas import ProviderInfo
 
 
@@ -28,7 +28,6 @@ app.add_middleware(
 app.include_router(sessions.router)
 app.include_router(chat.router)
 app.include_router(files.router)
-app.include_router(ollama.router)
 
 
 @app.get("/api/health")

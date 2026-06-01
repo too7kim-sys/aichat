@@ -47,7 +47,6 @@ class AttachmentIn(BaseModel):
 class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
     provider: str | None = None
-    model: str | None = None  # per-request override of the provider's default
     web_search: bool = False
     attachments: list[AttachmentIn] = []
 
