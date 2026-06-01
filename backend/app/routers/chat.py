@@ -34,6 +34,19 @@ async def _load_session(
     return session
 
 
+# Persistent system instruction that pins Korean as the default reply
+# language. Inserted at the head of every chat request below.
+_LANGUAGE_SYSTEM = ChatMessage(
+    role="system",
+    content=(
+        "기본 답변 언어는 한국어입니다. 사용자가 영어 등 다른 언어로 질문해도 "
+        "한국어로 답변하세요. 단, 사용자가 명시적으로 다른 언어를 요청한 경우"
+        '(예: "in English please", "영어로 답해줘", "請用中文回答")만 그 언어로 '
+        "응답합니다. 코드 식별자·라이브러리 이름 등 고유명사는 원어 그대로 두세요."
+    ),
+)
+
+
 def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMessage]:
     # Sliding window: keep only the last N persisted messages so the
     # context length sent to Ollama doesn't grow unbounded across a long
@@ -201,6 +214,10 @@ async def chat_single(
         sys_msg, search_sources, search_error = await _run_web_search(payload.prompt)
         if sys_msg is not None:
             history.insert(0, sys_msg)
+
+    # Pin the language preference at the very front so it always wins
+    # over the model's own default behavior.
+    history.insert(0, _LANGUAGE_SYSTEM)
 
     captured: dict[str, tuple[str, int]] = {}
     chunks: list[str] = []
