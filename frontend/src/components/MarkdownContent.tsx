@@ -33,6 +33,14 @@ function CodeCopy({ text }: { text: string }) {
   );
 }
 
+function safeHref(href: string | undefined): string | undefined {
+  if (!href) return undefined;
+  const trimmed = href.trim();
+  // Same allowlist as react-markdown's default URI sanitizer.
+  if (/^(https?:|mailto:|tel:|#|\/|\.)/i.test(trimmed)) return trimmed;
+  return undefined;
+}
+
 function extractText(node: ReactNode): string {
   if (node == null || node === false) return "";
   if (typeof node === "string") return node;
@@ -63,8 +71,16 @@ export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
         rehypePlugins={[rehypeHighlight]}
         components={{
           a({ node: _n, children, href, ...rest }) {
+            // Only allow http(s) / mailto / relative links. Strip
+            // javascript:, data:, vbscript: etc.
+            const safe = safeHref(href);
             return (
-              <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+              <a
+                href={safe}
+                target="_blank"
+                rel="noopener noreferrer"
+                {...rest}
+              >
                 {children}
               </a>
             );

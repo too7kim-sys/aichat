@@ -1,23 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models, schemas
 from ..auth import (
     create_access_token,
+    dummy_verify,
     get_current_user,
     hash_password,
     verify_password,
 )
 from ..database import get_db
+from ._rate_limit import enforce_rate_limit
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/signup", response_model=schemas.AuthResponse, status_code=201)
 async def signup(
-    payload: schemas.SignupRequest, db: AsyncSession = Depends(get_db)
+    payload: schemas.SignupRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
 ):
+    enforce_rate_limit("signup", request, limit=5, window_seconds=600)
     email = payload.email.lower()
     existing = (
         await db.execute(select(models.User).where(models.User.email == email))
@@ -38,12 +43,22 @@ async def signup(
 
 
 @router.post("/login", response_model=schemas.AuthResponse)
-async def login(payload: schemas.LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    payload: schemas.LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    enforce_rate_limit("login", request, limit=10, window_seconds=60)
     email = payload.email.lower()
     user = (
         await db.execute(select(models.User).where(models.User.email == email))
     ).scalar_one_or_none()
-    if user is None or not verify_password(payload.password, user.password_hash):
+    # Equalise timing whether or not the email exists, so an attacker
+    # can't enumerate accounts via response latency.
+    if user is None:
+        dummy_verify()
+        raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다")
+    if not verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다")
     token, expires = create_access_token(user.id)
     return schemas.AuthResponse(user=user, access_token=token, expires_at=expires)

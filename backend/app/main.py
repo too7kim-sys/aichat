@@ -1,7 +1,9 @@
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
 from .database import init_db
@@ -9,20 +11,63 @@ from .providers.registry import all_providers
 from .routers import auth, chat, files, sessions
 from .schemas import ProviderInfo
 
+log = logging.getLogger("uvicorn.error")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.jwt_secret == "dev-only-change-me":
+        log.warning(
+            "JWT_SECRET is set to the default placeholder. Generate a strong "
+            "random value (python -c 'import secrets; print(secrets.token_urlsafe(48))') "
+            "and put it in backend/.env before exposing this service."
+        )
     await init_db()
     yield
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        h = response.headers
+        # Browsers should not sniff types away from what we declare.
+        h["X-Content-Type-Options"] = "nosniff"
+        # No legacy framing — clickjacking guard. CSP frame-ancestors
+        # below covers modern browsers as well.
+        h["X-Frame-Options"] = "DENY"
+        # Strip referrer for cross-origin navigations.
+        h["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Lock down powerful features we don't use.
+        h["Permissions-Policy"] = (
+            "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+        )
+        # CSP only for HTML responses; APIs don't need it.
+        ctype = h.get("content-type", "")
+        if ctype.startswith("text/html"):
+            h["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "worker-src 'self' blob:; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; "
+                "font-src 'self' data:; "
+                "connect-src 'self' https://cdn.jsdelivr.net; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'; "
+                "object-src 'none'"
+            )
+        return response
+
+
 app = FastAPI(title="Chat", lifespan=lifespan)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    max_age=600,
 )
 
 app.include_router(auth.router)

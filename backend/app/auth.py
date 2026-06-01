@@ -18,6 +18,16 @@ from .database import get_db
 _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _bearer = HTTPBearer(auto_error=False)
 
+# A pre-computed bcrypt hash used to keep login work constant when the
+# email doesn't exist. Without it an attacker can time the request to
+# tell which emails are registered.
+_DUMMY_HASH = _pwd.hash("not-a-real-password-just-for-timing-equalisation")
+
+
+def dummy_verify() -> None:
+    """Burn the same CPU cost as a real verify_password call."""
+    _pwd.verify("placeholder", _DUMMY_HASH)
+
 
 def hash_password(plain: str) -> str:
     return _pwd.hash(plain)
