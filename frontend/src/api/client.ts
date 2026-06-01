@@ -141,8 +141,19 @@ export const auth = {
     }),
 };
 
+export interface OllamaModel {
+  name: string;
+  size: number;
+  parameter_size: string | null;
+}
+export interface OllamaModelList {
+  current: string;
+  models: OllamaModel[];
+}
+
 export const api = {
   listProviders: () => json<ProviderInfo[]>("/providers"),
+  listOllamaModels: () => json<OllamaModelList>("/ollama/models"),
   listSessions: () => json<Session[]>("/sessions"),
   getSession: (id: string) => json<SessionDetail>(`/sessions/${id}`),
   createSession: (title: string) =>
@@ -177,6 +188,7 @@ export async function streamChat(
   prompt: string,
   opts: {
     provider: string;
+    model?: string | null;
     webSearch?: boolean;
     attachments?: { filename: string; text: string }[];
     signal?: AbortSignal;
@@ -188,6 +200,7 @@ export async function streamChat(
     body: JSON.stringify({
       prompt,
       provider: opts.provider,
+      model: opts.model ?? undefined,
       web_search: !!opts.webSearch,
       attachments: opts.attachments ?? [],
     }),

@@ -1,5 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { api, streamChat, type ExtractedFile, type SearchSource } from "../api/client";
+import {
+  api,
+  streamChat,
+  type ExtractedFile,
+  type OllamaModel,
+  type SearchSource,
+} from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
@@ -40,6 +46,41 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const artifactsState = useArtifacts();
   const abortRef = useRef<AbortController | null>(null);
   const aliveRef = useRef(true);
+  const [models, setModels] = useState<OllamaModel[]>([]);
+  const [model, setModel] = useState<string>("");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch the installed model list from the Ollama server once.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listOllamaModels()
+      .then((res) => {
+        if (cancelled) return;
+        setModels(res.models);
+        if (!model) setModel(res.current);
+      })
+      .catch(() => {
+        /* server unreachable; selector stays empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Close dropdown on outside click.
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    function onClick(e: MouseEvent) {
+      if (!modelMenuRef.current?.contains(e.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    }
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, [modelMenuOpen]);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -151,8 +192,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
   if (!session) return <div className="chat-panel">불러오는 중...</div>;
   const enabledProviders = providers.filter((p) => p.enabled);
-  const activeProviderLabel =
+  const defaultLabel =
     enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";
+  const activeProviderLabel = model ? `Ollama (${model})` : defaultLabel;
 
   async function send() {
     if (!prompt.trim() || streaming || !activeProvider) return;
@@ -174,6 +216,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     try {
       await streamChat(sessionId, text, {
         provider: activeProvider,
+        model: model || undefined,
         webSearch,
         signal: controller.signal,
         attachments: sentAttachments.map((a) => ({
@@ -263,7 +306,43 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           </h2>
         )}
         <div className="chat-header-right">
-          <span className="model-info">{activeProviderLabel}</span>
+          <div className="model-select" ref={modelMenuRef}>
+            <button
+              type="button"
+              className="model-info model-trigger"
+              onClick={() => setModelMenuOpen((v) => !v)}
+              disabled={streaming || models.length === 0}
+              title={
+                models.length
+                  ? "Ollama 모델 변경"
+                  : "Ollama 서버에 연결되지 않음"
+              }
+            >
+              {activeProviderLabel} {models.length > 0 && "▾"}
+            </button>
+            {modelMenuOpen && (
+              <div className="popover model-popover" role="menu">
+                <div className="popover-header">Ollama 모델</div>
+                <ul className="popover-list">
+                  {models.map((m) => (
+                    <li
+                      key={m.name}
+                      className={m.name === model ? "active" : ""}
+                      onClick={() => {
+                        setModel(m.name);
+                        setModelMenuOpen(false);
+                      }}
+                    >
+                      <span className="popover-name">{m.name}</span>
+                      <span className="popover-meta">
+                        {m.parameter_size ?? formatBytes(m.size)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
           {artifactsState.artifacts.length > 0 && (
             <button
               type="button"
@@ -433,3 +512,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     </div>
   );
 });
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
