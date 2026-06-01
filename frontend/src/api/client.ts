@@ -90,6 +90,15 @@ export interface AuthResponse {
   expires_at: string;
 }
 
+export interface AuditEvent {
+  id: string;
+  event: string;
+  ip: string;
+  user_agent: string;
+  detail: string;
+  created_at: string;
+}
+
 export const auth = {
   signup: (email: string, password: string, name: string) =>
     json<AuthResponse>("/auth/signup", {
@@ -109,6 +118,8 @@ export const auth = {
   }) =>
     json<AuthUser>("/me", { method: "PATCH", body: JSON.stringify(payload) }),
   deleteMe: () => json<void>("/me", { method: "DELETE" }),
+  myAudit: (limit = 50) =>
+    json<AuditEvent[]>(`/me/audit?limit=${limit}`),
 };
 
 export const api = {

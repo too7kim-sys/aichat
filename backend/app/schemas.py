@@ -92,3 +92,15 @@ class UserUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=80)
     current_password: str | None = None
     new_password: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class AuditEvent(BaseModel):
+    id: str
+    event: str
+    ip: str
+    user_agent: str
+    detail: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

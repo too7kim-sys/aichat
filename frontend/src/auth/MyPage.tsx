@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
-import { auth } from "../api/client";
+import { useEffect, useState, type FormEvent } from "react";
+import { auth, type AuditEvent } from "../api/client";
 import { useAuth } from "./AuthContext";
+import { PasswordStrength } from "./PasswordStrength";
 
 interface Props {
   onBack: () => void;
@@ -14,6 +15,11 @@ export function MyPage({ onBack }: Props) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+
+  useEffect(() => {
+    auth.myAudit(20).then(setEvents).catch(() => {});
+  }, []);
 
   if (!user) return null;
 
@@ -120,15 +126,44 @@ export function MyPage({ onBack }: Props) {
             type="password"
             value={newPw}
             onChange={(e) => setNewPw(e.target.value)}
-            placeholder="새 비밀번호 (8자 이상)"
+            placeholder="새 비밀번호 (8자 이상, 2종류 이상)"
             autoComplete="new-password"
             minLength={8}
             required
+          />
+          <PasswordStrength
+            password={newPw}
+            email={user.email}
+            name={user.name}
           />
           <button className="primary" type="submit" disabled={saving}>
             비밀번호 변경
           </button>
         </form>
+
+        <div className="mypage-section">
+          <h2>최근 활동</h2>
+          {events.length === 0 ? (
+            <p className="mypage-hint">기록 없음</p>
+          ) : (
+            <ul className="audit-list">
+              {events.map((e) => (
+                <li key={e.id}>
+                  <span className={`audit-badge audit-${e.event}`}>
+                    {labelFor(e.event)}
+                  </span>
+                  <span className="audit-time">
+                    {new Date(e.created_at).toLocaleString("ko-KR")}
+                  </span>
+                  <span className="audit-meta">
+                    {e.ip}
+                    {e.detail && ` · ${e.detail}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         {(message || error) && (
           <div className={`mypage-flash ${error ? "error" : "ok"}`}>
@@ -153,4 +188,25 @@ export function MyPage({ onBack }: Props) {
       </div>
     </div>
   );
+}
+
+function labelFor(event: string): string {
+  switch (event) {
+    case "signup":
+      return "가입";
+    case "login_ok":
+      return "로그인";
+    case "login_fail":
+      return "로그인 실패";
+    case "password_change":
+      return "비번 변경";
+    case "name_change":
+      return "이름 변경";
+    case "account_delete":
+      return "계정 삭제";
+    case "signup_fail":
+      return "가입 실패";
+    default:
+      return event;
+  }
 }

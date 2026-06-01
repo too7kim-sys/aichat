@@ -1595,3 +1595,90 @@ body {
   border-radius: 6px;
 }
 .user-menu-item:hover { background: var(--bg-sidebar); }
+
+/* ── Password strength meter + audit list ─────────── */
+.pw-strength {
+  margin-top: 4px;
+  font-weight: 400;
+}
+.pw-strength-bar {
+  height: 4px;
+  width: 100%;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.pw-strength-bar span {
+  display: block;
+  height: 100%;
+  transition: width 0.18s, background 0.18s;
+}
+.pw-strength-bar.level-0 span { background: var(--danger); }
+.pw-strength-bar.level-1 span { background: #d97a2c; }
+.pw-strength-bar.level-2 span { background: #c89a1d; }
+.pw-strength-bar.level-3 span { background: #6c9b50; }
+.pw-strength-bar.level-4 span { background: #3e8a4e; }
+
+.pw-strength-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.pw-strength-label { font-weight: 600; }
+.pw-strength-label.level-0 { color: var(--danger); }
+.pw-strength-label.level-1 { color: #d97a2c; }
+.pw-strength-label.level-2 { color: #c89a1d; }
+.pw-strength-label.level-3 { color: #6c9b50; }
+.pw-strength-label.level-4 { color: #3e8a4e; }
+.pw-strength-reasons { color: var(--text-faint); text-align: right; }
+
+.audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.audit-list li {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--bg-sidebar);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.audit-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  text-align: center;
+}
+.audit-badge.audit-login_ok { background: #e6f3ea; color: #2d7a4f; }
+.audit-badge.audit-signup { background: #e6f3ea; color: #2d7a4f; }
+.audit-badge.audit-login_fail,
+.audit-badge.audit-signup_fail,
+.audit-badge.audit-account_delete { background: rgba(197,68,68,0.1); color: var(--danger); }
+.audit-badge.audit-password_change,
+.audit-badge.audit-name_change { background: var(--accent-soft); color: var(--accent-hover); }
+.audit-time { color: var(--text-muted); font-size: 11px; }
+.audit-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+.mypage-hint { font-size: 12px; color: var(--text-muted); margin: 0; }

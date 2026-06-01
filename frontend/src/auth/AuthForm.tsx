@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "./AuthContext";
+import { PasswordStrength } from "./PasswordStrength";
 
 interface Props {
   /** "login" or "signup" - controls form fields shown. */
@@ -75,7 +76,12 @@ export function AuthForm({ initialMode = "login" }: Props) {
             required
           />
           {mode === "signup" && (
-            <small className="auth-hint">8자 이상</small>
+            <small className="auth-hint">
+              8자 이상 · 영문 대/소문자 · 숫자 · 기호 중 2종류 이상
+            </small>
+          )}
+          {mode === "signup" && (
+            <PasswordStrength password={password} email={email} name={name} />
           )}
         </label>
 
