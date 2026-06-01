@@ -12,13 +12,38 @@ export function ProjectPanel({ onOpenFile, onAddToContext }: Props) {
     useProject();
 
   if (!supported) {
+    const insecure =
+      typeof window !== "undefined" &&
+      !window.isSecureContext &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1";
     return (
       <div className="project-panel">
-        <p className="project-unsupported">
-          이 브라우저는 파일 시스템 접근 API를 지원하지 않습니다.
-          <br />
-          Chrome 또는 Edge에서 사용해 주세요.
-        </p>
+        {insecure ? (
+          <p className="project-unsupported">
+            File System Access API는 HTTPS 또는 localhost에서만 동작합니다.
+            <br />
+            지금은 평문 HTTP로 LAN IP에 접속 중이라 브라우저가 막고 있어요.
+            <br />
+            <br />
+            해결책:
+            <br />
+            ① 같은 PC에서 <code>http://localhost:5173</code> 으로 접속
+            <br />
+            ② Vite를 HTTPS로 기동:{" "}
+            <code>DEV_HTTPS=1 npm run dev</code>
+            <br />
+            ③ Chrome 플래그로 이 origin만 임시 허용:{" "}
+            <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>
+            에 <code>{window.location.origin}</code> 추가
+          </p>
+        ) : (
+          <p className="project-unsupported">
+            이 브라우저는 File System Access API를 지원하지 않습니다.
+            <br />
+            Chrome 또는 Edge 최신 버전에서 사용해 주세요.
+          </p>
+        )}
       </div>
     );
   }
