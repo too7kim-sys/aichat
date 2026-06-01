@@ -1,0 +1,141 @@
+import { useSyncExternalStore } from "react";
+import { streamChat, type SearchSource } from "../api/client";
+
+/**
+ * Live state for a single in-flight chat response, indexed by sessionId.
+ *
+ * The stream lifecycle is held outside any React component so that
+ * navigating away from a chat mid-stream and back doesn't abort the
+ * response (the SSE connection keeps running, tokens keep landing in
+ * `buffer`, and the chat panel that next mounts for this sessionId
+ * subscribes to the same object).
+ */
+export interface LiveStream {
+  sessionId: string;
+  prompt: string;
+  buffer: string; // accumulated assistant text
+  sources: SearchSource[] | null;
+  startedAt: number;
+  done: boolean;
+  errors: string[];
+  abort: () => void;
+}
+
+type Listener = () => void;
+
+class StreamStore {
+  private streams = new Map<string, LiveStream>();
+  private listeners = new Set<Listener>();
+
+  subscribe = (fn: Listener): (() => void) => {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  };
+
+  get(sessionId: string): LiveStream | undefined {
+    return this.streams.get(sessionId);
+  }
+
+  isStreaming(sessionId: string): boolean {
+    const s = this.streams.get(sessionId);
+    return !!s && !s.done;
+  }
+
+  start(params: {
+    sessionId: string;
+    prompt: string;
+    provider: string;
+    model?: string | null;
+    webSearch?: boolean;
+    attachments?: { filename: string; text: string }[];
+    onComplete?: (errors: string[]) => void;
+  }): boolean {
+    if (this.isStreaming(params.sessionId)) return false;
+
+    const controller = new AbortController();
+    let buffer = "";
+    const errors: string[] = [];
+    const stream: LiveStream = {
+      sessionId: params.sessionId,
+      prompt: params.prompt,
+      buffer: "",
+      sources: params.webSearch ? [] : null,
+      startedAt: Date.now(),
+      done: false,
+      errors,
+      abort: () => controller.abort(),
+    };
+    this.streams.set(params.sessionId, stream);
+    this.notify();
+
+    const update = (patch: Partial<LiveStream>) => {
+      const cur = this.streams.get(params.sessionId);
+      if (!cur) return;
+      this.streams.set(params.sessionId, { ...cur, ...patch });
+      this.notify();
+    };
+
+    streamChat(params.sessionId, params.prompt, {
+      provider: params.provider,
+      model: params.model ?? undefined,
+      webSearch: params.webSearch,
+      attachments: params.attachments,
+      signal: controller.signal,
+      onToken: (_p, delta) => {
+        buffer += delta;
+        update({ buffer });
+      },
+      onDone: () => {},
+      onError: (_p, message) => {
+        errors.push(message);
+        buffer += `\n[error: ${message}]`;
+        update({ buffer, errors: [...errors] });
+      },
+      onSources: (sources, error) => {
+        if (error) errors.push(`web search: ${error}`);
+        update({ sources });
+      },
+    })
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        // Abort initiated by the user via the Stop button isn't really an error.
+        if (msg.toLowerCase().includes("abort")) return;
+        errors.push(msg);
+        buffer += `\n[error: ${msg}]`;
+        update({ buffer, errors: [...errors] });
+      })
+      .finally(() => {
+        update({ done: true });
+        // Give subscribers one tick to switch from the live overlay to
+        // the refetched session messages, then drop the stream so the
+        // next send for this session can start fresh.
+        window.setTimeout(() => {
+          this.streams.delete(params.sessionId);
+          this.notify();
+          params.onComplete?.(errors);
+        }, 300);
+      });
+
+    return true;
+  }
+
+  private notify() {
+    for (const fn of this.listeners) fn();
+  }
+}
+
+export const streamStore = new StreamStore();
+
+/**
+ * React hook — re-renders when the named session's live stream changes.
+ * Returns undefined when there is no in-flight stream.
+ */
+export function useLiveStream(sessionId: string | null): LiveStream | undefined {
+  return useSyncExternalStore(
+    streamStore.subscribe,
+    () => (sessionId ? streamStore.get(sessionId) : undefined),
+    () => undefined
+  );
+}

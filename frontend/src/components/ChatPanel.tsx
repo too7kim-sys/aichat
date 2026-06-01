@@ -1,14 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import {
-  api,
-  streamChat,
-  type ExtractedFile,
-  type OllamaModel,
-  type SearchSource,
-} from "../api/client";
+import { api, type ExtractedFile } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
+import { useModels } from "../state/ModelContext";
+import { streamStore, useLiveStream } from "../state/streamStore";
 
 interface Props {
   sessionId: string;
@@ -28,14 +24,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [prompt, setPrompt] = useState("");
   const [activeProvider, setActiveProvider] = useState<string>("");
-  const [streaming, setStreaming] = useState(false);
-  const [liveAssistant, setLiveAssistant] = useState<string | null>(null);
-  const [livePrompt, setLivePrompt] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
-  const [liveSources, setLiveSources] = useState<SearchSource[] | null>(null);
   const [attachments, setAttachments] = useState<ExtractedFile[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [streamStartedAt, setStreamStartedAt] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -44,31 +35,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const artifactsState = useArtifacts();
-  const abortRef = useRef<AbortController | null>(null);
-  const aliveRef = useRef(true);
-  const [models, setModels] = useState<OllamaModel[]>([]);
-  const [model, setModel] = useState<string>("");
+  const { models, selected: model, setSelected: setModel } = useModels();
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
-  // Fetch the installed model list from the Ollama server once.
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .listOllamaModels()
-      .then((res) => {
-        if (cancelled) return;
-        setModels(res.models);
-        if (!model) setModel(res.current);
-      })
-      .catch(() => {
-        /* server unreachable; selector stays empty */
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Subscribe to the (possibly in-flight) stream for this session.
+  const liveStream = useLiveStream(sessionId);
+  const streaming = !!liveStream && !liveStream.done;
+  const liveAssistant = liveStream?.buffer ?? null;
+  const livePrompt = liveStream?.prompt ?? null;
+  const liveSources = liveStream?.sources ?? null;
 
   // Close dropdown on outside click.
   useEffect(() => {
@@ -81,14 +57,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
   }, [modelMenuOpen]);
-
-  useEffect(() => {
-    aliveRef.current = true;
-    return () => {
-      aliveRef.current = false;
-      abortRef.current?.abort();
-    };
-  }, []);
 
   useImperativeHandle(ref, () => ({
     appendToPrompt(text: string) {
@@ -103,17 +71,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     },
   }));
 
+  // Elapsed-time ticker — anchored to the live stream's startedAt so it
+  // keeps counting even when the user navigated away and came back.
   useEffect(() => {
-    if (streamStartedAt === null) {
+    if (!liveStream || liveStream.done) {
       setElapsedSec(0);
       return;
     }
-    const tick = () =>
-      setElapsedSec(Math.floor((Date.now() - streamStartedAt) / 1000));
+    const startedAt = liveStream.startedAt;
+    const tick = () => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000));
     tick();
     const id = window.setInterval(tick, 500);
     return () => window.clearInterval(id);
-  }, [streamStartedAt]);
+  }, [liveStream]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -129,9 +99,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     let cancelled = false;
     setSession(null);
     setLoadError(null);
-    setLiveAssistant(null);
-    setLivePrompt(null);
-    setLiveSources(null);
     setAttachments([]);
     api
       .getSession(sessionId)
@@ -148,6 +115,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       cancelled = true;
     };
   }, [sessionId, loadAttempt]);
+
+  // When a stream for this session finishes, refetch so the persisted
+  // assistant message replaces the live overlay.
+  useEffect(() => {
+    if (!liveStream || !liveStream.done) return;
+    let cancelled = false;
+    api
+      .getSession(sessionId)
+      .then((s) => {
+        if (!cancelled) setSession(s);
+      })
+      .catch(() => {});
+    onTitleSync?.();
+    if (liveStream.errors.length) {
+      alert(`응답 실패:\n\n${liveStream.errors.join("\n")}`);
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveStream?.done, sessionId]);
 
   useEffect(() => {
     const enabled = providers.filter((p) => p.enabled);
@@ -234,77 +222,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";
   const activeProviderLabel = model ? `Ollama (${model})` : defaultLabel;
 
-  async function send() {
+  function send() {
     if (!prompt.trim() || streaming || !activeProvider) return;
     const text = prompt;
     setPrompt("");
-    setLivePrompt(text);
-    setStreaming(true);
-    setLiveAssistant("");
-    setLiveSources(webSearch ? [] : null);
-    setStreamStartedAt(Date.now());
-
-    const errors: string[] = [];
     const sentAttachments = attachments;
-    let buffer = "";
-    const controller = new AbortController();
-    abortRef.current?.abort();
-    abortRef.current = controller;
-
-    try {
-      await streamChat(sessionId, text, {
-        provider: activeProvider,
-        model: model || undefined,
-        webSearch,
-        signal: controller.signal,
-        attachments: sentAttachments.map((a) => ({
-          filename: a.filename,
-          text: a.text,
-        })),
-        onToken: (_provider, delta) => {
-          buffer += delta;
-          setLiveAssistant(buffer);
-        },
-        onDone: () => {},
-        onError: (_provider, message) => {
-          errors.push(message);
-          buffer += `\n[error: ${message}]`;
-          setLiveAssistant(buffer);
-        },
-        onSources: (sources, error) => {
-          if (error) errors.push(`web search: ${error}`);
-          setLiveSources(sources);
-        },
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      errors.push(msg);
-      buffer += `\n[error: ${msg}]`;
-      setLiveAssistant(buffer);
-      console.error(e);
-    } finally {
-      abortRef.current = null;
-      if (!aliveRef.current) return;
-      try {
-        const refreshed = await api.getSession(sessionId);
-        if (!aliveRef.current) return;
-        setSession(refreshed);
-        if (refreshed.title === "New chat" || text) {
-          onTitleSync?.();
-        }
-      } catch {
-        // ignore refetch failure - already showed errors above
-      }
-      setLiveAssistant(null);
-      setLivePrompt(null);
-      setLiveSources(null);
-      setAttachments([]);
-      setStreaming(false);
-      setStreamStartedAt(null);
-      if (errors.length) {
-        alert(`응답 실패:\n\n${errors.join("\n")}`);
-      }
-    }
+    setAttachments([]);
+    streamStore.start({
+      sessionId,
+      prompt: text,
+      provider: activeProvider,
+      model: model || undefined,
+      webSearch,
+      attachments: sentAttachments.map((a) => ({
+        filename: a.filename,
+        text: a.text,
+      })),
+    });
   }
 
   function formatElapsed(s: number): string {
@@ -529,7 +463,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               {streaming ? (
                 <button
                   className="stop-btn"
-                  onClick={() => abortRef.current?.abort()}
+                  onClick={() => liveStream?.abort()}
                   title="응답 생성을 중단"
                 >
                   ■ 중단 {formatElapsed(elapsedSec)}
