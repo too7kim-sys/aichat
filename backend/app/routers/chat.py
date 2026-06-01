@@ -19,6 +19,10 @@ from ..search import search as tavily_search
 
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
 
+# Hold strong refs to detached persistence tasks so they aren't GC'd
+# before they finish writing the partial response to the DB.
+_BACKGROUND_PERSISTS: set = set()
+
 
 async def _load_session(
     db: AsyncSession, session_id: str, user_id: str
@@ -244,6 +248,19 @@ async def chat_single(
                 "".join(chunks),
                 int((time.monotonic() - start) * 1000),
             )
-            await _persist_messages(session_id, payload.prompt, captured)
+            # Shield the write so a client disconnect (user navigates to
+            # another chat while the response is still streaming) doesn't
+            # cancel the partial-response save mid-INSERT. The await is
+            # still cancelled by the outer task, but the persistence task
+            # keeps running to completion.
+            persist = asyncio.create_task(
+                _persist_messages(session_id, payload.prompt, captured)
+            )
+            try:
+                await asyncio.shield(persist)
+            except asyncio.CancelledError:
+                # Detach so it survives the response cleanup.
+                _BACKGROUND_PERSISTS.add(persist)
+                persist.add_done_callback(_BACKGROUND_PERSISTS.discard)
 
     return EventSourceResponse(event_gen())
