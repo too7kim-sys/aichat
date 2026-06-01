@@ -197,22 +197,46 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     setTitleDraft("");
   }
 
+  // Show the live stream right away (without waiting for the session fetch)
+  // so a chat switch back to an in-flight conversation doesn't appear to
+  // interrupt the response.
   if (!session) {
     return (
-      <div className="chat-panel chat-loading">
-        {loadError ? (
+      <div className="chat-panel">
+        {liveStream ? (
           <>
-            <p>대화를 불러오지 못했습니다.</p>
-            <p className="chat-loading-detail">{loadError}</p>
-            <button
-              className="primary"
-              onClick={() => setLoadAttempt((n) => n + 1)}
-            >
-              다시 시도
-            </button>
+            <header className="chat-header">
+              <h2 className="chat-title">대화 불러오는 중...</h2>
+            </header>
+            <div className="messages">
+              <div className="messages-inner">
+                <MessageBubble role="user" content={liveStream.prompt} />
+                <MessageBubble
+                  role="assistant"
+                  provider="Ollama"
+                  content={liveStream.buffer || "응답 생성 중..."}
+                  streaming
+                />
+              </div>
+            </div>
           </>
         ) : (
-          <p>불러오는 중...</p>
+          <div className="chat-loading">
+            {loadError ? (
+              <>
+                <p>대화를 불러오지 못했습니다.</p>
+                <p className="chat-loading-detail">{loadError}</p>
+                <button
+                  className="primary"
+                  onClick={() => setLoadAttempt((n) => n + 1)}
+                >
+                  다시 시도
+                </button>
+              </>
+            ) : (
+              <p>불러오는 중...</p>
+            )}
+          </div>
         )}
       </div>
     );
