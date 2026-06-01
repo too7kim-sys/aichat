@@ -122,13 +122,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     el.style.height = Math.min(el.scrollHeight, 240) + "px";
   }, [prompt]);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
   useEffect(() => {
-    api.getSession(sessionId).then(setSession);
+    let cancelled = false;
+    setSession(null);
+    setLoadError(null);
     setLiveAssistant(null);
     setLivePrompt(null);
     setLiveSources(null);
     setAttachments([]);
-  }, [sessionId]);
+    api
+      .getSession(sessionId)
+      .then((s) => {
+        if (!cancelled) setSession(s);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setLoadError(msg);
+        console.error("getSession failed", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, loadAttempt]);
 
   useEffect(() => {
     const enabled = providers.filter((p) => p.enabled);
@@ -190,7 +209,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     setTitleDraft("");
   }
 
-  if (!session) return <div className="chat-panel">불러오는 중...</div>;
+  if (!session) {
+    return (
+      <div className="chat-panel chat-loading">
+        {loadError ? (
+          <>
+            <p>대화를 불러오지 못했습니다.</p>
+            <p className="chat-loading-detail">{loadError}</p>
+            <button
+              className="primary"
+              onClick={() => setLoadAttempt((n) => n + 1)}
+            >
+              다시 시도
+            </button>
+          </>
+        ) : (
+          <p>불러오는 중...</p>
+        )}
+      </div>
+    );
+  }
   const enabledProviders = providers.filter((p) => p.enabled);
   const defaultLabel =
     enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";

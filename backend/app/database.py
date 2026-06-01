@@ -20,6 +20,13 @@ async def init_db() -> None:
     from . import models  # noqa: F401 - register tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # SQLite: switch to WAL so a long-running write (e.g. persisting
+        # an in-flight assistant message after the user navigated to a
+        # new chat) doesn't block fresh reads on other tabs/requests.
+        if settings.database_url.startswith("sqlite"):
+            await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+            await conn.exec_driver_sql("PRAGMA synchronous=NORMAL")
+            await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
         # Lightweight, idempotent migration for pre-auth SQLite DBs that
         # already have a `sessions` table without a `user_id` column.
         # (Full migrations would need Alembic; this covers the only schema
