@@ -1,8 +1,16 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { api, streamChat, type ExtractedFile, type SearchSource } from "../api/client";
+import {
+  api,
+  streamChat,
+  type ExtractedFile,
+  type OllamaModel,
+  type SearchSource,
+} from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
+import { useProject, type ProjectTreeNode } from "../project/ProjectContext";
+import { readFileText, type ProjectFile } from "../project/fsAccess";
 
 interface Props {
   sessionId: string;
@@ -41,8 +49,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const artifactsState = useArtifacts();
+  const project = useProject();
   const abortRef = useRef<AbortController | null>(null);
   const aliveRef = useRef(true);
+  const [models, setModels] = useState<OllamaModel[]>([]);
+  const [model, setModel] = useState<string>("");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [filePickerOpen, setFilePickerOpen] = useState(false);
+
+  // Fetch the live model list from the Ollama server once.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listOllamaModels()
+      .then((res) => {
+        if (cancelled) return;
+        setModels(res.models);
+        if (!model) setModel(res.current);
+      })
+      .catch(() => {
+        /* Ollama may be unreachable; leave the menu empty. */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -126,6 +158,53 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  async function attachProjectFile(file: ProjectFile) {
+    try {
+      const text = await readFileText(file);
+      setAttachments((prev) => [
+        ...prev,
+        { filename: file.path, text, char_count: text.length, method: "project" },
+      ]);
+      setFilePickerOpen(false);
+    } catch (e) {
+      alert(`첨부 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function clearConversation() {
+    if (!session) return;
+    const ok = window.confirm(
+      `이 세션의 메시지를 모두 삭제할까요?\n(세션 자체는 유지됩니다)`
+    );
+    if (!ok) return;
+    try {
+      await api.clearMessages(session.id);
+      const refreshed = await api.getSession(session.id);
+      setSession(refreshed);
+    } catch (e) {
+      alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  function saveConversation() {
+    if (!session) return;
+    const lines: string[] = [`# ${session.title}`, ""];
+    for (const m of session.messages) {
+      const who =
+        m.role === "user" ? "**User**" : `**Assistant (${m.provider ?? "?"})**`;
+      lines.push(who, "", m.content, "");
+    }
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${session.title.replace(/[^\w가-힣.\-]+/g, "-").slice(0, 60) || "chat"}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function startEditTitle() {
     if (!session) return;
     setTitleDraft(session.title);
@@ -154,8 +233,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
   if (!session) return <div className="chat-panel">불러오는 중...</div>;
   const enabledProviders = providers.filter((p) => p.enabled);
-  const activeProviderLabel =
+  const defaultLabel =
     enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";
+  const activeProviderLabel = model ? `Ollama (${model})` : defaultLabel;
 
   async function send() {
     if (!prompt.trim() || streaming || !activeProvider) return;
@@ -177,6 +257,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     try {
       await streamChat(sessionId, text, {
         provider: activeProvider,
+        model: model || undefined,
         webSearch,
         signal: controller.signal,
         attachments: sentAttachments.map((a) => ({
@@ -409,7 +490,72 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 disabled={streaming}
                 title="웹 검색 결과를 LLM 컨텍스트에 포함"
               >
-                🌐 웹 검색 {webSearch ? "ON" : "OFF"}
+                🌐 {webSearch ? "검색 ON" : "검색"}
+              </button>
+              <div className="composer-popover-wrap">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setFilePickerOpen((v) => !v)}
+                  disabled={streaming || !project.root}
+                  title={
+                    project.root
+                      ? "프로젝트 파일 첨부"
+                      : "사이드바에서 프로젝트 폴더를 먼저 선택하세요"
+                  }
+                >
+                  📁
+                </button>
+                {filePickerOpen && project.root && (
+                  <ProjectFilePopover
+                    onClose={() => setFilePickerOpen(false)}
+                    onPick={attachProjectFile}
+                  />
+                )}
+              </div>
+              <div className="composer-popover-wrap">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setModelMenuOpen((v) => !v)}
+                  disabled={streaming || models.length === 0}
+                  title={
+                    models.length
+                      ? `현재: ${model || "(기본)"}`
+                      : "Ollama 서버에 연결되지 않음"
+                  }
+                >
+                  🤖 {model ? truncMid(model, 16) : "모델"} ▾
+                </button>
+                {modelMenuOpen && (
+                  <ModelMenu
+                    models={models}
+                    current={model}
+                    onPick={(m) => {
+                      setModel(m);
+                      setModelMenuOpen(false);
+                    }}
+                    onClose={() => setModelMenuOpen(false)}
+                  />
+                )}
+              </div>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={clearConversation}
+                disabled={streaming || !session?.messages.length}
+                title="현재 세션의 메시지 모두 삭제"
+              >
+                🧹
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={saveConversation}
+                disabled={!session?.messages.length}
+                title="대화 전체를 .md 파일로 다운로드"
+              >
+                💾
               </button>
             </div>
             <div className="composer-right">
@@ -437,3 +583,128 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     </div>
   );
 });
+
+function truncMid(s: string, n: number): string {
+  if (s.length <= n) return s;
+  const half = Math.floor((n - 1) / 2);
+  return s.slice(0, half) + "…" + s.slice(s.length - half);
+}
+
+function ModelMenu({
+  models,
+  current,
+  onPick,
+  onClose,
+}: {
+  models: OllamaModel[];
+  current: string;
+  onPick: (name: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="popover" role="menu">
+      <div className="popover-header">Ollama 모델</div>
+      <ul className="popover-list">
+        {models.map((m) => (
+          <li
+            key={m.name}
+            className={m.name === current ? "active" : ""}
+            onClick={() => onPick(m.name)}
+          >
+            <span className="popover-name">{m.name}</span>
+            <span className="popover-meta">
+              {m.parameter_size ?? formatBytes(m.size)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <button className="popover-close" onClick={onClose}>
+        닫기
+      </button>
+    </div>
+  );
+}
+
+function ProjectFilePopover({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (file: ProjectFile) => void;
+}) {
+  const { tree } = useProject();
+  return (
+    <div className="popover popover-tree" role="menu">
+      <div className="popover-header">프로젝트 파일 선택</div>
+      <div className="popover-tree-body">
+        <PopoverTree nodes={tree} onPick={onPick} />
+      </div>
+      <button className="popover-close" onClick={onClose}>
+        닫기
+      </button>
+    </div>
+  );
+}
+
+function PopoverTree({
+  nodes,
+  onPick,
+  depth = 0,
+}: {
+  nodes: ProjectTreeNode[];
+  onPick: (file: ProjectFile) => void;
+  depth?: number;
+}) {
+  const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set());
+  return (
+    <ul className="popover-tree-list">
+      {nodes.map((n) => {
+        if (n.kind === "dir") {
+          const open = openDirs.has(n.path);
+          return (
+            <li key={n.path}>
+              <div
+                className="tree-row"
+                style={{ paddingLeft: depth * 12 + 6 }}
+                onClick={() => {
+                  setOpenDirs((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(n.path)) next.delete(n.path);
+                    else next.add(n.path);
+                    return next;
+                  });
+                }}
+              >
+                <span className="tree-caret">{open ? "▾" : "▸"}</span>
+                <span className="tree-name">{n.name}</span>
+              </div>
+              {open && n.children && (
+                <PopoverTree nodes={n.children} onPick={onPick} depth={depth + 1} />
+              )}
+            </li>
+          );
+        }
+        return (
+          <li key={n.path}>
+            <div
+              className="tree-row"
+              style={{ paddingLeft: depth * 12 + 6 }}
+              onClick={() => n.file && onPick(n.file)}
+              title={n.path}
+            >
+              <span className="tree-caret" />
+              <span className="tree-name">{n.name}</span>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}

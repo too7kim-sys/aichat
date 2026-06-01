@@ -37,6 +37,16 @@ async function uploadExtract(file: File): Promise<ExtractedFile> {
   return res.json();
 }
 
+export interface OllamaModel {
+  name: string;
+  size: number;
+  parameter_size: string | null;
+}
+export interface OllamaModelList {
+  current: string;
+  models: OllamaModel[];
+}
+
 export const api = {
   listProviders: () => json<ProviderInfo[]>("/providers"),
   listSessions: () => json<Session[]>("/sessions"),
@@ -53,6 +63,9 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ title }),
     }),
+  clearMessages: (id: string) =>
+    json<void>(`/sessions/${id}/messages`, { method: "DELETE" }),
+  listOllamaModels: () => json<OllamaModelList>("/ollama/models"),
   extractFile: uploadExtract,
 };
 
@@ -73,6 +86,7 @@ export async function streamChat(
   prompt: string,
   opts: {
     provider: string;
+    model?: string | null;
     webSearch?: boolean;
     attachments?: { filename: string; text: string }[];
     signal?: AbortSignal;
@@ -82,6 +96,7 @@ export async function streamChat(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      model: opts.model ?? undefined,
       prompt,
       provider: opts.provider,
       web_search: !!opts.webSearch,

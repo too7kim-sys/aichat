@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -57,6 +57,19 @@ async def update_session(
     await db.commit()
     await db.refresh(session)
     return session
+
+
+@router.delete("/{session_id}/messages", status_code=204)
+async def clear_messages(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(models.Session).where(models.Session.id == session_id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(404, "session not found")
+    await db.execute(
+        delete(models.Message).where(models.Message.session_id == session_id)
+    )
+    await db.commit()
 
 
 @router.delete("/{session_id}", status_code=204)

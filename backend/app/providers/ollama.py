@@ -19,9 +19,20 @@ class OllamaProvider(LLMProvider):
     def enabled(self) -> bool:
         return bool(self.base_url)
 
-    async def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
+    async def list_models(self) -> list[dict]:
+        """Return the models the Ollama server has available."""
+        timeout = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{self.base_url}/api/tags")
+            resp.raise_for_status()
+            body = resp.json()
+        return body.get("models") or []
+
+    async def stream(
+        self, messages: list[ChatMessage], model: str | None = None
+    ) -> AsyncIterator[str]:
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": True,
         }
