@@ -1,8 +1,4 @@
-import { useEffect, useState } from "react";
 import type { Session } from "../types";
-import { ProjectPanel } from "../project/ProjectPanel";
-import { useProject } from "../project/ProjectContext";
-import type { ProjectFile } from "../project/fsAccess";
 
 interface Props {
   sessions: Session[];
@@ -10,8 +6,6 @@ interface Props {
   onSelect: (id: string) => void;
   onCreate: () => void;
   onDelete: (id: string) => void;
-  onOpenProjectFile: (file: ProjectFile, content: string) => void;
-  onAddProjectFileToContext: (file: ProjectFile, content: string) => void;
 }
 
 function groupByDate(sessions: Session[]) {
@@ -46,18 +40,8 @@ export function Sidebar({
   onSelect,
   onCreate,
   onDelete,
-  onOpenProjectFile,
-  onAddProjectFileToContext,
 }: Props) {
-  // Project section starts collapsed if no folder is picked, expanded once one is.
-  const project = useProject();
-  const [projectOpen, setProjectOpen] = useState<boolean>(!!project.root);
   const groups = groupByDate(sessions);
-
-  // Auto-expand the first time a folder gets picked.
-  useEffect(() => {
-    if (project.root) setProjectOpen(true);
-  }, [project.root]);
 
   return (
     <aside className="sidebar">
@@ -68,30 +52,12 @@ export function Sidebar({
         </button>
       </div>
 
-      <div className="sidebar-section sidebar-sessions">
+      <div className="sidebar-sessions">
         <SessionGroup label="오늘" sessions={groups.today} {...{ activeId, onSelect, onDelete }} />
         <SessionGroup label="어제" sessions={groups.yesterday} {...{ activeId, onSelect, onDelete }} />
         <SessionGroup label="지난 7일" sessions={groups.lastWeek} {...{ activeId, onSelect, onDelete }} />
         <SessionGroup label="이전" sessions={groups.earlier} {...{ activeId, onSelect, onDelete }} />
       </div>
-
-      <button
-        className="sidebar-divider-toggle"
-        onClick={() => setProjectOpen((v) => !v)}
-        title={projectOpen ? "프로젝트 접기" : "프로젝트 펼치기"}
-      >
-        <span className="tree-caret">{projectOpen ? "▾" : "▸"}</span>
-        <span>프로젝트{project.rootName ? ` · ${project.rootName}` : ""}</span>
-      </button>
-
-      {projectOpen && (
-        <div className="sidebar-section sidebar-project">
-          <ProjectPanel
-            onOpenFile={onOpenProjectFile}
-            onAddToContext={onAddProjectFileToContext}
-          />
-        </div>
-      )}
     </aside>
   );
 }

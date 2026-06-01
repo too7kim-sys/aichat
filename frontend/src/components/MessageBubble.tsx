@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
-import { extractProposedFiles } from "../project/multiApply";
 
 interface Props {
   role: "user" | "assistant";
@@ -8,7 +7,6 @@ interface Props {
   content: string;
   streaming?: boolean;
   artifactTitlePrefix?: string;
-  onApplyFiles?: (files: { path: string; language: string; content: string }[]) => void;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -20,7 +18,6 @@ function CopyButton({ text }: { text: string }) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Fallback for non-secure contexts (rare in dev)
       const ta = document.createElement("textarea");
       ta.value = text;
       document.body.appendChild(ta);
@@ -54,7 +51,6 @@ export function MessageBubble({
   content,
   streaming,
   artifactTitlePrefix,
-  onApplyFiles,
 }: Props) {
   if (role === "user") {
     return (
@@ -85,32 +81,9 @@ export function MessageBubble({
         {!streaming && content && (
           <div className="bubble-actions">
             <CopyButton text={content} />
-            <ApplyFilesButton content={content} onApply={onApplyFiles} />
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-function ApplyFilesButton({
-  content,
-  onApply,
-}: {
-  content: string;
-  onApply?: (files: { path: string; language: string; content: string }[]) => void;
-}) {
-  if (!onApply) return null;
-  const files = extractProposedFiles(content);
-  if (files.length === 0) return null;
-  return (
-    <button
-      type="button"
-      className="apply-files-btn"
-      onClick={() => onApply(files)}
-      title={files.map((f) => f.path).join("\n")}
-    >
-      파일 {files.length}개 적용
-    </button>
   );
 }

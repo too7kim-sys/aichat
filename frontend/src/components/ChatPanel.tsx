@@ -3,16 +3,11 @@ import { api, streamChat, type ExtractedFile, type SearchSource } from "../api/c
 import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
-import { useProject, type ProjectTreeNode } from "../project/ProjectContext";
-import { readFileText, type ProjectFile } from "../project/fsAccess";
 
 interface Props {
   sessionId: string;
   providers: ProviderInfo[];
   onTitleSync?: () => void;
-  onApplyFiles?: (
-    files: { path: string; language: string; content: string }[]
-  ) => void;
 }
 
 export interface ChatPanelHandle {
@@ -21,7 +16,7 @@ export interface ChatPanelHandle {
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
-  { sessionId, providers, onTitleSync, onApplyFiles },
+  { sessionId, providers, onTitleSync },
   ref
 ) {
   const [session, setSession] = useState<SessionDetail | null>(null);
@@ -43,10 +38,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const artifactsState = useArtifacts();
-  const project = useProject();
   const abortRef = useRef<AbortController | null>(null);
   const aliveRef = useRef(true);
-  const [filePickerOpen, setFilePickerOpen] = useState(false);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -128,19 +121,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
   function removeAttachment(idx: number) {
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  async function attachProjectFile(file: ProjectFile) {
-    try {
-      const text = await readFileText(file);
-      setAttachments((prev) => [
-        ...prev,
-        { filename: file.path, text, char_count: text.length, method: "project" },
-      ]);
-      setFilePickerOpen(false);
-    } catch (e) {
-      alert(`첨부 실패: ${e instanceof Error ? e.message : String(e)}`);
-    }
   }
 
   function startEditTitle() {
@@ -310,7 +290,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   provider={m.provider}
                   content={m.content}
                   artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
-                  onApplyFiles={m.role === "assistant" ? onApplyFiles : undefined}
                 />
               );
             });
@@ -428,27 +407,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               >
                 🌐 {webSearch ? "검색 ON" : "검색"}
               </button>
-              <div className="composer-popover-wrap">
-                <button
-                  type="button"
-                  className="icon-btn"
-                  onClick={() => setFilePickerOpen((v) => !v)}
-                  disabled={streaming || !project.root}
-                  title={
-                    project.root
-                      ? "프로젝트 파일 첨부"
-                      : "사이드바에서 프로젝트 폴더를 먼저 선택하세요"
-                  }
-                >
-                  📁 프로젝트
-                </button>
-                {filePickerOpen && project.root && (
-                  <ProjectFilePopover
-                    onClose={() => setFilePickerOpen(false)}
-                    onPick={attachProjectFile}
-                  />
-                )}
-              </div>
             </div>
             <div className="composer-right">
               {streaming ? (
@@ -475,81 +433,3 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     </div>
   );
 });
-
-function ProjectFilePopover({
-  onClose,
-  onPick,
-}: {
-  onClose: () => void;
-  onPick: (file: ProjectFile) => void;
-}) {
-  const { tree } = useProject();
-  return (
-    <div className="popover popover-tree" role="menu">
-      <div className="popover-header">프로젝트 파일 선택</div>
-      <div className="popover-tree-body">
-        <PopoverTree nodes={tree} onPick={onPick} />
-      </div>
-      <button className="popover-close" onClick={onClose}>
-        닫기
-      </button>
-    </div>
-  );
-}
-
-function PopoverTree({
-  nodes,
-  onPick,
-  depth = 0,
-}: {
-  nodes: ProjectTreeNode[];
-  onPick: (file: ProjectFile) => void;
-  depth?: number;
-}) {
-  const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set());
-  return (
-    <ul className="popover-tree-list">
-      {nodes.map((n) => {
-        if (n.kind === "dir") {
-          const open = openDirs.has(n.path);
-          return (
-            <li key={n.path}>
-              <div
-                className="tree-row"
-                style={{ paddingLeft: depth * 12 + 6 }}
-                onClick={() => {
-                  setOpenDirs((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(n.path)) next.delete(n.path);
-                    else next.add(n.path);
-                    return next;
-                  });
-                }}
-              >
-                <span className="tree-caret">{open ? "▾" : "▸"}</span>
-                <span className="tree-name">{n.name}</span>
-              </div>
-              {open && n.children && (
-                <PopoverTree nodes={n.children} onPick={onPick} depth={depth + 1} />
-              )}
-            </li>
-          );
-        }
-        return (
-          <li key={n.path}>
-            <div
-              className="tree-row"
-              style={{ paddingLeft: depth * 12 + 6 }}
-              onClick={() => n.file && onPick(n.file)}
-              title={n.path}
-            >
-              <span className="tree-caret" />
-              <span className="tree-name">{n.name}</span>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
