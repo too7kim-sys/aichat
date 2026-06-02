@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -54,6 +55,37 @@ _ALLOWED_EXT = {
 _MAX_FILES = 100
 _MAX_BYTES_PER_FILE = 200 * 1024
 _CLONE_TIMEOUT = 60
+
+
+def _run_git_clone(
+    cmd: list[str], env: dict[str, str], timeout: int
+) -> tuple[int, bytes]:
+    """Synchronous git clone helper run in a threadpool.
+
+    Using subprocess.run via run_in_executor instead of
+    asyncio.create_subprocess_exec, because the latter raises
+    NotImplementedError on Windows when uvicorn is using the default
+    SelectorEventLoop. subprocess.run works everywhere.
+
+    Return codes:
+      >= 0 : git's own exit code
+      -1   : timeout
+      -2   : git binary not found on PATH
+    """
+    try:
+        proc = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        return proc.returncode, proc.stderr or b""
+    except subprocess.TimeoutExpired as exc:
+        err = exc.stderr if isinstance(exc.stderr, bytes) else b""
+        return -1, err
+    except FileNotFoundError:
+        return -2, b"git executable not found on server PATH"
 
 
 class CloneRequest(BaseModel):
@@ -111,21 +143,18 @@ async def clone_repo(
             "GIT_ASKPASS": "echo",
             "GIT_LFS_SKIP_SMUDGE": "1",
         }
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
+        loop = asyncio.get_running_loop()
+        returncode, stderr = await loop.run_in_executor(
+            None, _run_git_clone, cmd, env, _CLONE_TIMEOUT
         )
-        try:
-            _, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=_CLONE_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
+        if returncode == -1:
             raise HTTPException(504, "git clone timed out (60s)")
-
-        if proc.returncode != 0:
+        if returncode == -2:
+            raise HTTPException(
+                500,
+                "서버에 git이 설치되어 있지 않습니다. git을 설치한 뒤 다시 시도해주세요.",
+            )
+        if returncode != 0:
             detail = (stderr.decode("utf-8", errors="replace") or "").strip()
             raise HTTPException(400, f"git clone 실패: {detail[:300]}")
 
