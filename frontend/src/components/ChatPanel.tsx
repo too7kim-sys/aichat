@@ -142,12 +142,43 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     if (!activeProvider && enabled.length) setActiveProvider(enabled[0].name);
   }, [providers, activeProvider]);
 
+  // Auto-scroll only when the user is already pinned to the bottom.
+  // If they've manually scrolled up to re-read the answer or browse the
+  // sources, incoming tokens shouldn't yank them back down.
+  const stickToBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  function onMessagesScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
+    const atBottom = distance < 80;
+    stickToBottomRef.current = atBottom;
+    setShowJumpToLatest(!atBottom);
+  }
+
+  function jumpToLatest() {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [session, liveAssistant]);
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!stickToBottomRef.current) return;
+    // 'auto' instead of 'smooth' so rapid token updates don't queue
+    // animations and stutter.
+    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+  }, [session, liveAssistant, liveSources]);
+
+  // On session change, snap back to the bottom (new conversation starts
+  // pinned) so the latest message is visible.
+  useEffect(() => {
+    stickToBottomRef.current = true;
+  }, [sessionId]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -360,7 +391,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </div>
       </header>
 
-      <div className="messages" ref={scrollRef}>
+      <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
         <div className="messages-inner">
           {(() => {
             let turn = 0;
@@ -410,6 +441,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
       </div>
+
+      {showJumpToLatest && (
+        <button
+          type="button"
+          className="jump-to-latest"
+          onClick={jumpToLatest}
+          title="최신 응답으로 이동"
+        >
+          ⬇ 최신 응답으로
+        </button>
+      )}
 
       <div className="composer-wrap">
         <div className="composer">

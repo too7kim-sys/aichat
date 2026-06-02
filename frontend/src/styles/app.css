@@ -1676,3 +1676,27 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── Jump to latest button ────────────────────────── */
+.jump-to-latest {
+  position: absolute;
+  right: 32px;
+  bottom: 140px;
+  z-index: 10;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: background 0.12s, transform 0.12s;
+}
+.jump-to-latest:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+.chat-panel { position: relative; }
