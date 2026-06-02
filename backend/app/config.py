@@ -6,6 +6,8 @@ class Settings(BaseSettings):
 
     naver_client_id: str = ""
     naver_client_secret: str = ""
+    google_api_key: str = ""
+    google_cse_id: str = ""
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     database_url: str = "sqlite+aiosqlite:///./aichat.db"

@@ -15,7 +15,7 @@ from ..database import SessionLocal, get_db
 from ..config import settings
 from ..providers.base import ChatMessage, LLMProvider
 from ..providers.registry import get_provider
-from ..search import NaverSearchError, format_as_context
+from ..search import SearchError, format_as_context
 from ..search import search as web_search
 
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
@@ -99,7 +99,7 @@ async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], 
     """Return (system_context_message, sources_for_ui, error_message)."""
     try:
         result = await web_search(prompt)
-    except NaverSearchError as exc:
+    except SearchError as exc:
         return None, [], str(exc)
     except Exception as exc:  # noqa: BLE001 - network/parsing failures
         return None, [], f"{type(exc).__name__}: {exc}"
@@ -113,6 +113,7 @@ async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], 
             "snippet": r.get("snippet") or None,
             "mall": r.get("mall") or None,
             "lprice": r.get("lprice"),
+            "displayLink": r.get("displayLink") or None,
         }
         for r in (result.get("items") or [])
         if r.get("link")

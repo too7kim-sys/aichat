@@ -125,24 +125,3 @@ async def search(query: str, per_endpoint: int = 5) -> dict:
         # reason instead of silently sending an empty context.
         raise NaverSearchError("; ".join(errors))
     return {"items": items, "errors": errors}
-
-
-def format_as_context(result: dict) -> str:
-    """Render the merged result list into a system-message block."""
-    lines = ["[Naver search results]"]
-    for i, item in enumerate(result.get("items") or [], start=1):
-        kind = item.get("kind") or "web"
-        title = item.get("title") or "(no title)"
-        link = item.get("link") or ""
-        snippet = item.get("snippet") or ""
-        if len(snippet) > 400:
-            snippet = snippet[:400] + "..."
-        if kind == "shop":
-            mall = item.get("mall") or ""
-            lprice = item.get("lprice")
-            price_str = f"{lprice:,}원" if lprice else "가격정보 없음"
-            extras = f"[{mall}] {price_str}".strip()
-            lines.append(f"\n[{i}] (shop) {title}\n{link}\n{extras}  {snippet}")
-        else:
-            lines.append(f"\n[{i}] ({kind}) {title}\n{link}\n{snippet}")
-    return "\n".join(lines)
