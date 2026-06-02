@@ -400,25 +400,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             )
           )}
           {liveSources && (
-            <div className="sources">
-              <strong>Naver 검색 출처</strong>
-              {liveSources.length === 0 ? (
-                <span className="sources-status"> · 검색 중...</span>
-              ) : (
-                <ol>
-                  {liveSources.map((s, i) => (
-                    <li key={i}>
-                      <span className={`source-kind kind-${s.kind ?? "web"}`}>
-                        {s.kind === "news" ? "뉴스" : "웹"}
-                      </span>{" "}
-                      <a href={s.url} target="_blank" rel="noopener noreferrer">
-                        {s.title || s.url}
-                      </a>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </div>
+            <SourcesBox sources={liveSources} />
           )}
         </div>
       </div>
@@ -525,4 +507,83 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function SourcesBox({ sources }: { sources: import("../api/client").SearchSource[] }) {
+  if (sources.length === 0) {
+    return (
+      <div className="sources">
+        <strong>Naver 검색 출처</strong>
+        <span className="sources-status"> · 검색 중...</span>
+      </div>
+    );
+  }
+  const shop = sources.filter((s) => s.kind === "shop");
+  const news = sources.filter((s) => s.kind === "news");
+  const web = sources.filter((s) => !s.kind || s.kind === "web");
+  return (
+    <div className="sources">
+      <strong>Naver 검색 출처</strong>
+      {shop.length > 0 && (
+        <>
+          <div className="sources-section">쇼핑</div>
+          <div className="shop-grid">
+            {shop.map((s, i) => (
+              <a
+                key={`shop-${i}`}
+                href={s.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shop-card"
+                title={s.title}
+              >
+                {s.image ? (
+                  <img src={s.image} alt="" loading="lazy" />
+                ) : (
+                  <div className="shop-card-noimage">이미지 없음</div>
+                )}
+                <div className="shop-card-body">
+                  <div className="shop-card-title">{s.title}</div>
+                  {s.lprice != null && (
+                    <div className="shop-card-price">
+                      {s.lprice.toLocaleString("ko-KR")}원
+                    </div>
+                  )}
+                  {s.mall && <div className="shop-card-mall">{s.mall}</div>}
+                </div>
+              </a>
+            ))}
+          </div>
+        </>
+      )}
+      {news.length > 0 && (
+        <>
+          <div className="sources-section">뉴스</div>
+          <ol className="sources-list">
+            {news.map((s, i) => (
+              <li key={`news-${i}`}>
+                <a href={s.url} target="_blank" rel="noopener noreferrer">
+                  {s.title || s.url}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {web.length > 0 && (
+        <>
+          <div className="sources-section">웹</div>
+          <ol className="sources-list">
+            {web.map((s, i) => (
+              <li key={`web-${i}`}>
+                <a href={s.url} target="_blank" rel="noopener noreferrer">
+                  {s.title || s.url}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </div>
+  );
 }

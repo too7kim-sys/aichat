@@ -53,7 +53,7 @@ async def _call(
 
 
 async def search(query: str, per_endpoint: int = 5) -> dict:
-    """Return {items, errors}. items merges webkr + news with a `kind` tag."""
+    """Return {items, errors}. items merges webkr + news + shop with `kind`."""
     if not settings.naver_client_id or not settings.naver_client_secret:
         raise NaverSearchError(
             "NAVER_CLIENT_ID / NAVER_CLIENT_SECRET not configured"
@@ -63,9 +63,10 @@ async def search(query: str, per_endpoint: int = 5) -> dict:
 
     timeout = httpx.Timeout(20.0, connect=5.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        webkr, news = await asyncio.gather(
+        webkr, news, shop = await asyncio.gather(
             _call(client, "webkr", query, per_endpoint),
             _call(client, "news", query, per_endpoint),
+            _call(client, "shop", query, per_endpoint),
             return_exceptions=True,
         )
 
@@ -99,6 +100,26 @@ async def search(query: str, per_endpoint: int = 5) -> dict:
                 }
             )
 
+    if isinstance(shop, BaseException):
+        errors.append(f"shop: {shop}")
+    else:
+        for item in shop.get("items") or []:
+            lprice = item.get("lprice") or ""
+            hprice = item.get("hprice") or ""
+            items.append(
+                {
+                    "kind": "shop",
+                    "title": _strip(item.get("title")),
+                    "link": item.get("link") or "",
+                    "snippet": _strip(item.get("category4") or item.get("category3") or ""),
+                    "image": item.get("image") or "",
+                    "lprice": int(lprice) if lprice.isdigit() else None,
+                    "hprice": int(hprice) if hprice.isdigit() else None,
+                    "mall": item.get("mallName") or "",
+                    "brand": item.get("brand") or "",
+                }
+            )
+
     if not items and errors:
         # All endpoints failed — bubble up so the caller can surface the
         # reason instead of silently sending an empty context.
@@ -116,5 +137,12 @@ def format_as_context(result: dict) -> str:
         snippet = item.get("snippet") or ""
         if len(snippet) > 400:
             snippet = snippet[:400] + "..."
-        lines.append(f"\n[{i}] ({kind}) {title}\n{link}\n{snippet}")
+        if kind == "shop":
+            mall = item.get("mall") or ""
+            lprice = item.get("lprice")
+            price_str = f"{lprice:,}원" if lprice else "가격정보 없음"
+            extras = f"[{mall}] {price_str}".strip()
+            lines.append(f"\n[{i}] (shop) {title}\n{link}\n{extras}  {snippet}")
+        else:
+            lines.append(f"\n[{i}] ({kind}) {title}\n{link}\n{snippet}")
     return "\n".join(lines)

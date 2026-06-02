@@ -174,7 +174,11 @@ export const api = {
 export interface SearchSource {
   title: string;
   url: string;
-  kind?: "web" | "news";
+  kind?: "web" | "news" | "shop";
+  image?: string | null;
+  snippet?: string | null;
+  mall?: string | null;
+  lprice?: number | null;
 }
 
 export interface StreamHandlers {

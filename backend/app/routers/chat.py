@@ -109,6 +109,10 @@ async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], 
             "title": r.get("title") or "",
             "url": r.get("link") or "",
             "kind": r.get("kind") or "web",
+            "image": r.get("image") or None,
+            "snippet": r.get("snippet") or None,
+            "mall": r.get("mall") or None,
+            "lprice": r.get("lprice"),
         }
         for r in (result.get("items") or [])
         if r.get("link")
