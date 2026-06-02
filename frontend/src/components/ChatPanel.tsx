@@ -27,6 +27,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [webSearch, setWebSearch] = useState(false);
   const [attachments, setAttachments] = useState<ExtractedFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -185,25 +186,48 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   async function uploadFiles(files: File[]) {
     if (files.length === 0) return;
     setUploading(true);
+    setUploadProgress({ done: 0, total: files.length });
     const failures: string[] = [];
     const additions: ExtractedFile[] = [];
-    for (const f of files) {
-      try {
-        const ext = await api.extractFile(f);
-        // Preserve folder structure in the attachment name when this
-        // came from a webkitdirectory pick.
-        const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath;
-        if (rel) ext.filename = rel;
-        additions.push(ext);
-      } catch (e) {
-        failures.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
+    let done = 0;
+
+    // Pool of N workers pulling from the queue so a 50-file project
+    // doesn't take 50 sequential round trips.
+    const queue = [...files];
+    const concurrency = 6;
+    async function worker() {
+      while (queue.length) {
+        const f = queue.shift();
+        if (!f) break;
+        try {
+          const ext = await api.extractFile(f);
+          const rel = (f as File & { webkitRelativePath?: string })
+            .webkitRelativePath;
+          if (rel) ext.filename = rel;
+          additions.push(ext);
+        } catch (e) {
+          failures.push(
+            `${f.name}: ${e instanceof Error ? e.message : String(e)}`
+          );
+        }
+        done += 1;
+        setUploadProgress({ done, total: files.length });
       }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, files.length) }, worker)
+    );
+
     setAttachments((prev) => [...prev, ...additions]);
     setUploading(false);
+    setUploadProgress(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (folderInputRef.current) folderInputRef.current.value = "";
-    if (failures.length) alert(`첨부 실패:\n\n${failures.join("\n")}`);
+    if (failures.length) {
+      const shown = failures.slice(0, 8).join("\n");
+      const more = failures.length > 8 ? `\n…외 ${failures.length - 8}개` : "";
+      alert(`첨부 실패:\n\n${shown}${more}`);
+    }
   }
 
   async function handleFiles(files: FileList | null) {
@@ -229,6 +253,45 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   ]);
   const _FOLDER_MAX_FILES = 50;
   const _FOLDER_MAX_BYTES_PER_FILE = 200 * 1024;
+
+  const [gitModalOpen, setGitModalOpen] = useState(false);
+  const [gitUrl, setGitUrl] = useState("");
+  const [gitRef, setGitRef] = useState("");
+  const [gitBusy, setGitBusy] = useState(false);
+
+  async function submitGitClone() {
+    if (!gitUrl.trim()) return;
+    setGitBusy(true);
+    try {
+      const res = await api.cloneRepo(gitUrl.trim(), gitRef.trim() || undefined);
+      if (!res.files.length) {
+        alert(
+          `클론은 성공했지만 분석할 코드 파일이 없습니다.\n제외: ${JSON.stringify(
+            res.skipped
+          )}`
+        );
+        return;
+      }
+      // Prefix attachment names with the repo path so the LLM sees them
+      // as part of a single project.
+      setAttachments((prev) => [
+        ...prev,
+        ...res.files.map((f) => ({
+          ...f,
+          filename: `${res.repo}/${f.filename}`,
+        })),
+      ]);
+      setGitModalOpen(false);
+      setGitUrl("");
+      setGitRef("");
+    } catch (e) {
+      alert(
+        `Git clone 실패: ${e instanceof Error ? e.message.replace(/^\d+\s/, "") : String(e)}`
+      );
+    } finally {
+      setGitBusy(false);
+    }
+  }
 
   async function handleFolderPick(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -562,7 +625,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 </div>
               ))}
               {uploading && (
-                <div className="attachment-chip uploading">업로드 중...</div>
+                <div className="attachment-chip uploading">
+                  업로드 중
+                  {uploadProgress &&
+                    ` ${uploadProgress.done}/${uploadProgress.total}`}
+                  ...
+                </div>
               )}
             </div>
           )}
@@ -620,6 +688,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               </button>
               <button
                 type="button"
+                className="attach-btn"
+                onClick={() => setGitModalOpen(true)}
+                disabled={streaming || uploading}
+                title="GitHub/GitLab/Bitbucket 공개 레포 URL을 입력해 소스 분석"
+              >
+                🔗 Git
+              </button>
+              <button
+                type="button"
                 className={`web-toggle ${webSearch ? "on" : ""}`}
                 onClick={() => setWebSearch((v) => !v)}
                 disabled={streaming}
@@ -650,6 +727,55 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           </div>
         </div>
       </div>
+
+      {gitModalOpen && (
+        <div className="git-backdrop" onClick={() => !gitBusy && setGitModalOpen(false)}>
+          <div className="git-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Git 레포 분석</h3>
+            <p className="git-hint">
+              공개 레포의 HTTPS URL을 입력하세요. 허용 호스트: GitHub /
+              GitLab / Bitbucket / Codeberg / sr.ht. 백엔드가 shallow
+              clone(최대 60초, 100개 파일, 파일당 200KB)으로 받아 분석합니다.
+            </p>
+            <label className="git-field">
+              <span>레포 URL</span>
+              <input
+                type="url"
+                value={gitUrl}
+                onChange={(e) => setGitUrl(e.target.value)}
+                placeholder="https://github.com/user/repo"
+                autoFocus
+                disabled={gitBusy}
+              />
+            </label>
+            <label className="git-field">
+              <span>브랜치 / 태그 (선택)</span>
+              <input
+                type="text"
+                value={gitRef}
+                onChange={(e) => setGitRef(e.target.value)}
+                placeholder="main, develop, v1.0 ..."
+                disabled={gitBusy}
+              />
+            </label>
+            <div className="git-actions">
+              <button
+                onClick={() => setGitModalOpen(false)}
+                disabled={gitBusy}
+              >
+                취소
+              </button>
+              <button
+                className="primary"
+                onClick={submitGitClone}
+                disabled={gitBusy || !gitUrl.trim()}
+              >
+                {gitBusy ? "클론 중..." : "분석 시작"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
