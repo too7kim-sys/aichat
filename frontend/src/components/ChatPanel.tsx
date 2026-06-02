@@ -576,7 +576,6 @@ function SourcesBox({
   }
   const shop = sources.filter((s) => s.kind === "shop");
   const news = sources.filter((s) => s.kind === "news");
-  const google = sources.filter((s) => s.kind === "google");
   const web = sources.filter((s) => !s.kind || s.kind === "web");
   return (
     <div className="sources">
@@ -630,7 +629,7 @@ function SourcesBox({
       )}
       {web.length > 0 && (
         <>
-          <div className="sources-section">웹 (Naver)</div>
+          <div className="sources-section">웹</div>
           <ol className="sources-list">
             {web.map((s, i) => (
               <li key={`web-${i}`}>
@@ -640,36 +639,6 @@ function SourcesBox({
               </li>
             ))}
           </ol>
-        </>
-      )}
-      {google.length > 0 && (
-        <>
-          <div className="sources-section">웹 (Google)</div>
-          <ul className="sources-list google-list">
-            {google.map((s, i) => (
-              <li key={`google-${i}`}>
-                <a href={s.url} target="_blank" rel="noopener noreferrer">
-                  {s.image && (
-                    <img
-                      src={s.image}
-                      alt=""
-                      className="google-thumb"
-                      loading="lazy"
-                    />
-                  )}
-                  <span className="google-body">
-                    <span className="google-title">{s.title || s.url}</span>
-                    {s.displayLink && (
-                      <span className="google-link">{s.displayLink}</span>
-                    )}
-                    {s.snippet && (
-                      <span className="google-snippet">{s.snippet}</span>
-                    )}
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
         </>
       )}
     </div>

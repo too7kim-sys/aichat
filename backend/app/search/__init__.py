@@ -1,18 +1,13 @@
-"""Aggregated web search across all configured providers.
+"""Web search wrapper around the Naver Open API.
 
-Currently fans out to Naver Open API (webkr + news + shop) and Google
-Custom Search in parallel via asyncio.gather. Providers that aren't
-configured (missing env vars) raise their own *SearchError, which the
-aggregator records under `errors` instead of aborting — the rest of
-the providers' hits are still returned. Only when no provider produced
-any result does SearchError get raised to the caller.
+Wraps naver.search/format_as_context with a generic name so chat.py
+doesn't have to know which provider is in use; this also keeps the
+surface ready for future providers via the aggregator pattern.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 
-from .google import GoogleSearchError, search as _google_search
 from .naver import NaverSearchError, search as _naver_search
 
 log = logging.getLogger("uvicorn.error")
@@ -23,35 +18,20 @@ class SearchError(RuntimeError):
 
 
 async def search(query: str) -> dict:
-    tasks = {
-        "naver": asyncio.create_task(_naver_search(query)),
-        "google": asyncio.create_task(_google_search(query)),
-    }
-    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
-    items: list[dict] = []
-    errors: list[str] = []
-    counts: dict[str, int] = {}
-    for name, outcome in zip(tasks.keys(), results, strict=True):
-        if isinstance(outcome, BaseException):
-            msg = f"{name}: {outcome}"
-            errors.append(msg)
-            log.warning("search: %s", msg)
-        else:
-            provider_items = outcome.get("items") or []
-            counts[name] = len(provider_items)
-            items.extend(provider_items)
-            errors.extend(outcome.get("errors") or [])
-
-    log.info("search query=%r results=%s", query[:60], counts or "{}")
-
-    if not items:
-        raise SearchError("; ".join(errors) or "no search providers configured")
-    return {"items": items, "errors": errors}
+    try:
+        result = await _naver_search(query)
+    except NaverSearchError as exc:
+        raise SearchError(f"naver: {exc}") from exc
+    log.info(
+        "search query=%r results=%d",
+        query[:60],
+        len(result.get("items") or []),
+    )
+    return result
 
 
 def format_as_context(result: dict) -> str:
-    """Render the merged result list into a system-message block."""
+    """Render the result list into a system-message block."""
     lines = ["[Web search results]"]
     for i, item in enumerate(result.get("items") or [], start=1):
         kind = item.get("kind") or "web"
@@ -71,10 +51,4 @@ def format_as_context(result: dict) -> str:
     return "\n".join(lines)
 
 
-__all__ = [
-    "SearchError",
-    "NaverSearchError",
-    "GoogleSearchError",
-    "search",
-    "format_as_context",
-]
+__all__ = ["SearchError", "NaverSearchError", "search", "format_as_context"]
