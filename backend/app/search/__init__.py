@@ -10,9 +10,12 @@ any result does SearchError get raised to the caller.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from .google import GoogleSearchError, search as _google_search
 from .naver import NaverSearchError, search as _naver_search
+
+log = logging.getLogger("uvicorn.error")
 
 
 class SearchError(RuntimeError):
@@ -28,12 +31,19 @@ async def search(query: str) -> dict:
 
     items: list[dict] = []
     errors: list[str] = []
+    counts: dict[str, int] = {}
     for name, outcome in zip(tasks.keys(), results, strict=True):
         if isinstance(outcome, BaseException):
-            errors.append(f"{name}: {outcome}")
+            msg = f"{name}: {outcome}"
+            errors.append(msg)
+            log.warning("search: %s", msg)
         else:
-            items.extend(outcome.get("items") or [])
+            provider_items = outcome.get("items") or []
+            counts[name] = len(provider_items)
+            items.extend(provider_items)
             errors.extend(outcome.get("errors") or [])
+
+    log.info("search query=%r results=%s", query[:60], counts or "{}")
 
     if not items:
         raise SearchError("; ".join(errors) or "no search providers configured")

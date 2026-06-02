@@ -45,6 +45,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const liveAssistant = liveStream?.buffer ?? null;
   const livePrompt = liveStream?.prompt ?? null;
   const liveSources = liveStream?.sources ?? null;
+  const liveSearchWarning = liveStream?.searchWarning ?? null;
 
   // Close dropdown on outside click.
   useEffect(() => {
@@ -437,7 +438,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             )
           )}
           {liveSources && (
-            <SourcesBox sources={liveSources} />
+            <SourcesBox sources={liveSources} warning={liveSearchWarning} />
           )}
         </div>
       </div>
@@ -557,12 +558,19 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function SourcesBox({ sources }: { sources: import("../api/client").SearchSource[] }) {
+function SourcesBox({
+  sources,
+  warning,
+}: {
+  sources: import("../api/client").SearchSource[];
+  warning?: string | null;
+}) {
   if (sources.length === 0) {
     return (
       <div className="sources">
-        <strong>Naver 검색 출처</strong>
+        <strong>검색 출처</strong>
         <span className="sources-status"> · 검색 중...</span>
+        {warning && <div className="sources-warning">{warning}</div>}
       </div>
     );
   }
@@ -572,7 +580,8 @@ function SourcesBox({ sources }: { sources: import("../api/client").SearchSource
   const web = sources.filter((s) => !s.kind || s.kind === "web");
   return (
     <div className="sources">
-      <strong>Naver 검색 출처</strong>
+      <strong>검색 출처</strong>
+      {warning && <div className="sources-warning">⚠ {warning}</div>}
       {shop.length > 0 && (
         <>
           <div className="sources-section">쇼핑</div>

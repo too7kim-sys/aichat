@@ -15,6 +15,7 @@ export interface LiveStream {
   prompt: string;
   buffer: string; // accumulated assistant text
   sources: SearchSource[] | null;
+  searchWarning: string | null;
   startedAt: number;
   done: boolean;
   errors: string[];
@@ -62,6 +63,7 @@ class StreamStore {
       prompt: params.prompt,
       buffer: "",
       sources: params.webSearch ? [] : null,
+      searchWarning: null,
       startedAt: Date.now(),
       done: false,
       errors,
@@ -94,8 +96,18 @@ class StreamStore {
         update({ buffer, errors: [...errors] });
       },
       onSources: (sources, error) => {
-        if (error) errors.push(`web search: ${error}`);
-        update({ sources });
+        if (error && sources.length === 0) {
+          // Total search failure — fold into the user-visible alert at end.
+          errors.push(`web search: ${error}`);
+          update({ sources, searchWarning: error });
+        } else if (error) {
+          // Partial failure (e.g., Google quota exceeded while Naver
+          // returned hits): show inline in the sources box without
+          // popping an alert at the end.
+          update({ sources, searchWarning: error });
+        } else {
+          update({ sources });
+        }
       },
     })
       .catch((e) => {

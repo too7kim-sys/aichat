@@ -1700,3 +1700,15 @@ body {
   transform: translateY(-1px);
 }
 .chat-panel { position: relative; }
+
+.sources-warning {
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  background: rgba(197, 68, 68, 0.06);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--danger);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}

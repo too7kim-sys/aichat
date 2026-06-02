@@ -118,7 +118,12 @@ async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], 
         for r in (result.get("items") or [])
         if r.get("link")
     ]
-    return ChatMessage(role="system", content=context), sources, None
+    # Bubble partial-provider failures (e.g., Google quota exceeded while
+    # Naver still returned hits) so the user sees why some sections are
+    # empty instead of silently missing.
+    warnings = result.get("errors") or []
+    warning = "; ".join(warnings) if warnings else None
+    return ChatMessage(role="system", content=context), sources, warning
 
 
 def _derive_title(prompt: str, limit: int = 40) -> str:

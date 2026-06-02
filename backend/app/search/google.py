@@ -37,10 +37,10 @@ async def search(query: str, num: int = 5) -> dict:
                 "cx": settings.google_cse_id,
                 "q": query,
                 "num": max(1, min(num, 10)),
-                # Tend Korean queries toward Korean results; Google
-                # ignores lr/gl if the query is clearly non-Korean.
-                "lr": "lang_ko",
-                "gl": "kr",
+                # Per-language / per-region biasing is left to the
+                # Programmable Search Engine config (Search engine ->
+                # Edit -> Language / Region) so English queries don't
+                # get filtered to zero results here.
             },
         )
     if resp.status_code >= 400:
