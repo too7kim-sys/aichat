@@ -77,12 +77,36 @@ def _attachments_message(
 ) -> ChatMessage | None:
     if not attachments:
         return None
-    has_code = any(
-        any(a.filename.lower().endswith(ext) for ext in _CODE_EXTS)
+    code_count = sum(
+        1
         for a in attachments
+        if any(a.filename.lower().endswith(ext) for ext in _CODE_EXTS)
     )
+    # Multiple code files (>=3) almost certainly means the user is asking
+    # for project-level analysis: read across files, flag bugs,
+    # suggest improvements, propose refactors.
+    is_project = code_count >= 3
+
     parts: list[str] = ["[Attached files]"]
-    if has_code:
+    if is_project:
+        # Build a quick tree-like summary so the model knows the
+        # structure before diving into individual files.
+        paths = sorted(a.filename for a in attachments)
+        parts.append(
+            "The user attached a project. Analyze across files and surface:\n"
+            "  1) bugs / likely runtime errors / unhandled edge cases,\n"
+            "  2) security or correctness smells (input validation, race "
+            "conditions, hardcoded secrets, broken invariants),\n"
+            "  3) concrete improvement suggestions (refactor opportunities, "
+            "API simplifications, missing tests).\n"
+            "Cite each finding with the path:line where applicable. For "
+            "code changes, render full updated files in fenced code blocks "
+            "labelled with both the language and the original path "
+            "(```python file: src/foo.py) so the UI can offer one-click "
+            "save.\n\nProject tree:\n"
+            + "\n".join(f"  - {p}" for p in paths)
+        )
+    elif code_count > 0:
         parts.append(
             "When responding about code, prefer rendering full file contents in "
             "fenced code blocks tagged with the correct language (```python, "
