@@ -401,13 +401,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
           {liveSources && (
             <div className="sources">
-              <strong>웹 검색 출처</strong>
+              <strong>Naver 검색 출처</strong>
               {liveSources.length === 0 ? (
                 <span className="sources-status"> · 검색 중...</span>
               ) : (
                 <ol>
                   {liveSources.map((s, i) => (
                     <li key={i}>
+                      <span className={`source-kind kind-${s.kind ?? "web"}`}>
+                        {s.kind === "news" ? "뉴스" : "웹"}
+                      </span>{" "}
                       <a href={s.url} target="_blank" rel="noopener noreferrer">
                         {s.title || s.url}
                       </a>

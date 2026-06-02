@@ -1507,3 +1507,24 @@ body {
   color: var(--accent-hover);
   font-weight: 700;
 }
+
+/* ── Source kind badge (web / news) ───────────────── */
+.source-kind {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 600;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+.source-kind.kind-web {
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.source-kind.kind-news {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border: 1px solid var(--accent);
+}

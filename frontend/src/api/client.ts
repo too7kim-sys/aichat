@@ -174,6 +174,7 @@ export const api = {
 export interface SearchSource {
   title: string;
   url: string;
+  kind?: "web" | "news";
 }
 
 export interface StreamHandlers {

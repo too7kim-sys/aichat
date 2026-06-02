@@ -9,7 +9,7 @@ cd backend
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy .env.example .env   # TAVILY_API_KEY (선택) · OLLAMA 설정 확인
+copy .env.example .env   # NAVER_CLIENT_ID/SECRET (선택) · OLLAMA 설정 확인
 uvicorn app.main:app --reload --port 9000
 ```
 
@@ -45,7 +45,7 @@ npm run dev
 1. 사이드바의 **+ 새 대화**로 세션 생성
 2. 헤더에 현재 사용 중인 Ollama 모델명 표시
 3. 메시지는 자동으로 SQLite (`backend/aichat.db`)에 저장되어 새로고침 후에도 유지
-4. **웹 검색**: 입력창 좌측의 `🌐 웹 검색 OFF/ON` 토글. ON이면 메시지 전송 시 Tavily에서 검색 → 결과를 LLM 컨텍스트로 주입 → 답변 위에 출처 링크 표시. `TAVILY_API_KEY` 필요 ([app.tavily.com](https://app.tavily.com), 월 1,000회 무료).
+4. **웹 검색**: 입력창 좌측의 `🌐 웹 검색 OFF/ON` 토글. ON이면 Naver Open API에 webkr + news 동시 호출 → 결과를 LLM 컨텍스트로 주입 → 답변 위에 출처 링크(웹/뉴스 배지) 표시. [developers.naver.com](https://developers.naver.com/main/)에서 무료 가입(일 25,000회) 후 `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` 설정.
 5. **파일 첨부 & 요약**: 입력창의 `📎 첨부` 버튼으로 PDF / DOCX / 이미지 / 텍스트 업로드. 백엔드가 텍스트 추출(스캔 PDF·이미지는 Tesseract OCR) → system 메시지로 LLM에 주입. 첨부는 다음 메시지에만 적용되고 전송 후 자동 제거된다 (세션 동안 클라이언트 메모리 보관).
 
 ### OCR 사전 설치 (Windows)

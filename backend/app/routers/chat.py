@@ -15,8 +15,8 @@ from ..database import SessionLocal, get_db
 from ..config import settings
 from ..providers.base import ChatMessage, LLMProvider
 from ..providers.registry import get_provider
-from ..search import TavilyError, format_as_context
-from ..search import search as tavily_search
+from ..search import NaverSearchError, format_as_context
+from ..search import search as web_search
 
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
 
@@ -98,16 +98,20 @@ def _attachments_message(
 async def _run_web_search(prompt: str) -> tuple[ChatMessage | None, list[dict], str | None]:
     """Return (system_context_message, sources_for_ui, error_message)."""
     try:
-        result = await tavily_search(prompt)
-    except TavilyError as exc:
+        result = await web_search(prompt)
+    except NaverSearchError as exc:
         return None, [], str(exc)
     except Exception as exc:  # noqa: BLE001 - network/parsing failures
         return None, [], f"{type(exc).__name__}: {exc}"
     context = format_as_context(result)
     sources = [
-        {"title": r.get("title") or "", "url": r.get("url") or ""}
-        for r in (result.get("results") or [])
-        if r.get("url")
+        {
+            "title": r.get("title") or "",
+            "url": r.get("link") or "",
+            "kind": r.get("kind") or "web",
+        }
+        for r in (result.get("items") or [])
+        if r.get("link")
     ]
     return ChatMessage(role="system", content=context), sources, None
 

@@ -6,7 +6,7 @@ Ollama 서버(로컬 또는 사내)와 연동하여 다음 기능을 제공한�
 
 - **대화 히스토리 저장**: 세션/메시지를 SQLite에 영구 저장
 - **스트리밍 응답**: SSE (Server-Sent Events) 기반 토큰 단위 실시간 출력
-- **선택적 웹 검색**: Tavily로 실시간 정보를 가져와 LLM 컨텍스트에 주입
+- **선택적 웹 검색**: Naver Open API(webkr + news 동시)로 실시간 정보를 가져와 LLM 컨텍스트에 주입
 - **파일 첨부 + OCR**: PDF/DOCX/이미지를 텍스트로 추출해 컨텍스트 주입 (스캔 PDF·이미지는 Tesseract OCR)
 - **확장 가능한 Provider 추상화**: 향후 다른 LLM 추가 시 한 파일만 작성하면 됨
 
@@ -111,8 +111,8 @@ aichat/
 │   │   │   ├── base.py
 │   │   │   ├── ollama.py
 │   │   │   └── registry.py
-│   │   ├── search/             # Tavily 웹 검색
-│   │   │   └── tavily.py
+│   │   ├── search/             # Naver Open API 웹 검색
+│   │   │   └── naver.py
 │   │   ├── files/              # PDF/DOCX/OCR 추출
 │   │   │   └── extract.py
 │   │   └── routers/
@@ -140,7 +140,8 @@ aichat/
 
 `.env`:
 ```
-TAVILY_API_KEY=tvly-...        # 선택. 웹 검색 토글 사용 시 필요
+NAVER_CLIENT_ID=...            # 선택. 웹 검색 토글 사용 시 필요
+NAVER_CLIENT_SECRET=...
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.1
 DATABASE_URL=sqlite+aiosqlite:///./aichat.db
@@ -161,7 +162,7 @@ User → FE: "이 파일 요약해줘" + 📎 PDF + 🌐 ON
 FE   → BE: POST /api/files/extract  (PDF → 텍스트)
 FE   → BE: POST /api/sessions/{id}/chat
             { prompt, attachments:[{filename, text}], web_search:true }
-BE   → Tavily: search(prompt)
+BE   → Naver: webkr + news 병렬 호출
 BE   → FE: event: sources
 BE   → Ollama: stream(system=[search context] + system=[attached files] + history + user)
 Ollama → BE → FE: event: token (반복)
