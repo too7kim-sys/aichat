@@ -377,8 +377,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               );
             });
           })()}
-          {livePrompt && <MessageBubble role="user" content={livePrompt} />}
-          {liveAssistant !== null && liveAssistant === "" ? (
+          {/* Live user + assistant bubbles only while the stream is
+              still running; once it's done the persisted version is in
+              session.messages and we'd duplicate it. The sources box
+              below stays visible regardless of done state. */}
+          {streaming && livePrompt && (
+            <MessageBubble role="user" content={livePrompt} />
+          )}
+          {streaming && liveAssistant !== null && liveAssistant === "" ? (
             <div className="bubble assistant">
               <div className="avatar">A</div>
               <div className="body">
@@ -390,7 +396,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               </div>
             </div>
           ) : (
-            liveAssistant !== null && (
+            streaming && liveAssistant !== null && (
               <MessageBubble
                 role="assistant"
                 provider={`${activeProviderLabel} · ${formatElapsed(elapsedSec)}`}

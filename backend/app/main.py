@@ -49,9 +49,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
                 "worker-src 'self' blob:; "
                 "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: blob: https://shopping-phinf.pstatic.net "
-                "https://shop-phinf.pstatic.net https://shop1.phinf.naver.net "
-                "https://shop2.phinf.naver.net https://shopping.phinf.naver.net; "
+                # Allow any https image — Naver shopping aggregates many
+                # malls (Coupang, 11번가, GMarket, ...) and returns their
+                # original CDN URLs, which we can't enumerate up front.
+                "img-src 'self' data: blob: https:; "
                 "font-src 'self' data:; "
                 "connect-src 'self' https://cdn.jsdelivr.net; "
                 "frame-ancestors 'none'; "

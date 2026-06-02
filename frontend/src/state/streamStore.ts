@@ -108,14 +108,13 @@ class StreamStore {
       })
       .finally(() => {
         update({ done: true });
-        // Give subscribers one tick to switch from the live overlay to
-        // the refetched session messages, then drop the stream so the
-        // next send for this session can start fresh.
-        window.setTimeout(() => {
-          this.streams.delete(params.sessionId);
-          this.notify();
-          params.onComplete?.(errors);
-        }, 300);
+        // We used to drop the entry from the map ~300ms after completion,
+        // but that took the sources box (including the shopping
+        // thumbnails) with it. Leave the LiveStream parked in the map
+        // instead — it stays small, gets overwritten the next time
+        // start() runs for this session, and lets ChatPanel keep the
+        // sources visible alongside the now-persisted assistant message.
+        params.onComplete?.(errors);
       });
 
     return true;
