@@ -33,6 +33,59 @@ function CodeCopy({ text }: { text: string }) {
   );
 }
 
+// Match the first-line file marker the LLM is asked to emit:
+//   # file: src/foo.py        (#, --, ;)
+//   // file: src/foo.ts       (//)
+//   <!-- file: index.html --> (HTML comment)
+const FILE_MARKER_RE =
+  /^\s*(?:\/\/|#|--|;|<!--)\s*file\s*:\s*([^\s][^\n]*?)\s*(?:-->)?\s*$/i;
+
+function detectFileMarker(
+  code: string
+): { path: string; body: string } | null {
+  const nl = code.indexOf("\n");
+  const first = nl >= 0 ? code.slice(0, nl) : code;
+  const m = first.match(FILE_MARKER_RE);
+  if (!m) return null;
+  const rawPath = m[1].trim();
+  // Strip surrounding quotes/backticks if the model wrapped the path.
+  const path = rawPath.replace(/^['"`]|['"`]$/g, "");
+  if (!path) return null;
+  const body = nl >= 0 ? code.slice(nl + 1) : "";
+  return { path, body };
+}
+
+function downloadAsFile(text: string, fullPath: string) {
+  const basename = fullPath.split(/[\\/]/).pop() || "file.txt";
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = basename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function FileDownload({ path, body }: { path: string; body: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className={`code-download${done ? " done" : ""}`}
+      onClick={() => {
+        downloadAsFile(body, path);
+        setDone(true);
+        window.setTimeout(() => setDone(false), 1500);
+      }}
+      title={`${path} 다운로드`}
+    >
+      {done ? "✓ 저장됨" : "💾 다운로드"}
+    </button>
+  );
+}
+
 function safeHref(href: string | undefined): string | undefined {
   if (!href) return undefined;
   const trimmed = href.trim();
@@ -94,11 +147,18 @@ export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
             const cls = codeChild?.props?.className ?? "";
             const m = /language-([\w+-]+)/.exec(cls);
             if (m) lang = m[1];
+            const file = detectFileMarker(text);
             return (
-              <div className="code-block">
+              <div className={`code-block${file ? " has-file" : ""}`}>
                 <div className="code-header">
                   <span className="code-lang">{lang || "text"}</span>
+                  {file && (
+                    <span className="code-file-path" title={file.path}>
+                      📄 {file.path}
+                    </span>
+                  )}
                   <div className="code-header-actions">
+                    {file && <FileDownload path={file.path} body={file.body} />}
                     <button
                       type="button"
                       className="code-copy"

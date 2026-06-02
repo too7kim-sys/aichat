@@ -72,6 +72,21 @@ _CODE_EXTS = {
 }
 
 
+_FILE_MARKER_HELP = (
+    "For every file you modify, output the COMPLETE updated file content "
+    "in a fenced code block whose FIRST LINE is a marker:\n"
+    "    # file: src/foo.py             (Python / Ruby / Shell / TOML / YAML)\n"
+    "    // file: src/foo.ts            (JS / TS / Java / C / C++ / Go / Rust / CSS)\n"
+    "    -- file: schema.sql            (SQL)\n"
+    "    <!-- file: index.html -->      (HTML / XML / Vue / Svelte)\n"
+    "Use the EXACT path shown in the attachment header — do not invent new "
+    "paths. The UI uses this marker to render a 💾 download button so the "
+    "user can drop the file back into their codebase. Snippets and diffs are "
+    "fine for discussion, but FULL FILE blocks with the marker are required "
+    "for any change you want the user to be able to apply."
+)
+
+
 def _attachments_message(
     attachments: list[schemas.AttachmentIn],
 ) -> ChatMessage | None:
@@ -93,25 +108,27 @@ def _attachments_message(
         # structure before diving into individual files.
         paths = sorted(a.filename for a in attachments)
         parts.append(
-            "The user attached a project. Analyze across files and surface:\n"
-            "  1) bugs / likely runtime errors / unhandled edge cases,\n"
-            "  2) security or correctness smells (input validation, race "
-            "conditions, hardcoded secrets, broken invariants),\n"
-            "  3) concrete improvement suggestions (refactor opportunities, "
-            "API simplifications, missing tests).\n"
-            "Cite each finding with the path:line where applicable. For "
-            "code changes, render full updated files in fenced code blocks "
-            "labelled with both the language and the original path "
-            "(```python file: src/foo.py) so the UI can offer one-click "
-            "save.\n\nProject tree:\n"
+            "The user attached a project for review. Structure your reply "
+            "with explicit numbered sections so the user can watch progress "
+            "while you stream:\n"
+            "  ## 1단계: 분석\n"
+            "     What the project does, the entry points, how the files "
+            "connect. Keep it brief — 4-6 bullet points.\n"
+            "  ## 2단계: 발견된 문제\n"
+            "     Bugs, likely runtime errors, unhandled edges, security "
+            "smells (input validation, race conditions, hardcoded secrets, "
+            "broken invariants), correctness issues. Cite `path:line` for "
+            "each finding.\n"
+            "  ## 3단계: 수정 제안\n"
+            "     For each file you change, output the FULL updated content "
+            "using the file: marker format below. If a fix is purely "
+            "advisory (no code change yet), say so explicitly.\n\n"
+            + _FILE_MARKER_HELP
+            + "\n\nProject tree:\n"
             + "\n".join(f"  - {p}" for p in paths)
         )
     elif code_count > 0:
-        parts.append(
-            "When responding about code, prefer rendering full file contents in "
-            "fenced code blocks tagged with the correct language (```python, "
-            "```typescript, etc.) so the UI can pick them up as editable artifacts."
-        )
+        parts.append(_FILE_MARKER_HELP)
     for a in attachments:
         parts.append(
             f"\n--- File: {a.filename} ({len(a.text)} chars) ---\n{a.text}"

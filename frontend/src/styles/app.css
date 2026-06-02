@@ -1739,3 +1739,83 @@ body {
   background: var(--accent-hover);
 }
 .git-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* === 사고 과정 (<think>) 접이식 패널 ============================== */
+.think-block {
+  margin: 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sidebar);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.think-block > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--text);
+  user-select: none;
+}
+.think-block > summary::-webkit-details-marker { display: none; }
+.think-block > summary::before {
+  content: "▶";
+  display: inline-block;
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.think-block[open] > summary::before { transform: rotate(90deg); }
+.think-block.live > summary { color: var(--accent); }
+.think-block .think-icon { font-size: 14px; }
+.think-block .think-label { letter-spacing: 0.02em; }
+.think-block .think-status {
+  font-size: 11px;
+  color: var(--accent);
+  font-style: italic;
+  font-weight: 400;
+}
+.think-block .think-body {
+  margin: 0 12px 10px 30px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border-strong);
+  background: var(--bg-card);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* === Code block file marker + 다운로드 ============================ */
+.code-block.has-file { border-color: var(--accent-soft); }
+.code-block.has-file .code-header { background: var(--accent-soft); }
+.code-file-path {
+  flex: 1;
+  margin: 0 10px;
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code-download {
+  background: var(--accent);
+  color: white;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.code-download:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.code-download.done { background: #16a34a; border-color: #16a34a; }
+
