@@ -54,28 +54,28 @@
   ],
   "compounds": [
     {
-      "name": "Full Stack: Backend + Frontend (Chrome)",
+      "name": "Full Stack: Backend + Vite (recommended)",
       "configurations": [
         "Backend: FastAPI (uvicorn)",
-        "Frontend: Chrome"
+        "Frontend: Vite dev server"
       ],
       "stopAll": true,
       "presentation": { "group": "FullStack", "order": 1 }
     },
     {
-      "name": "Full Stack: Backend + Frontend (Edge)",
+      "name": "Full Stack: Backend + Frontend (Chrome debugger)",
       "configurations": [
         "Backend: FastAPI (uvicorn)",
-        "Frontend: Edge"
+        "Frontend: Chrome"
       ],
       "stopAll": true,
       "presentation": { "group": "FullStack", "order": 2 }
     },
     {
-      "name": "Full Stack: Backend + Vite (no browser)",
+      "name": "Full Stack: Backend + Frontend (Edge debugger)",
       "configurations": [
         "Backend: FastAPI (uvicorn)",
-        "Frontend: Vite dev server"
+        "Frontend: Edge"
       ],
       "stopAll": true,
       "presentation": { "group": "FullStack", "order": 3 }
