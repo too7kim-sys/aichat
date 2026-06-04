@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useProjects } from "../state/ProjectsContext";
 import type { Session } from "../types";
 import { ProjectModal } from "./ProjectModal";
@@ -85,7 +85,7 @@ export function Sidebar({
           onDelete={onDelete}
         />
       )}
-      {workspace === "cowork" && <CoworkPane />}
+      {workspace === "cowork" && <CoworkPane activeSessionId={activeId} />}
       {workspace === "code" && <CodePane />}
     </aside>
   );
@@ -138,9 +138,33 @@ function ChatPane({
   );
 }
 
-function CoworkPane() {
+function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
   const { projects, refresh } = useProjects();
   const [modalOpen, setModalOpen] = useState(false);
+  // Hydrate the current linked project for the active session so the
+  // modal can show ✓ on the correct card. Stay in sync with custom
+  // events fired by the modal so the badge updates without remount.
+  const linkKey = activeSessionId
+    ? `chat:session:${activeSessionId}:project`
+    : null;
+  const [linkedProjectId, setLinkedProjectId] = useState<string | null>(
+    () => (linkKey ? localStorage.getItem(linkKey) : null),
+  );
+  useEffect(() => {
+    setLinkedProjectId(linkKey ? localStorage.getItem(linkKey) : null);
+  }, [linkKey]);
+
+  function applyLink(projectId: string | null) {
+    if (!activeSessionId || !linkKey) return;
+    setLinkedProjectId(projectId);
+    if (projectId) localStorage.setItem(linkKey, projectId);
+    else localStorage.removeItem(linkKey);
+    window.dispatchEvent(
+      new CustomEvent("chat:project-linked", {
+        detail: { sessionId: activeSessionId, projectId },
+      }),
+    );
+  }
 
   function statusLabel(p: { status: string; progress_done: number; progress_total: number }): string {
     switch (p.status) {
@@ -207,9 +231,9 @@ function CoworkPane() {
           setModalOpen(false);
           refresh();
         }}
-        selectedId={null}
-        onSelect={() => {}}
-        linkable={false}
+        linkSessionId={activeSessionId}
+        linkedProjectId={linkedProjectId}
+        onLinkChange={applyLink}
       />
     </>
   );

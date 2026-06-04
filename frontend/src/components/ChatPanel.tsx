@@ -4,8 +4,6 @@ import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { useModels } from "../state/ModelContext";
-import { useProjects } from "../state/ProjectsContext";
-import { ProjectModal } from "./ProjectModal";
 import { streamStore, useLiveStream } from "../state/streamStore";
 
 interface Props {
@@ -43,23 +41,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // ModelContext defaults `model` to "auto" so the backend's
   // _choose_model is exercised by default.
 
-  // Per-session RAG project link, persisted client-side. Backend reads
-  // payload.project_id and also falls back to session.project_id, but
-  // we don't bother round-tripping a PATCH for v1 — localStorage is
-  // enough to survive page reloads.
-  const projects = useProjects();
+  // Per-session RAG project link. Persisted in localStorage so reloads
+  // survive; the Cowork sidebar's project modal writes the same key and
+  // dispatches a "chat:project-linked" custom event so we can mirror
+  // the change without remounting.
   const projectStorageKey = `chat:session:${sessionId}:project`;
-  const [linkedProjectId, _setLinkedProjectId] = useState<string | null>(
+  const [linkedProjectId, setLinkedProjectId] = useState<string | null>(
     () => localStorage.getItem(projectStorageKey),
   );
-  function setLinkedProjectId(id: string | null) {
-    _setLinkedProjectId(id);
-    if (id) localStorage.setItem(projectStorageKey, id);
-    else localStorage.removeItem(projectStorageKey);
-  }
-  const linkedProject =
-    projects.projects.find((p) => p.id === linkedProjectId) ?? null;
-  const [projectModalOpen, setProjectModalOpen] = useState(false);
+  useEffect(() => {
+    function onLinked(e: Event) {
+      const ev = e as CustomEvent<{ sessionId: string; projectId: string | null }>;
+      if (ev.detail?.sessionId === sessionId) {
+        setLinkedProjectId(ev.detail.projectId);
+      }
+    }
+    window.addEventListener("chat:project-linked", onLinked);
+    return () => window.removeEventListener("chat:project-linked", onLinked);
+  }, [sessionId]);
 
   // Subscribe to the (possibly in-flight) stream for this session.
   const liveStream = useLiveStream(sessionId);
@@ -407,23 +406,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     <div className="chat-panel">
       <header className="chat-header">
         <div className="chat-header-left">
-          <button
-            type="button"
-            className={`project-chip${linkedProject ? " linked" : ""}`}
-            onClick={() => setProjectModalOpen(true)}
-            title={
-              linkedProject
-                ? `RAG: ${linkedProject.name} (${linkedProject.chunk_count}개 청크)`
-                : "RAG 프로젝트 연결"
-            }
-          >
-            📚{" "}
-            {linkedProject
-              ? linkedProject.name.length > 18
-                ? linkedProject.name.slice(0, 16) + "…"
-                : linkedProject.name
-              : "프로젝트"}
-          </button>
           {editingTitle ? (
             <input
               ref={titleInputRef}
@@ -519,13 +501,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
       </div>
-      <ProjectModal
-        open={projectModalOpen}
-        onClose={() => setProjectModalOpen(false)}
-        selectedId={linkedProjectId}
-        onSelect={setLinkedProjectId}
-      />
-
       {showJumpToLatest && (
         <button
           type="button"

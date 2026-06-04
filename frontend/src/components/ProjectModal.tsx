@@ -5,51 +5,25 @@ import { useProjects } from "../state/ProjectsContext";
 interface Props {
   open: boolean;
   onClose: () => void;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  /**
-   * When true (default), each ready project shows an "이 채팅에 연결"
-   * button that wires it to the current chat session. Set false when
-   * opening from a context where no chat is active (e.g. the Cowork
-   * sidebar's project manager).
-   */
-  linkable?: boolean;
-}
-
-function statusBadge(p: Project): { label: string; cls: string } {
-  switch (p.status) {
-    case "ready":
-      return { label: "준비됨", cls: "ready" };
-    case "indexing": {
-      const pct = p.progress_total
-        ? Math.round((100 * p.progress_done) / p.progress_total)
-        : 0;
-      return { label: `인덱싱 ${pct}%`, cls: "indexing" };
-    }
-    case "pending":
-      return { label: "대기", cls: "pending" };
-    case "failed":
-      return { label: "실패", cls: "failed" };
-    default:
-      return { label: p.status, cls: "" };
-  }
+  /** Active chat session id, if any. When set, ready projects show an
+   *  "이 채팅에 연결" / "✓ 연결됨" action. */
+  linkSessionId?: string | null;
+  /** Current linked project id for the session above, so we can mark
+   *  the right card as active. */
+  linkedProjectId?: string | null;
+  /** Called when the user toggles the link from a project card. */
+  onLinkChange?: (projectId: string | null) => void;
 }
 
 export function ProjectModal({
   open,
   onClose,
-  selectedId,
-  onSelect,
-  linkable = true,
+  linkSessionId = null,
+  linkedProjectId = null,
+  onLinkChange,
 }: Props) {
   const { projects, create, remove, reindex, refresh } = useProjects();
-  const [sourceType, setSourceType] = useState<"folder" | "git">("git");
-  const [name, setName] = useState("");
-  const [ref, setRef] = useState("");
-  const [folderPath, setFolderPath] = useState("");
-  const [gitUrl, setGitUrl] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -61,7 +35,231 @@ export function ProjectModal({
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose, refresh]);
 
+  // Auto-open the add form when the list is empty so the empty state
+  // doubles as the onboarding CTA.
+  useEffect(() => {
+    if (open && projects.length === 0) setAddOpen(true);
+  }, [open, projects.length]);
+
   if (!open) return null;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal projects-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="pm-head">
+          <div className="pm-head-text">
+            <h3>RAG 프로젝트</h3>
+            <p>대용량 코드베이스를 한 번 인덱싱해 자연어로 검색·분석하세요.</p>
+          </div>
+          <button
+            type="button"
+            className="modal-close"
+            onClick={onClose}
+            aria-label="닫기"
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="pm-body">
+          {projects.length > 0 && (
+            <div className="pm-list">
+              {projects.map((p) => (
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  linkable={!!linkSessionId}
+                  linked={linkedProjectId === p.id}
+                  onLink={() =>
+                    onLinkChange?.(linkedProjectId === p.id ? null : p.id)
+                  }
+                  onReindex={() => reindex(p.id)}
+                  onDelete={() => {
+                    if (window.confirm(`"${p.name}"을(를) 삭제할까요? 인덱스도 함께 사라집니다.`)) {
+                      if (linkedProjectId === p.id) onLinkChange?.(null);
+                      remove(p.id);
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          {addOpen ? (
+            <AddProjectForm
+              compact={projects.length > 0}
+              onCancel={projects.length > 0 ? () => setAddOpen(false) : undefined}
+              onSubmit={async (payload) => {
+                await create(payload);
+                setAddOpen(false);
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="pm-add-cta"
+              onClick={() => setAddOpen(true)}
+            >
+              + 새 프로젝트 추가
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Project card ─────────────────────────────────────────────────────
+
+function ProjectCard({
+  project: p,
+  linkable,
+  linked,
+  onLink,
+  onReindex,
+  onDelete,
+}: {
+  project: Project;
+  linkable: boolean;
+  linked: boolean;
+  onLink: () => void;
+  onReindex: () => void;
+  onDelete: () => void;
+}) {
+  const pct =
+    p.status === "indexing" && p.progress_total
+      ? Math.round((100 * p.progress_done) / p.progress_total)
+      : 0;
+
+  return (
+    <article className={`pm-card status-${p.status}${linked ? " linked" : ""}`}>
+      <div className="pm-card-head">
+        <div className="pm-card-title">
+          <span className="pm-card-icon" aria-hidden>
+            {p.source_type === "git" ? "🔗" : "📁"}
+          </span>
+          <span className="pm-card-name" title={p.name}>{p.name}</span>
+          {linked && (
+            <span className="pm-card-linked-badge" title="현재 채팅에 연결됨">
+              ✓ 현재 채팅
+            </span>
+          )}
+        </div>
+        <StatusBadge status={p.status} />
+      </div>
+
+      <div className="pm-card-source" title={p.source_ref}>
+        {p.source_ref}
+      </div>
+
+      {p.status === "indexing" && (
+        <div className="pm-card-progress">
+          <div className="pm-progress-bar">
+            <div className="pm-progress-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="pm-progress-text">
+            {p.progress_done.toLocaleString()} / {p.progress_total.toLocaleString()} 청크 ({pct}%)
+          </div>
+        </div>
+      )}
+
+      {p.status === "ready" && (
+        <div className="pm-card-stats">
+          <span className="pm-stat">
+            <span className="pm-stat-num">{p.file_count.toLocaleString()}</span>
+            <span className="pm-stat-label">파일</span>
+          </span>
+          <span className="pm-stat-sep" aria-hidden>·</span>
+          <span className="pm-stat">
+            <span className="pm-stat-num">{p.chunk_count.toLocaleString()}</span>
+            <span className="pm-stat-label">청크</span>
+          </span>
+        </div>
+      )}
+
+      {p.status === "failed" && p.error && (
+        <div className="pm-card-error">⚠ {p.error}</div>
+      )}
+
+      <div className="pm-card-actions">
+        {linkable && p.status === "ready" && (
+          <button
+            type="button"
+            className={`pm-link-btn${linked ? " linked" : ""}`}
+            onClick={onLink}
+          >
+            {linked ? "✓ 연결됨" : "이 채팅에 연결"}
+          </button>
+        )}
+        {(p.status === "ready" || p.status === "failed") && (
+          <button
+            type="button"
+            className="pm-icon-btn"
+            onClick={onReindex}
+            title="다시 인덱싱"
+            aria-label="다시 인덱싱"
+          >
+            🔄
+          </button>
+        )}
+        <button
+          type="button"
+          className="pm-icon-btn danger"
+          onClick={onDelete}
+          title="삭제"
+          aria-label="삭제"
+        >
+          🗑
+        </button>
+      </div>
+    </article>
+  );
+}
+
+// ── Status badge ─────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: Project["status"] }) {
+  const map = {
+    ready: { icon: "✓", label: "준비됨", cls: "ready" },
+    indexing: { icon: "⏳", label: "인덱싱 중", cls: "indexing" },
+    pending: { icon: "○", label: "대기", cls: "pending" },
+    failed: { icon: "✕", label: "실패", cls: "failed" },
+  } as const;
+  const s = map[status];
+  return (
+    <span className={`pm-badge ${s.cls}`}>
+      <span aria-hidden>{s.icon}</span>
+      {s.label}
+    </span>
+  );
+}
+
+// ── Add-project form ─────────────────────────────────────────────────
+
+function AddProjectForm({
+  compact,
+  onCancel,
+  onSubmit,
+}: {
+  compact: boolean;
+  onCancel?: () => void;
+  onSubmit: (payload: {
+    name: string;
+    source_type: "folder" | "git";
+    source_ref: string;
+    ref?: string;
+  }) => Promise<void>;
+}) {
+  const [sourceType, setSourceType] = useState<"git" | "folder">("git");
+  const [name, setName] = useState("");
+  const [gitUrl, setGitUrl] = useState("");
+  const [ref, setRef] = useState("");
+  const [folderPath, setFolderPath] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function submit() {
     setError(null);
@@ -70,7 +268,7 @@ export function ProjectModal({
       setError(
         sourceType === "git"
           ? "Git URL을 입력하세요"
-          : "서버에서 접근 가능한 폴더 절대경로를 입력하세요",
+          : "백엔드 서버가 접근 가능한 폴더 절대경로를 입력하세요",
       );
       return;
     }
@@ -80,7 +278,7 @@ export function ProjectModal({
     }
     setSubmitting(true);
     try {
-      await create({
+      await onSubmit({
         name: name.trim(),
         source_type: sourceType,
         source_ref: sourceRef,
@@ -98,162 +296,115 @@ export function ProjectModal({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal projects-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-header">
-          <h3>📚 RAG 프로젝트</h3>
+    <section className={`pm-add ${compact ? "compact" : "hero"}`}>
+      {!compact && (
+        <header className="pm-add-hero">
+          <div className="pm-add-hero-icon" aria-hidden>📚</div>
+          <h4>첫 프로젝트를 추가해보세요</h4>
+          <p>Git 레포 URL 또는 백엔드 서버에서 접근 가능한 폴더 경로를 입력하면 백그라운드에서 인덱싱이 시작됩니다.</p>
+        </header>
+      )}
+
+      <div className="pm-source-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={sourceType === "git"}
+          className={sourceType === "git" ? "active" : ""}
+          onClick={() => setSourceType("git")}
+        >
+          🔗 Git URL
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={sourceType === "folder"}
+          className={sourceType === "folder" ? "active" : ""}
+          onClick={() => setSourceType("folder")}
+        >
+          📁 서버 폴더
+        </button>
+      </div>
+
+      <div className="pm-field">
+        <label htmlFor="pm-name">프로젝트 이름</label>
+        <input
+          id="pm-name"
+          type="text"
+          placeholder="예: 전자정부 표준프레임워크"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={submitting}
+        />
+      </div>
+
+      {sourceType === "git" ? (
+        <>
+          <div className="pm-field">
+            <label htmlFor="pm-git-url">Git URL</label>
+            <input
+              id="pm-git-url"
+              type="text"
+              placeholder="https://github.com/owner/repo.git"
+              value={gitUrl}
+              onChange={(e) => setGitUrl(e.target.value)}
+              disabled={submitting}
+            />
+            <div className="pm-help">
+              허용 호스트: github / gitlab / bitbucket / codeberg / sr.ht
+            </div>
+          </div>
+          <div className="pm-field">
+            <label htmlFor="pm-ref">브랜치 / 태그 (선택)</label>
+            <input
+              id="pm-ref"
+              type="text"
+              placeholder="기본 브랜치 사용 (예: main, v1.0)"
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+        </>
+      ) : (
+        <div className="pm-field">
+          <label htmlFor="pm-folder">서버 절대경로</label>
+          <input
+            id="pm-folder"
+            type="text"
+            placeholder="/workspace/projects/egov"
+            value={folderPath}
+            onChange={(e) => setFolderPath(e.target.value)}
+            disabled={submitting}
+          />
+          <div className="pm-help">
+            백엔드 서버 자체가 읽을 수 있는 경로여야 합니다. Windows라면 <code>C:/Users/i/git/egov</code> 식으로.
+          </div>
+        </div>
+      )}
+
+      {error && <div className="pm-add-error">⚠ {error}</div>}
+
+      <div className="pm-add-actions">
+        {onCancel && (
           <button
             type="button"
-            className="modal-close"
-            onClick={onClose}
-            aria-label="닫기"
+            className="pm-btn-secondary"
+            onClick={onCancel}
+            disabled={submitting}
           >
-            ×
+            취소
           </button>
-        </div>
-
-        <div className="modal-body">
-          <div className="proj-add">
-            <div className="proj-tabs">
-              <button
-                type="button"
-                className={sourceType === "git" ? "active" : ""}
-                onClick={() => setSourceType("git")}
-              >
-                Git URL
-              </button>
-              <button
-                type="button"
-                className={sourceType === "folder" ? "active" : ""}
-                onClick={() => setSourceType("folder")}
-              >
-                서버 폴더
-              </button>
-            </div>
-            <input
-              type="text"
-              placeholder="프로젝트 이름 (예: 전자정부 표준프레임워크)"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            {sourceType === "git" ? (
-              <>
-                <input
-                  type="text"
-                  placeholder="https://github.com/owner/repo.git"
-                  value={gitUrl}
-                  onChange={(e) => setGitUrl(e.target.value)}
-                />
-                <input
-                  type="text"
-                  placeholder="브랜치/태그 (선택, 기본 = 기본 브랜치)"
-                  value={ref}
-                  onChange={(e) => setRef(e.target.value)}
-                />
-              </>
-            ) : (
-              <input
-                type="text"
-                placeholder="서버 절대경로 (예: /workspace/projects/egov)"
-                value={folderPath}
-                onChange={(e) => setFolderPath(e.target.value)}
-              />
-            )}
-            {error && <div className="proj-error">{error}</div>}
-            <button
-              type="button"
-              className="modal-primary"
-              onClick={submit}
-              disabled={submitting}
-            >
-              {submitting ? "추가 중..." : "+ 인덱싱 시작"}
-            </button>
-          </div>
-
-          <div className="proj-list">
-            {projects.length === 0 && (
-              <div className="proj-empty">
-                아직 인덱싱한 프로젝트가 없습니다. 위에서 Git URL이나 폴더 경로를
-                넣어 추가하세요.
-              </div>
-            )}
-            {projects.map((p) => {
-              const b = statusBadge(p);
-              const selected = p.id === selectedId;
-              return (
-                <div
-                  key={p.id}
-                  className={`proj-row${selected ? " selected" : ""}`}
-                >
-                  <div className="proj-main">
-                    <div className="proj-row-head">
-                      <span className="proj-name">{p.name}</span>
-                      <span className={`proj-status ${b.cls}`}>{b.label}</span>
-                    </div>
-                    <div className="proj-meta">
-                      <span className="proj-source">
-                        {p.source_type === "git" ? "🔗" : "📁"} {p.source_ref}
-                      </span>
-                      {p.status === "ready" && (
-                        <span>
-                          {p.file_count}개 파일 · {p.chunk_count}개 청크
-                        </span>
-                      )}
-                      {p.status === "failed" && p.error && (
-                        <span className="proj-error-inline">
-                          {p.error.slice(0, 120)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="proj-actions">
-                    {linkable && p.status === "ready" && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelect(selected ? null : p.id);
-                          onClose();
-                        }}
-                      >
-                        {selected ? "✓ 선택됨" : "이 채팅에 연결"}
-                      </button>
-                    )}
-                    {(p.status === "ready" || p.status === "failed") && (
-                      <button
-                        type="button"
-                        onClick={() => reindex(p.id)}
-                      >
-                        재인덱싱
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => {
-                        if (window.confirm(`"${p.name}" 삭제할까요?`)) {
-                          remove(p.id);
-                          if (selected) onSelect(null);
-                        }
-                      }}
-                    >
-                      삭제
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="modal-footer">
-          <button type="button" className="modal-secondary" onClick={onClose}>
-            닫기
-          </button>
-        </div>
+        )}
+        <button
+          type="button"
+          className="pm-btn-primary"
+          onClick={submit}
+          disabled={submitting}
+        >
+          {submitting ? "추가 중..." : "+ 인덱싱 시작"}
+        </button>
       </div>
-    </div>
+    </section>
   );
 }
