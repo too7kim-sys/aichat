@@ -1,19 +1,14 @@
 import { useEffect, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 
-// LLM is asked to emit each finding as:
+// The LLM is asked to write each finding as:
 //   ### [HIGH] short title — path/to/file.ext:42
-// followed by free-form markdown (problem / risk / fix). We slice the
-// text on these headings and render each block as a collapsible card.
-//
-// The regex tolerates extra whitespace and accepts ":?" when the model
-// can't pin down a line. Severity is restricted to a short whitelist
-// so random "###" headings don't get hijacked.
-const FINDING_HEADING_RE =
-  /^###\s*\[(HIGH|MEDIUM|LOW|INFO)\]\s+(.+?)\s+(?:—|--|-)\s+([^\s][^\n]*?)\s*$/im;
-
-const FINDING_HEADING_RE_G =
-  /^###\s*\[(HIGH|MEDIUM|LOW|INFO)\]\s+(.+?)\s+(?:—|--|-)\s+([^\s][^\n]*?)\s*$/gim;
+// but qwen3-coder and similar code-tuned models often drift from the
+// exact format (drop brackets, use ":" instead of "—", put severity
+// after the title, use #### instead of ###, etc.). Instead of a single
+// strict regex we walk line by line, accept any H2-H4 heading that
+// contains BOTH a severity keyword AND a path:line locator anywhere
+// in the heading text, then strip those out to leave the title.
 
 export type Severity = "HIGH" | "MEDIUM" | "LOW" | "INFO";
 
@@ -25,40 +20,93 @@ export type FindingSegment =
       title: string;
       location: string;
       body: string;
-      closed: boolean; // false = still streaming the body (last segment)
+      closed: boolean; // false = currently streaming the body (last segment)
     };
 
+const HEADING_RE = /^(#{2,4})\s+(.+?)\s*$/;
+const SEV_RE = /\b(CRITICAL|HIGH|MEDIUM|MED|LOW|INFO)\b/i;
+const LOC_RE =
+  /([A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+:(?:\d+(?:-\d+)?|\?))/;
+
+interface ParsedHeading {
+  severity: Severity;
+  title: string;
+  location: string;
+}
+
+function parseFindingHeading(line: string): ParsedHeading | null {
+  const h = HEADING_RE.exec(line);
+  if (!h) return null;
+  const text = h[2];
+
+  const sevMatch = SEV_RE.exec(text);
+  if (!sevMatch) return null;
+  let sev = sevMatch[1].toUpperCase();
+  if (sev === "MED") sev = "MEDIUM";
+  if (sev === "CRITICAL") sev = "HIGH"; // collapse to our 4-bucket palette
+  const severity = sev as Severity;
+
+  const locMatch = LOC_RE.exec(text);
+  if (!locMatch) return null;
+  const location = locMatch[1];
+
+  // Title = original heading text minus the severity token, minus the
+  // location token, minus surrounding brackets / punctuation noise.
+  let title = text
+    .replace(SEV_RE, " ")
+    .replace(LOC_RE, " ")
+    .replace(/[\[\](){}"`']/g, " ")
+    .replace(/[\s\-—:|·.,/]+/g, " ")
+    .trim();
+  if (!title) title = "(제목 없음)";
+  return { severity, title, location };
+}
+
 export function hasFinding(text: string): boolean {
-  return FINDING_HEADING_RE.test(text);
+  for (const line of text.split("\n")) {
+    if (parseFindingHeading(line)) return true;
+  }
+  return false;
 }
 
 export function splitFindings(text: string): FindingSegment[] {
-  const segs: FindingSegment[] = [];
-  const matches: Array<{ idx: number; len: number; m: RegExpExecArray }> = [];
-  let m: RegExpExecArray | null;
-  const re = new RegExp(FINDING_HEADING_RE_G);
-  while ((m = re.exec(text)) !== null) {
-    matches.push({ idx: m.index, len: m[0].length, m });
+  const lines = text.split("\n");
+  // Find indexes of all finding-shaped headings up front so the live
+  // streaming case (where the last finding is still growing) can mark
+  // the trailing one as not-yet-closed.
+  const findingIdx: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (parseFindingHeading(lines[i])) findingIdx.push(i);
   }
-  if (matches.length === 0) {
+  if (findingIdx.length === 0) {
     return [{ kind: "text", body: text }];
   }
-  // Leading text before the first finding.
-  if (matches[0].idx > 0) {
-    segs.push({ kind: "text", body: text.slice(0, matches[0].idx) });
+
+  const segs: FindingSegment[] = [];
+  // Anything before the first finding heading is leading text.
+  if (findingIdx[0] > 0) {
+    const leading = lines.slice(0, findingIdx[0]).join("\n");
+    if (leading) segs.push({ kind: "text", body: leading });
   }
-  for (let i = 0; i < matches.length; i++) {
-    const cur = matches[i];
-    const bodyStart = cur.idx + cur.len;
-    const bodyEnd = i + 1 < matches.length ? matches[i + 1].idx : text.length;
-    const body = text.slice(bodyStart, bodyEnd).replace(/^\n+/, "").replace(/\n+$/, "");
+  for (let i = 0; i < findingIdx.length; i++) {
+    const start = findingIdx[i];
+    const end = i + 1 < findingIdx.length ? findingIdx[i + 1] : lines.length;
+    const parsed = parseFindingHeading(lines[start])!;
+    const body = lines
+      .slice(start + 1, end)
+      .join("\n")
+      .replace(/^\n+/, "")
+      .replace(/\n+$/, "");
     segs.push({
       kind: "finding",
-      severity: cur.m[1].toUpperCase() as Severity,
-      title: cur.m[2].trim(),
-      location: cur.m[3].trim(),
+      severity: parsed.severity,
+      title: parsed.title,
+      location: parsed.location,
       body,
-      closed: i + 1 < matches.length, // last finding stays "open" until next heading
+      // The last finding stays "open" — the model could still be
+      // streaming its body. Once another heading appears, this one
+      // closes.
+      closed: i + 1 < findingIdx.length,
     });
   }
   return segs;
@@ -88,8 +136,6 @@ function FindingCard({
   showCursor: boolean;
   artifactTitlePrefix?: string;
 }) {
-  // Active streaming card auto-expands; completed cards default to
-  // collapsed (the list view). User can toggle freely afterwards.
   const [open, setOpen] = useState(showCursor);
   useEffect(() => {
     if (!streaming) setOpen(false);
