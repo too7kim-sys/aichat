@@ -295,7 +295,8 @@ function ProjectCard({
     (s) => s.id === p.current_snapshot_id,
   );
 
-  const meta = CORPUS_META[p.corpus_type] ?? CORPUS_META.code;
+  const meta = CORPUS_META[p.corpus_type] ?? CORPUS_META.document;
+  const isLegacyCode = p.corpus_type === "code";
   return (
     <article className={`pm-card status-${p.status}${linked ? " linked" : ""}`}>
       <div className="pm-card-head">
@@ -305,13 +306,20 @@ function ProjectCard({
           </span>
           <span className="pm-card-name" title={p.name}>{p.name}</span>
           <span
-            className={`pm-corpus-chip corpus-${p.corpus_type}`}
-            title={meta.hint}
+            className={`pm-corpus-chip corpus-${p.corpus_type}${isLegacyCode ? " legacy" : ""}`}
+            title={
+              isLegacyCode
+                ? "코드 코퍼스는 Code 탭으로 이전됨 (기존 데이터는 그대로 사용 가능)"
+                : meta.hint
+            }
           >
             <span className="pm-corpus-chip-icon" aria-hidden>
               {meta.icon}
             </span>
             {meta.label}
+            {isLegacyCode && (
+              <span className="pm-corpus-legacy-tag">legacy</span>
+            )}
           </span>
           {linked && (
             <span className="pm-card-linked-badge" title="현재 채팅에 연결됨">
@@ -659,9 +667,12 @@ function AddProjectForm({
     corpus_type: CorpusType;
   }) => Promise<void>;
 }) {
-  const [corpusType, setCorpusType] = useState<CorpusType>("code");
+  // Code corpus moved to the Code tab; new Cowork projects default
+  // to "document". CORPUS_META still keeps the "code" entry so legacy
+  // chips render, but the tabs no longer expose it.
+  const [corpusType, setCorpusType] = useState<CorpusType>("document");
   const [sourceType, setSourceType] = useState<SourceType>(
-    CORPUS_META.code.sources[0],
+    CORPUS_META.document.sources[0],
   );
   // One input value per source type so switching the source tab
   // doesn't wipe what the user already typed in another tab.
@@ -772,7 +783,11 @@ function AddProjectForm({
           <h4>첫 프로젝트를 추가해보세요</h4>
           <p>
             코퍼스 유형을 고르면 그에 맞는 연결 방식을 선택할 수 있습니다.
-            (코드는 Git/폴더, API는 URL, DB는 연결 문자열 …)
+            (문서는 SFTP/폴더, API는 OpenAPI URL, DB는 연결 문자열 …)
+          </p>
+          <p className="pm-add-hero-aside">
+            코드 분석·수정 흐름은 사이드바의 <b>Code 탭</b>(워크스페이스)에서
+            관리합니다.
           </p>
         </header>
       )}
@@ -780,7 +795,7 @@ function AddProjectForm({
       <div className="pm-field">
         <label>코퍼스 유형</label>
         <div className="pm-corpus-tabs" role="tablist">
-          {(["code", "document", "api", "db"] as const).map((t) => {
+          {(["document", "api", "db"] as const).map((t) => {
             const m = CORPUS_META[t];
             return (
               <button
@@ -797,7 +812,14 @@ function AddProjectForm({
             );
           })}
         </div>
-        <div className="pm-help">{corpusMeta.hint}</div>
+        <div className="pm-help">
+          {corpusMeta.hint}
+          <br />
+          <span className="pm-help-aside">
+            💡 코드 분석·수정은 사이드바의 <b>Code 탭</b>(워크스페이스)로
+            이동했습니다.
+          </span>
+        </div>
       </div>
 
       <div className="pm-field">

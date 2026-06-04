@@ -89,6 +89,16 @@ async def create_project(
 ):
     if not settings.rag_enabled:
         raise HTTPException(503, "RAG가 비활성화 상태입니다 (.env: RAG_ENABLED=true)")
+    # Code corpus moved to the Code tab (workspaces). Existing rows
+    # still serve via retrieval, but creating new ones from Cowork is
+    # blocked so we don't grow more "RAG over code" data when a real
+    # working-copy + LLM patch loop already covers that use case.
+    if payload.corpus_type == "code":
+        raise HTTPException(
+            400,
+            "코드 코퍼스는 Code 탭의 워크스페이스 기능으로 이전되었습니다. "
+            "사이드바의 Code 탭에서 워크스페이스를 추가하세요.",
+        )
     allowed = _ALLOWED_SOURCE_BY_CORPUS.get(payload.corpus_type, set())
     if payload.source_type not in allowed:
         raise HTTPException(

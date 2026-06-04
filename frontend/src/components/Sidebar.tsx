@@ -223,8 +223,9 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
         <div className="session-section">RAG 프로젝트</div>
         {projects.length === 0 ? (
           <div className="sidebar-empty">
-            전자정부 같은 큰 코드베이스를 한 번 인덱싱해두면, 채팅에서 자연어로
-            검색·분석할 수 있어요.
+            문서(PDF·DOCX·MD), OpenAPI, DB 스키마를 한 번 인덱싱해두면 채팅에서
+            자연어로 검색할 수 있어요. 코드 분석은 사이드바의 <b>Code 탭</b>을
+            사용하세요.
           </div>
         ) : (
           <ul className="proj-sidebar-list">
