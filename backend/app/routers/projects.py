@@ -12,7 +12,7 @@ from .. import models, schemas
 from ..auth import get_current_user
 from ..config import settings
 from ..database import get_db
-from ..rag.indexer import schedule_indexing
+from ..rag.indexer import schedule_incremental, schedule_indexing
 from ..rag.retriever import retrieve
 from ..rag.vector import drop_collection, storage_usage_bytes
 
@@ -135,6 +135,41 @@ async def reindex(
     if project.status == "indexing":
         raise HTTPException(409, "이미 인덱싱 진행 중입니다")
     await _create_snapshot_and_schedule(db, project)
+    return await _project_with_snapshots(db, project.id, user.id)
+
+
+@router.post("/{project_id}/refresh", response_model=schemas.ProjectOut)
+async def refresh_now(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Manual trigger for incremental update — same code path the
+    background scheduler runs on a timer. Doesn't create a new
+    snapshot; just brings the current one up to date."""
+    project = await _project_with_snapshots(db, project_id, user.id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    if not project.current_snapshot_id:
+        raise HTTPException(409, "활성 스냅샷이 없습니다. 먼저 인덱싱하세요.")
+    if project.status == "indexing":
+        raise HTTPException(409, "이미 인덱싱 진행 중입니다")
+    schedule_incremental(project.id)
+    return project
+
+
+@router.patch("/{project_id}/schedule", response_model=schemas.ProjectOut)
+async def update_schedule(
+    project_id: str,
+    payload: schemas.ProjectScheduleUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    project = await _project_with_snapshots(db, project_id, user.id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    project.schedule_interval_minutes = payload.schedule_interval_minutes
+    await db.commit()
     return await _project_with_snapshots(db, project.id, user.id)
 
 

@@ -33,6 +33,11 @@ interface ProjectsState {
     projectId: string,
     snapshotId: string,
   ) => Promise<{ freedBytes: number }>;
+  refreshProject: (projectId: string) => Promise<void>;
+  setSchedule: (
+    projectId: string,
+    intervalMinutes: number,
+  ) => Promise<void>;
 }
 
 const Ctx = createContext<ProjectsState | null>(null);
@@ -131,6 +136,22 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const refreshProject = useCallback<ProjectsState["refreshProject"]>(
+    async (projectId) => {
+      await api.refreshProject(projectId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const setSchedule = useCallback<ProjectsState["setSchedule"]>(
+    async (projectId, intervalMinutes) => {
+      await api.setProjectSchedule(projectId, intervalMinutes);
+      await refresh();
+    },
+    [refresh],
+  );
+
   return (
     <Ctx.Provider
       value={{
@@ -142,6 +163,8 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
         reindex,
         activateSnapshot,
         deleteSnapshot,
+        refreshProject,
+        setSchedule,
       }}
     >
       {children}

@@ -184,6 +184,8 @@ export interface Project {
   error: string | null;
   current_snapshot_id: string | null;
   snapshots: Snapshot[];
+  schedule_interval_minutes: number;
+  last_indexed_at: string | null;
   created_at: string;
 }
 
@@ -243,6 +245,13 @@ export const api = {
       `/projects/${projectId}/snapshots/${snapshotId}`,
       { method: "DELETE" },
     ),
+  refreshProject: (projectId: string) =>
+    json<Project>(`/projects/${projectId}/refresh`, { method: "POST" }),
+  setProjectSchedule: (projectId: string, intervalMinutes: number) =>
+    json<Project>(`/projects/${projectId}/schedule`, {
+      method: "PATCH",
+      body: JSON.stringify({ schedule_interval_minutes: intervalMinutes }),
+    }),
 };
 
 export interface SearchSource {

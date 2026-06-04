@@ -33,7 +33,28 @@ async def lifespan(app: FastAPI):
             "and put it in backend/.env before exposing this service."
         )
     await init_db()
-    yield
+
+    # Start the RAG scheduler if qdrant-client is installed. Guarded
+    # behind the same import block as the projects router so the app
+    # stays up when the optional dep is missing.
+    import asyncio
+    scheduler_task = None
+    if _RAG_AVAILABLE:
+        try:
+            from .rag.indexer import scheduler_loop
+            scheduler_task = asyncio.create_task(scheduler_loop())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("RAG scheduler not started: %s", exc)
+
+    try:
+        yield
+    finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

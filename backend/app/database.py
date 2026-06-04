@@ -75,6 +75,40 @@ async def init_db() -> None:
                     "UPDATE projects SET corpus_type = 'document' "
                     "WHERE corpus_type = 'legal'"
                 )
+            if pexisting and "schedule_interval_minutes" not in pexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN "
+                    "schedule_interval_minutes INTEGER NOT NULL DEFAULT 0"
+                )
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN "
+                    "last_indexed_at DATETIME"
+                )
+            # indexed_files lookup table — created by create_all when
+            # the model registers, but if an older DB is missing it
+            # we belt-and-suspenders create it here so the scheduler
+            # doesn't crash on the first incremental run.
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS indexed_files (
+                    id          VARCHAR(36) PRIMARY KEY,
+                    snapshot_id VARCHAR(36) NOT NULL,
+                    filename    VARCHAR(500) NOT NULL,
+                    file_hash   VARCHAR(64) NOT NULL,
+                    size        INTEGER DEFAULT 0,
+                    chunk_count INTEGER DEFAULT 0,
+                    indexed_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_indexed_files_snapshot_id "
+                "ON indexed_files(snapshot_id)"
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_indexed_files_filename "
+                "ON indexed_files(filename)"
+            )
             if pexisting and "current_snapshot_id" not in pexisting:
                 # Snapshot/versioning support added later. The FK column
                 # is nullable so existing rows survive; a small backfill

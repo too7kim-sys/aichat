@@ -104,10 +104,22 @@ class ProjectOut(BaseModel):
     error: str | None
     current_snapshot_id: str | None
     snapshots: list[SnapshotOut] = []
+    schedule_interval_minutes: int = 0
+    last_indexed_at: datetime | None = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class ProjectScheduleUpdate(BaseModel):
+    """Configure (or disable) the auto-refresh interval for a project.
+    Validation range matches what the background scheduler actually
+    cares about — sub-minute polling would just thrash, daily-or-less
+    is what humans tend to set."""
+    schedule_interval_minutes: int = Field(
+        ge=0, le=60 * 24 * 30, description="0 = disabled"
+    )
 
 
 class ProviderInfo(BaseModel):

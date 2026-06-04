@@ -128,6 +128,14 @@ class Project(Base):
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Auto-refresh: every N minutes after the last successful index a
+    # background loop kicks an incremental update (delta against the
+    # files tracked in indexed_files for the current snapshot). 0
+    # disables the schedule entirely.
+    schedule_interval_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    last_indexed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -166,6 +174,27 @@ class ProjectSnapshot(Base):
     project: Mapped[Project] = relationship(
         back_populates="snapshots", foreign_keys=[project_id]
     )
+
+
+class IndexedFile(Base):
+    """Per-snapshot record of every file that contributed chunks to
+    the vector index. The incremental indexer compares the current
+    source tree against these rows so a re-run only re-embeds files
+    whose hash actually changed."""
+    __tablename__ = "indexed_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("project_snapshots.id", ondelete="CASCADE"), index=True
+    )
+    # Path relative to the corpus root, exactly as it shows up in
+    # chunk payloads (so we can DELETE matching points by filename).
+    filename: Mapped[str] = mapped_column(String(500), index=True)
+    # SHA-256 of the file body, hex-encoded.
+    file_hash: Mapped[str] = mapped_column(String(64), index=True)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    indexed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class AuditLog(Base):

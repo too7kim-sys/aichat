@@ -283,7 +283,8 @@ function ProjectCard({
   onReindex: () => void;
   onDelete: () => void;
 }) {
-  const { activateSnapshot, deleteSnapshot } = useProjects();
+  const { activateSnapshot, deleteSnapshot, refreshProject, setSchedule } =
+    useProjects();
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const pct =
     p.status === "indexing" && p.progress_total
@@ -488,6 +489,14 @@ function ProjectCard({
         </div>
       )}
 
+      {p.status === "ready" && (
+        <ScheduleBlock
+          project={p}
+          onRefreshNow={() => refreshProject(p.id)}
+          onSetSchedule={(mins) => setSchedule(p.id, mins)}
+        />
+      )}
+
       <div className="pm-card-actions">
         {linkable && p.status === "ready" && (
           <button
@@ -531,6 +540,79 @@ function ProjectCard({
 }
 
 // ── Status badge ─────────────────────────────────────────────────────
+
+function ScheduleBlock({
+  project,
+  onRefreshNow,
+  onSetSchedule,
+}: {
+  project: Project;
+  onRefreshNow: () => Promise<void> | void;
+  onSetSchedule: (intervalMinutes: number) => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const current = project.schedule_interval_minutes;
+  const presets: { label: string; mins: number }[] = [
+    { label: "끔", mins: 0 },
+    { label: "10분", mins: 10 },
+    { label: "30분", mins: 30 },
+    { label: "1시간", mins: 60 },
+    { label: "6시간", mins: 60 * 6 },
+    { label: "1일", mins: 60 * 24 },
+  ];
+  return (
+    <div className="pm-sched-block">
+      <div className="pm-sched-row">
+        <span className="pm-sched-label">
+          <IconClock size={13} /> 자동 새로고침
+        </span>
+        <div className="pm-sched-presets">
+          {presets.map((p) => (
+            <button
+              key={p.mins}
+              type="button"
+              className={`pm-sched-pill${current === p.mins ? " active" : ""}`}
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onSetSchedule(p.mins);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="pm-sched-row pm-sched-meta">
+        <span>
+          {project.last_indexed_at
+            ? `최근 인덱싱: ${new Date(project.last_indexed_at).toLocaleString()}`
+            : "최근 인덱싱: —"}
+        </span>
+        <button
+          type="button"
+          className="pm-sched-refresh"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onRefreshNow();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <IconRefresh size={12} /> 지금 새로고침
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 function StatusBadge({ status }: { status: Project["status"] }) {
   const map = {

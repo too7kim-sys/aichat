@@ -119,6 +119,36 @@ def drop_collection(project_id: str) -> int:
     return bytes_before
 
 
+def delete_chunks_by_filename(snapshot_id: str, filename: str) -> int:
+    """Delete every point in the snapshot's collection whose payload
+    .filename matches. Used by the incremental indexer when a file
+    is removed or replaced. Returns the (best-effort) count of points
+    removed; -1 when Qdrant doesn't report a number."""
+    name = collection_name(snapshot_id)
+    client = get_client()
+    try:
+        client.delete(
+            collection_name=name,
+            points_selector=qm.FilterSelector(
+                filter=qm.Filter(
+                    must=[
+                        qm.FieldCondition(
+                            key="filename",
+                            match=qm.MatchValue(value=filename),
+                        )
+                    ]
+                )
+            ),
+        )
+        return -1
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "Qdrant delete by filename failed (collection=%s file=%s): %s",
+            name, filename, exc,
+        )
+        return 0
+
+
 def storage_usage_bytes() -> int:
     """Total bytes consumed by the local Qdrant data directory across
     every collection. Returns 0 in remote-server mode."""

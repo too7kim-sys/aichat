@@ -2550,6 +2550,84 @@ body {
   border-color: #fca5a5;
 }
 
+/* ── Schedule block (auto-refresh per project) ──────────────────── */
+.pm-sched-block {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pm-sched-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pm-sched-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.pm-sched-label svg { color: var(--text-faint); }
+.pm-sched-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.pm-sched-pill {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.pm-sched-pill:hover:not(:disabled) {
+  background: var(--bg-sidebar);
+  color: var(--text);
+}
+.pm-sched-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.pm-sched-pill:disabled { opacity: 0.5; cursor: not-allowed; }
+.pm-sched-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.pm-sched-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.pm-sched-refresh:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.pm-sched-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .pm-card-source {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11.5px;

@@ -18,9 +18,16 @@ from sqlalchemy import select
 from .. import models
 from ..config import settings
 from ..database import SessionLocal
+from datetime import datetime, timezone
+
 from .chunker import chunk_for_type
 from .embed import EmbedError, embed_many
-from .vector import collection_name, ensure_collection, get_client
+from .vector import (
+    collection_name,
+    delete_chunks_by_filename,
+    ensure_collection,
+    get_client,
+)
 
 log = logging.getLogger("uvicorn.error")
 
@@ -556,10 +563,63 @@ async def run_indexing(snapshot_id: str) -> None:
             done += len(batch)
             await _update_snapshot(snapshot_id, progress_done=done)
 
+        # Populate the per-file inventory so future incremental runs
+        # can compute a proper hash diff. Wipe any stale rows for this
+        # snapshot first in case a previous failed run left some.
+        async with SessionLocal() as db:
+            existing = await db.execute(
+                select(models.IndexedFile).where(
+                    models.IndexedFile.snapshot_id == snapshot_id
+                )
+            )
+            for r in existing.scalars():
+                await db.delete(r)
+            chunks_per_file: dict[str, int] = {}
+            for c in all_chunks:
+                # Chunk filename may include "#endpoint" for the API
+                # chunker; strip back to the parent file so we can
+                # rehash + diff against the actual source file.
+                base = c.filename.split("#", 1)[0]
+                chunks_per_file[base] = chunks_per_file.get(base, 0) + 1
+            for f in files:
+                try:
+                    rel = f.relative_to(root).as_posix()
+                except ValueError:
+                    continue
+                if rel not in chunks_per_file:
+                    continue
+                try:
+                    file_hash = _sha256_file(f)
+                    size = f.stat().st_size
+                except OSError:
+                    continue
+                db.add(
+                    models.IndexedFile(
+                        snapshot_id=snapshot_id,
+                        filename=rel,
+                        file_hash=file_hash,
+                        size=size,
+                        chunk_count=chunks_per_file[rel],
+                    )
+                )
+            await db.commit()
+
         await _update_snapshot(
             snapshot_id, status="ready", chunk_count=len(all_chunks),
             progress_done=len(all_chunks),
         )
+        # Stamp last_indexed_at on the parent project so the
+        # scheduler knows when it last ran.
+        async with SessionLocal() as db:
+            proj_row = await db.scalar(
+                select(models.Project).where(
+                    models.Project.id == project_id
+                )
+            )
+            if proj_row:
+                proj_row.last_indexed_at = datetime.now(timezone.utc)
+                await db.commit()
+
         log.info(
             "RAG indexed snapshot=%s project=%s files=%d chunks=%d",
             snapshot_id, project_id, len(files), len(all_chunks),
@@ -585,6 +645,305 @@ def schedule_indexing(snapshot_id: str) -> None:
         asyncio.run(run_indexing(snapshot_id))
         return
     task = loop.create_task(run_indexing(snapshot_id))
+    _BACKGROUND_INDEX_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_INDEX_TASKS.discard)
+
+
+# === Incremental indexing — only re-embed changed files =============
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for buf in iter(lambda: f.read(64 * 1024), b""):
+            h.update(buf)
+    return h.hexdigest()
+
+
+async def run_incremental(project_id: str) -> dict:
+    """Re-walk the project's source, diff each file against the
+    indexed_files table for the current snapshot, and only re-embed
+    files whose hash actually changed. Removed files have their
+    chunks deleted from Qdrant. The current snapshot id is reused —
+    incremental updates DON'T create a new snapshot, they keep the
+    existing collection fresh.
+
+    Returns a small summary dict so the scheduler can log it."""
+    workdir: Path | None = None
+    cleanup_workdir = False
+    summary = {"added": 0, "updated": 0, "removed": 0, "unchanged": 0}
+    try:
+        async with SessionLocal() as db:
+            proj = await db.scalar(
+                select(models.Project).where(models.Project.id == project_id)
+            )
+            if not proj or not proj.current_snapshot_id:
+                return summary
+            snapshot_id = proj.current_snapshot_id
+            source_type = proj.source_type
+            source_ref = proj.source_ref
+            corpus_type = proj.corpus_type or "code"
+            # Mark indexing so a parallel scheduled run / manual
+            # button doesn't double-trigger.
+            proj.status = "indexing"
+            proj.error = None
+            await db.commit()
+
+        # Load the previous file inventory.
+        async with SessionLocal() as db:
+            rows = await db.execute(
+                select(models.IndexedFile).where(
+                    models.IndexedFile.snapshot_id == snapshot_id
+                )
+            )
+            prev_files: dict[str, models.IndexedFile] = {
+                r.filename: r for r in rows.scalars()
+            }
+
+        # Stage the corpus the same way run_indexing does.
+        if source_type == "git":
+            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
+            cleanup_workdir = True
+            _clone_git(source_ref, None, workdir)
+            root = workdir
+        elif source_type == "folder":
+            root = Path(source_ref).resolve()
+        elif source_type == "url":
+            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
+            cleanup_workdir = True
+            _fetch_url_to_dir(source_ref, workdir)
+            root = workdir
+        elif source_type == "connection":
+            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
+            cleanup_workdir = True
+            _reflect_db_to_dir(source_ref, workdir)
+            root = workdir
+        elif source_type == "sftp":
+            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
+            cleanup_workdir = True
+            _fetch_sftp_to_dir(source_ref, workdir, corpus_type)
+            root = workdir
+        else:
+            raise RuntimeError(f"unknown source_type: {source_type}")
+
+        files = _walk_corpus(root, corpus_type)
+        ensure_collection(snapshot_id)  # idempotent
+        client = get_client()
+        cname = collection_name(snapshot_id)
+
+        seen: set[str] = set()
+        for f in files:
+            rel = f.relative_to(root).as_posix()
+            seen.add(rel)
+            try:
+                file_hash = _sha256_file(f)
+                size = f.stat().st_size
+            except OSError:
+                continue
+            prev = prev_files.get(rel)
+            if prev and prev.file_hash == file_hash:
+                summary["unchanged"] += 1
+                continue
+
+            body = _read_text_for_indexing(f)
+            if not body:
+                continue
+            new_chunks = chunk_for_type(corpus_type, rel, body)
+            if not new_chunks:
+                continue
+
+            # Replace any previous chunks for this filename in Qdrant.
+            if prev is not None:
+                delete_chunks_by_filename(snapshot_id, rel)
+
+            # Embed and upsert the new chunks for this file.
+            try:
+                vectors = await embed_many([c.text for c in new_chunks])
+            except EmbedError as exc:
+                log.warning("Incremental embed failed for %s: %s", rel, exc)
+                continue
+
+            points = []
+            for chunk, vec in zip(new_chunks, vectors):
+                points.append(
+                    qm.PointStruct(
+                        id=str(uuid.uuid4()),
+                        vector=vec,
+                        payload={
+                            "filename": chunk.filename,
+                            "start_line": chunk.start_line,
+                            "end_line": chunk.end_line,
+                            "text": chunk.text,
+                            "corpus_type": corpus_type,
+                            "hash": hashlib.sha1(
+                                chunk.text.encode("utf-8")
+                            ).hexdigest(),
+                        },
+                    )
+                )
+            client.upsert(collection_name=cname, points=points)
+
+            async with SessionLocal() as db:
+                if prev is not None:
+                    # Re-fetch in this session and update.
+                    row = await db.scalar(
+                        select(models.IndexedFile).where(
+                            models.IndexedFile.id == prev.id
+                        )
+                    )
+                    if row:
+                        row.file_hash = file_hash
+                        row.size = size
+                        row.chunk_count = len(new_chunks)
+                        row.indexed_at = datetime.now(timezone.utc)
+                else:
+                    db.add(
+                        models.IndexedFile(
+                            snapshot_id=snapshot_id,
+                            filename=rel,
+                            file_hash=file_hash,
+                            size=size,
+                            chunk_count=len(new_chunks),
+                        )
+                    )
+                await db.commit()
+            summary["updated" if prev is not None else "added"] += 1
+
+        # Anything previously indexed but no longer present → remove.
+        for rel, prev in prev_files.items():
+            if rel in seen:
+                continue
+            delete_chunks_by_filename(snapshot_id, rel)
+            async with SessionLocal() as db:
+                row = await db.scalar(
+                    select(models.IndexedFile).where(
+                        models.IndexedFile.id == prev.id
+                    )
+                )
+                if row:
+                    await db.delete(row)
+                    await db.commit()
+            summary["removed"] += 1
+
+        # Update aggregates on the snapshot + mirror onto project,
+        # plus stamp last_indexed_at so the scheduler doesn't fire
+        # again immediately.
+        async with SessionLocal() as db:
+            total_files = await db.scalar(
+                select(func.count(models.IndexedFile.id)).where(
+                    models.IndexedFile.snapshot_id == snapshot_id
+                )
+            )
+            total_chunks = await db.scalar(
+                select(func.coalesce(func.sum(models.IndexedFile.chunk_count), 0))
+                .where(models.IndexedFile.snapshot_id == snapshot_id)
+            )
+            snap = await db.scalar(
+                select(models.ProjectSnapshot).where(
+                    models.ProjectSnapshot.id == snapshot_id
+                )
+            )
+            if snap:
+                snap.status = "ready"
+                snap.file_count = int(total_files or 0)
+                snap.chunk_count = int(total_chunks or 0)
+                snap.progress_done = snap.chunk_count
+                snap.progress_total = snap.chunk_count
+            proj = await db.scalar(
+                select(models.Project).where(models.Project.id == project_id)
+            )
+            if proj:
+                proj.status = "ready"
+                proj.file_count = int(total_files or 0)
+                proj.chunk_count = int(total_chunks or 0)
+                proj.progress_done = proj.chunk_count
+                proj.progress_total = proj.chunk_count
+                proj.error = None
+                proj.last_indexed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+        log.info(
+            "RAG incremental project=%s added=%d updated=%d removed=%d unchanged=%d",
+            project_id, summary["added"], summary["updated"],
+            summary["removed"], summary["unchanged"],
+        )
+        return summary
+    except Exception as exc:  # noqa: BLE001
+        log.exception("RAG incremental failed for project=%s", project_id)
+        async with SessionLocal() as db:
+            proj = await db.scalar(
+                select(models.Project).where(models.Project.id == project_id)
+            )
+            if proj:
+                proj.status = "failed"
+                proj.error = str(exc)[:500]
+                await db.commit()
+        return summary
+    finally:
+        if cleanup_workdir and workdir is not None:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+
+# === Scheduler loop — wakes every minute, kicks due projects ========
+
+async def scheduler_loop(poll_seconds: int = 60) -> None:
+    """Background task launched from FastAPI's lifespan. Each tick
+    looks for projects with schedule_interval_minutes > 0 whose
+    last_indexed_at is older than that interval and triggers an
+    incremental update. Crashes inside a single project's run are
+    caught so one bad source doesn't break the whole loop."""
+    log.info("RAG scheduler started (poll=%ds)", poll_seconds)
+    while True:
+        try:
+            await asyncio.sleep(poll_seconds)
+            await _scheduler_tick()
+        except asyncio.CancelledError:
+            log.info("RAG scheduler cancelled")
+            return
+        except Exception as exc:  # noqa: BLE001
+            log.exception("RAG scheduler tick failed: %s", exc)
+
+
+async def _scheduler_tick() -> None:
+    async with SessionLocal() as db:
+        rows = await db.execute(
+            select(models.Project).where(
+                models.Project.schedule_interval_minutes > 0,
+                models.Project.status != "indexing",
+                models.Project.current_snapshot_id.is_not(None),
+            )
+        )
+        candidates = list(rows.scalars())
+
+    now = datetime.now(timezone.utc)
+    for proj in candidates:
+        last = proj.last_indexed_at
+        if last is not None:
+            # SQLite stores naive datetimes — treat them as UTC.
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            delta_min = (now - last).total_seconds() / 60.0
+            if delta_min < proj.schedule_interval_minutes:
+                continue
+        log.info(
+            "RAG scheduler firing project=%s (interval=%d min)",
+            proj.id, proj.schedule_interval_minutes,
+        )
+        task = asyncio.get_running_loop().create_task(
+            run_incremental(proj.id)
+        )
+        _BACKGROUND_INDEX_TASKS.add(task)
+        task.add_done_callback(_BACKGROUND_INDEX_TASKS.discard)
+
+
+def schedule_incremental(project_id: str) -> None:
+    """Manual trigger version of incremental — same as scheduled, but
+    on demand from a button."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(run_incremental(project_id))
+        return
+    task = loop.create_task(run_incremental(project_id))
     _BACKGROUND_INDEX_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_INDEX_TASKS.discard)
 
