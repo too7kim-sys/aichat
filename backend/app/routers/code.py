@@ -243,14 +243,14 @@ async def start_chat_from_workspace(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    """Spin up a chat session that's permanently tied to a workspace.
+    """Spin up — or RESUME — the chat session tied to this workspace.
 
-    The session is marked code_focused and gets workspace_id set so
-    the chat router auto-injects the workspace files on EVERY turn
-    (not just the first one) — the user never has to think about
-    "did I re-attach the project". Returns the new session id and
-    a brief summary of what's in the workspace so the UI can render
-    the right indicator without doing a second round-trip."""
+    Every workspace owns at most one persistent chat. If the user
+    has clicked this card before, we return that session's id (the
+    UI just flips activeId to it). Only when no prior session
+    exists do we create a fresh one. Either way the response shape
+    is identical so the caller can stay agnostic, with `reused`
+    telling it whether to expect history."""
     ws = await db.scalar(
         select(models.CodeWorkspace).where(
             models.CodeWorkspace.id == workspace_id,
@@ -262,21 +262,39 @@ async def start_chat_from_workspace(
     if ws.status != "ready":
         raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
 
-    session = models.Session(
-        title=(ws.name or "Code workspace")[:200],
-        user_id=user.id,
-        mode="single",
-        workspace_id=ws.id,
-        code_focused=True,
+    # Reuse an existing chat pinned to the workspace before creating
+    # a new row. Pick the most-recently-updated one in the unlikely
+    # case multiple exist (legacy data from before this dedupe).
+    existing = await db.scalar(
+        select(models.Session)
+        .where(
+            models.Session.workspace_id == ws.id,
+            models.Session.user_id == user.id,
+        )
+        .order_by(models.Session.updated_at.desc())
     )
-    db.add(session)
-    await db.commit()
-    await db.refresh(session)
+    if existing is not None:
+        session = existing
+        # Make sure code_focused is set even on legacy rows that
+        # predate the column. Idempotent.
+        if not session.code_focused:
+            session.code_focused = True
+            await db.commit()
+            await db.refresh(session)
+        reused = True
+    else:
+        session = models.Session(
+            title=(ws.name or "Code workspace")[:200],
+            user_id=user.id,
+            mode="single",
+            workspace_id=ws.id,
+            code_focused=True,
+        )
+        db.add(session)
+        await db.commit()
+        await db.refresh(session)
+        reused = False
 
-    # One-off bundle for the response so the client can show a chip
-    # like "📁 사내 결제 모듈 · 23 파일 자동 첨부". The actual chat
-    # turns pull a fresh bundle server-side so a git pull halfway
-    # through the conversation lands in the very next reply.
     root = workspace_path_for(user.id, workspace_id)
     bundle = await asyncio.get_running_loop().run_in_executor(
         None, collect_workspace_files, root
@@ -287,6 +305,7 @@ async def start_chat_from_workspace(
         "title": session.title,
         "workspace_id": ws.id,
         "workspace_name": ws.name,
+        "reused": reused,
         "file_count": bundle["total_files"],
         "truncated": bundle["truncated"],
         "total_files_in_repo": bundle["total_files_in_repo"],

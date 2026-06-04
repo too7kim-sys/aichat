@@ -316,6 +316,7 @@ export const api = {
       title: string;
       workspace_id: string;
       workspace_name: string;
+      reused: boolean;
       file_count: number;
       truncated: boolean;
       total_files_in_repo: number;
