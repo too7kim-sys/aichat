@@ -74,18 +74,30 @@ export function CodeWorkspaceModal({ open, onClose, onAttachFile }: Props) {
           </button>
         </header>
 
-        <div className="cw-body">
-          <aside className="cw-list">
-            <button
-              type="button"
-              className="pm-add-cta cw-add-cta"
-              onClick={() => setAddOpen((v) => !v)}
-            >
-              <IconPlus size={14} />
-              <span>{addOpen ? "추가 닫기" : "워크스페이스 추가"}</span>
-            </button>
-
-            {addOpen && (
+        {addOpen ? (
+          // ── Add-only view ──
+          // When the user is creating a workspace we hide the list +
+          // viewer entirely so the form has the full modal width and
+          // they aren't visually pulled in two directions. The "목록
+          // 으로" link goes back to the browsing view.
+          <div className="cw-body cw-body-add">
+            <div className="cw-add-header">
+              <button
+                type="button"
+                className="cw-back-btn"
+                onClick={() => setAddOpen(false)}
+                disabled={workspaces.length === 0}
+                title={
+                  workspaces.length === 0
+                    ? "최소 한 개를 먼저 추가해야 목록으로 돌아갈 수 있습니다"
+                    : "목록으로"
+                }
+              >
+                ← 목록으로
+              </button>
+              <h4>새 워크스페이스 추가</h4>
+            </div>
+            <div className="cw-add-wrap">
               <AddWorkspaceForm
                 onCancel={() => setAddOpen(false)}
                 onSubmit={async (payload) => {
@@ -94,92 +106,106 @@ export function CodeWorkspaceModal({ open, onClose, onAttachFile }: Props) {
                   setActiveId(created.id);
                 }}
               />
-            )}
+            </div>
+          </div>
+        ) : (
+          // ── Browse view ── list + detail
+          <div className="cw-body">
+            <aside className="cw-list">
+              <button
+                type="button"
+                className="pm-add-cta cw-add-cta"
+                onClick={() => setAddOpen(true)}
+              >
+                <IconPlus size={14} />
+                <span>워크스페이스 추가</span>
+              </button>
 
-            {workspaces.length === 0 && !addOpen && (
-              <div className="cw-empty">
-                <IconCode size={32} />
-                <p>첫 워크스페이스를 추가해보세요.</p>
-              </div>
-            )}
+              {workspaces.length === 0 && (
+                <div className="cw-empty">
+                  <IconCode size={32} />
+                  <p>첫 워크스페이스를 추가해보세요.</p>
+                </div>
+              )}
 
-            <ul className="cw-ws-list">
-              {workspaces.map((w) => (
-                <li
-                  key={w.id}
-                  className={`cw-ws-item status-${w.status}${
-                    activeId === w.id ? " active" : ""
-                  }`}
-                  onClick={() => setActiveId(w.id)}
-                >
-                  <div className="cw-ws-top">
-                    <span className="cw-ws-name">
-                      <IconGitBranch size={13} /> {w.name}
-                    </span>
-                    <button
-                      type="button"
-                      className="cw-ws-del"
-                      title="삭제"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (
-                          !window.confirm(
-                            `"${w.name}" 워크스페이스를 삭제할까요?\n로컬 clone도 함께 사라집니다.`,
-                          )
-                        )
-                          return;
-                        await remove(w.id);
-                        if (activeId === w.id) setActiveId(null);
-                      }}
-                    >
-                      <IconTrash size={12} />
-                    </button>
-                  </div>
-                  <div className="cw-ws-meta">
-                    <span className={`cw-ws-status status-${w.status}`}>
-                      {w.status === "ready"
-                        ? "준비됨"
-                        : w.status === "cloning"
-                        ? "클론 중…"
-                        : "실패"}
-                    </span>
-                    {w.status === "ready" && (
-                      <span>
-                        {w.file_count}f · {fmtBytes(w.size_bytes)}
+              <ul className="cw-ws-list">
+                {workspaces.map((w) => (
+                  <li
+                    key={w.id}
+                    className={`cw-ws-item status-${w.status}${
+                      activeId === w.id ? " active" : ""
+                    }`}
+                    onClick={() => setActiveId(w.id)}
+                  >
+                    <div className="cw-ws-top">
+                      <span className="cw-ws-name">
+                        <IconGitBranch size={13} /> {w.name}
                       </span>
-                    )}
-                  </div>
-                  {w.status === "failed" && w.error && (
-                    <div className="cw-ws-error">
-                      <IconAlertTriangle size={11} /> {w.error.slice(0, 80)}
+                      <button
+                        type="button"
+                        className="cw-ws-del"
+                        title="삭제"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (
+                            !window.confirm(
+                              `"${w.name}" 워크스페이스를 삭제할까요?\n로컬 clone도 함께 사라집니다.`,
+                            )
+                          )
+                            return;
+                          await remove(w.id);
+                          if (activeId === w.id) setActiveId(null);
+                        }}
+                      >
+                        <IconTrash size={12} />
+                      </button>
                     </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </aside>
+                    <div className="cw-ws-meta">
+                      <span className={`cw-ws-status status-${w.status}`}>
+                        {w.status === "ready"
+                          ? "준비됨"
+                          : w.status === "cloning"
+                          ? "클론 중…"
+                          : "실패"}
+                      </span>
+                      {w.status === "ready" && (
+                        <span>
+                          {w.file_count}f · {fmtBytes(w.size_bytes)}
+                        </span>
+                      )}
+                    </div>
+                    {w.status === "failed" && w.error && (
+                      <div className="cw-ws-error">
+                        <IconAlertTriangle size={11} /> {w.error.slice(0, 80)}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </aside>
 
-          <main className="cw-main">
-            {active && active.status === "ready" ? (
-              <WorkspaceView
-                workspace={active}
-                onSync={() => sync(active.id)}
-                onAttachFile={(filename, text) => {
-                  onAttachFile?.(filename, text);
-                  onClose();
-                }}
-              />
-            ) : (
-              <div className="cw-main-empty">
-                {active
-                  ? active.status === "cloning"
-                    ? "클론 중입니다. 잠시만 기다려 주세요…"
-                    : active.error || "준비되지 않음"
-                  : "왼쪽에서 워크스페이스를 선택하세요"}
-              </div>
-            )}
-          </main>
-        </div>
+            <main className="cw-main">
+              {active && active.status === "ready" ? (
+                <WorkspaceView
+                  workspace={active}
+                  onSync={() => sync(active.id)}
+                  onAttachFile={(filename, text) => {
+                    onAttachFile?.(filename, text);
+                    onClose();
+                  }}
+                />
+              ) : (
+                <div className="cw-main-empty">
+                  {active
+                    ? active.status === "cloning"
+                      ? "클론 중입니다. 잠시만 기다려 주세요…"
+                      : active.error || "준비되지 않음"
+                    : "왼쪽에서 워크스페이스를 선택하세요"}
+                </div>
+              )}
+            </main>
+          </div>
+        )}
       </div>
     </div>
   );
