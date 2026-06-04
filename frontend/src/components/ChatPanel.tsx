@@ -475,34 +475,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   return (
     <div className="chat-panel">
       <header className="chat-header">
-        {editingTitle ? (
-          <input
-            ref={titleInputRef}
-            className="title-input"
-            value={titleDraft}
-            onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={commitTitle}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitTitle();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                cancelEditTitle();
-              }
-            }}
-            maxLength={200}
-          />
-        ) : (
-          <h2
-            className="chat-title"
-            onClick={startEditTitle}
-            title="클릭하여 제목 수정"
-          >
-            {session.title}
-          </h2>
-        )}
-        <div className="chat-header-right">
+        <div className="chat-header-left">
           <button
             type="button"
             className={`project-chip${linkedProject ? " linked" : ""}`}
@@ -520,6 +493,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 : linkedProject.name
               : "프로젝트"}
           </button>
+          {editingTitle ? (
+            <input
+              ref={titleInputRef}
+              className="title-input"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitTitle();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEditTitle();
+                }
+              }}
+              maxLength={200}
+            />
+          ) : (
+            <h2
+              className="chat-title"
+              onClick={startEditTitle}
+              title="클릭하여 제목 수정"
+            >
+              {session.title}
+            </h2>
+          )}
+        </div>
+        <div className="chat-header-right">
           {artifactsState.artifacts.length > 0 && (
             <button
               type="button"

@@ -893,6 +893,25 @@ body {
   cursor: pointer;
 }
 .chat-header-right { display: flex; align-items: center; gap: 8px; }
+.chat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.chat-header-left .chat-title,
+.chat-header-left .title-input {
+  flex: 1;
+  min-width: 0;
+}
+/* The project chip leads the line — give it a touch more weight so
+   the chat title can scan as a secondary label, the way Claude pins
+   the active project in the upper-left. */
+.chat-header-left .project-chip {
+  flex-shrink: 0;
+  font-weight: 600;
+}
 
 .code-header-actions { display: flex; gap: 6px; }
 
