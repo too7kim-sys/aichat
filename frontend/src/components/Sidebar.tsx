@@ -139,7 +139,7 @@ function ChatPane({
 }
 
 function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
-  const { projects, refresh } = useProjects();
+  const { projects, refresh, remove } = useProjects();
   const [modalOpen, setModalOpen] = useState(false);
   // Hydrate the current linked project for the active session so the
   // modal can show ✓ on the correct card. Stay in sync with custom
@@ -207,8 +207,28 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
                 className={`proj-sidebar-item status-${p.status}`}
                 onClick={() => setModalOpen(true)}
               >
-                <div className="proj-sidebar-name">
-                  {p.source_type === "git" ? "🔗" : "📁"} {p.name}
+                <div className="proj-sidebar-row">
+                  <div className="proj-sidebar-name">
+                    {p.source_type === "git" ? "🔗" : "📁"} {p.name}
+                  </div>
+                  <button
+                    type="button"
+                    className="proj-sidebar-del"
+                    aria-label="삭제"
+                    title="삭제"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (
+                        window.confirm(
+                          `"${p.name}"을(를) 삭제할까요? 인덱스도 함께 사라집니다.`,
+                        )
+                      ) {
+                        remove(p.id);
+                      }
+                    }}
+                  >
+                    ×
+                  </button>
                 </div>
                 <div className="proj-sidebar-meta">
                   <span className={`proj-sidebar-status ${p.status}`}>
