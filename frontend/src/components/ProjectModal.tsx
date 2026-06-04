@@ -200,57 +200,46 @@ export function ProjectModal({
           </div>
         </header>
 
-        <div className="pm-body">
-          {projects.length > 0 && (
-            <div className="pm-list">
-              {projects.map((p) => (
-                <ProjectCard
-                  key={p.id}
-                  project={p}
-                  linkable={!!linkSessionId}
-                  linked={linkedProjectId === p.id}
-                  onLink={() =>
-                    onLinkChange?.(linkedProjectId === p.id ? null : p.id)
-                  }
-                  onReindex={() => reindex(p.id)}
-                  onDelete={async () => {
-                    if (
-                      !window.confirm(
-                        `"${p.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
-                      )
-                    )
-                      return;
-                    if (linkedProjectId === p.id) onLinkChange?.(null);
-                    try {
-                      const { freedBytes } = await remove(p.id);
-                      if (freedBytes > 0) {
-                        // Light feedback so the user can see disk was
-                        // actually reclaimed (not just a DB row gone).
-                        console.info(
-                          `[RAG] "${p.name}" 삭제 — ${fmtBytes(freedBytes)} 회수`,
-                        );
-                      }
-                    } catch (e) {
-                      window.alert(
-                        `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
-                      );
-                    }
-                  }}
-                />
-              ))}
+        {addOpen ? (
+          // ── Add-only view ──
+          // The form takes the full modal body so the user isn't
+          // visually pulled between "browse existing projects" and
+          // "fill out a new one" at the same time. ← 목록으로 stays
+          // disabled until at least one project exists, so the empty
+          // state can't escape into a blank list.
+          <div className="pm-body pm-body-add">
+            <div className="pm-add-header">
+              <button
+                type="button"
+                className="pm-back-btn"
+                onClick={() => setAddOpen(false)}
+                disabled={projects.length === 0}
+                title={
+                  projects.length === 0
+                    ? "최소 한 개 프로젝트를 먼저 추가해야 목록으로 돌아갈 수 있습니다"
+                    : "목록으로"
+                }
+              >
+                ← 목록으로
+              </button>
+              <h4>새 RAG 프로젝트 추가</h4>
             </div>
-          )}
-
-          {addOpen ? (
-            <AddProjectForm
-              compact={projects.length > 0}
-              onCancel={projects.length > 0 ? () => setAddOpen(false) : undefined}
-              onSubmit={async (payload) => {
-                await create(payload);
-                setAddOpen(false);
-              }}
-            />
-          ) : (
+            <div className="pm-add-wrap">
+              <AddProjectForm
+                compact={projects.length > 0}
+                onCancel={
+                  projects.length > 0 ? () => setAddOpen(false) : undefined
+                }
+                onSubmit={async (payload) => {
+                  await create(payload);
+                  setAddOpen(false);
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          // ── Browse view ── add CTA on top + project cards
+          <div className="pm-body">
             <button
               type="button"
               className="pm-add-cta"
@@ -259,8 +248,53 @@ export function ProjectModal({
               <IconPlus size={14} />
               <span>새 프로젝트 추가</span>
             </button>
-          )}
-        </div>
+
+            {projects.length === 0 ? (
+              <div className="pm-empty">
+                <IconBookOpen size={28} />
+                <p>아직 추가된 프로젝트가 없습니다.</p>
+              </div>
+            ) : (
+              <div className="pm-list">
+                {projects.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    linkable={!!linkSessionId}
+                    linked={linkedProjectId === p.id}
+                    onLink={() =>
+                      onLinkChange?.(linkedProjectId === p.id ? null : p.id)
+                    }
+                    onReindex={() => reindex(p.id)}
+                    onDelete={async () => {
+                      if (
+                        !window.confirm(
+                          `"${p.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
+                        )
+                      )
+                        return;
+                      if (linkedProjectId === p.id) onLinkChange?.(null);
+                      try {
+                        const { freedBytes } = await remove(p.id);
+                        if (freedBytes > 0) {
+                          // Light feedback so the user can see disk was
+                          // actually reclaimed (not just a DB row gone).
+                          console.info(
+                            `[RAG] "${p.name}" 삭제 — ${fmtBytes(freedBytes)} 회수`,
+                          );
+                        }
+                      } catch (e) {
+                        window.alert(
+                          `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
+                        );
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
