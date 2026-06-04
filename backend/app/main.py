@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
-from .routers import auth, chat, files, ollama, repo, sessions
+from .routers import auth, chat, files, ollama, sessions
 
 # RAG router pulls in qdrant-client. Import lazily so a missing
 # `pip install -r requirements.txt` doesn't keep the rest of the app
@@ -89,7 +89,6 @@ app.include_router(sessions.router)
 app.include_router(chat.router)
 app.include_router(files.router)
 app.include_router(ollama.router)
-app.include_router(repo.router)
 if _RAG_AVAILABLE and _projects_router is not None:
     app.include_router(_projects_router.router)
 else:

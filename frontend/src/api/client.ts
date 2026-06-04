@@ -175,15 +175,6 @@ export interface RagChunk {
 export const api = {
   listProviders: () => json<ProviderInfo[]>("/providers"),
   listOllamaModels: () => json<OllamaModelList>("/ollama/models"),
-  cloneRepo: (url: string, ref?: string) =>
-    json<{
-      files: ExtractedFile[];
-      skipped: Record<string, number>;
-      repo: string;
-    }>("/repo/clone", {
-      method: "POST",
-      body: JSON.stringify({ url, ref: ref || undefined }),
-    }),
   listSessions: () => json<Session[]>("/sessions"),
   getSession: (id: string) => json<SessionDetail>(`/sessions/${id}`),
   createSession: (title: string) =>

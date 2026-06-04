@@ -36,7 +36,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const artifactsState = useArtifacts();
   const { selected: model } = useModels();
@@ -232,7 +231,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     setUploading(false);
     setUploadProgress(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    if (folderInputRef.current) folderInputRef.current.value = "";
     if (failures.length) {
       const shown = failures.slice(0, 8).join("\n");
       const more = failures.length > 8 ? `\n…외 ${failures.length - 8}개` : "";
@@ -243,117 +241,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     await uploadFiles(Array.from(files));
-  }
-
-  // Skip vendor / build folders + binaries when picking a whole project.
-  const _FOLDER_SKIP_DIRS = new Set([
-    "node_modules", ".git", ".venv", "venv", "__pycache__",
-    "dist", "build", ".next", ".cache", ".vite", ".turbo",
-    ".idea", ".vscode", "target", ".pytest_cache", ".mypy_cache",
-    "coverage", ".nuxt", "out",
-  ]);
-  const _FOLDER_ALLOWED_EXT = new Set([
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs",
-    ".java", ".kt", ".rs", ".go", ".c", ".cpp", ".h", ".hpp",
-    ".cs", ".rb", ".php", ".sh", ".bash", ".zsh", ".sql",
-    ".css", ".scss", ".html", ".htm", ".xml", ".json", ".jsonl",
-    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".env",
-    ".md", ".markdown", ".txt", ".log", ".csv", ".tsv",
-    ".vue", ".svelte", ".astro",
-  ]);
-  const _FOLDER_MAX_FILES = 50;
-  const _FOLDER_MAX_BYTES_PER_FILE = 200 * 1024;
-
-  const [gitModalOpen, setGitModalOpen] = useState(false);
-  const [gitUrl, setGitUrl] = useState("");
-  const [gitRef, setGitRef] = useState("");
-  const [gitBusy, setGitBusy] = useState(false);
-
-  async function submitGitClone() {
-    if (!gitUrl.trim()) return;
-    setGitBusy(true);
-    try {
-      const res = await api.cloneRepo(gitUrl.trim(), gitRef.trim() || undefined);
-      if (!res.files.length) {
-        alert(
-          `클론은 성공했지만 분석할 코드 파일이 없습니다.\n제외: ${JSON.stringify(
-            res.skipped
-          )}`
-        );
-        return;
-      }
-      // Prefix attachment names with the repo path so the LLM sees them
-      // as part of a single project.
-      setAttachments((prev) => [
-        ...prev,
-        ...res.files.map((f) => ({
-          ...f,
-          filename: `${res.repo}/${f.filename}`,
-        })),
-      ]);
-      setGitModalOpen(false);
-      setGitUrl("");
-      setGitRef("");
-    } catch (e) {
-      alert(
-        `Git clone 실패: ${e instanceof Error ? e.message.replace(/^\d+\s/, "") : String(e)}`
-      );
-    } finally {
-      setGitBusy(false);
-    }
-  }
-
-  async function handleFolderPick(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    const allowed: File[] = [];
-    let skippedDir = 0;
-    let skippedExt = 0;
-    let skippedSize = 0;
-    let truncated = 0;
-    for (const f of Array.from(files)) {
-      if (allowed.length >= _FOLDER_MAX_FILES) {
-        truncated += 1;
-        continue;
-      }
-      const rel = (f as File & { webkitRelativePath?: string })
-        .webkitRelativePath || f.name;
-      const segments = rel.split("/");
-      if (segments.some((s) => _FOLDER_SKIP_DIRS.has(s))) {
-        skippedDir += 1;
-        continue;
-      }
-      const dot = f.name.lastIndexOf(".");
-      const ext = dot >= 0 ? f.name.substring(dot).toLowerCase() : "";
-      if (!_FOLDER_ALLOWED_EXT.has(ext)) {
-        skippedExt += 1;
-        continue;
-      }
-      if (f.size > _FOLDER_MAX_BYTES_PER_FILE) {
-        skippedSize += 1;
-        continue;
-      }
-      allowed.push(f);
-    }
-    if (allowed.length === 0) {
-      alert("선택한 폴더에 분석 가능한 코드 파일이 없습니다.");
-      return;
-    }
-    const reasons: string[] = [];
-    if (skippedDir) reasons.push(`${skippedDir} 벤더/빌드 폴더`);
-    if (skippedExt) reasons.push(`${skippedExt} 미지원 형식`);
-    if (skippedSize) reasons.push(`${skippedSize} 200KB 초과`);
-    if (truncated) reasons.push(`${truncated} 50개 한도 초과`);
-    const summary = reasons.length
-      ? ` (${reasons.join(", ")} 제외)`
-      : "";
-    const ok = window.confirm(
-      `${allowed.length}개 파일을 첨부합니다${summary}.\n계속할까요?`
-    );
-    if (!ok) {
-      if (folderInputRef.current) folderInputRef.current.value = "";
-      return;
-    }
-    await uploadFiles(allowed);
   }
 
   function removeAttachment(idx: number) {
@@ -699,16 +586,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 style={{ display: "none" }}
                 onChange={(e) => handleFiles(e.target.files)}
               />
-              <input
-                ref={folderInputRef}
-                type="file"
-                // @ts-expect-error - non-standard but widely supported
-                webkitdirectory=""
-                directory=""
-                multiple
-                style={{ display: "none" }}
-                onChange={(e) => handleFolderPick(e.target.files)}
-              />
               <button
                 type="button"
                 className="attach-btn"
@@ -717,24 +594,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 title="파일 첨부 (PDF / DOCX / 이미지 / 텍스트)"
               >
                 📎 첨부
-              </button>
-              <button
-                type="button"
-                className="attach-btn"
-                onClick={() => folderInputRef.current?.click()}
-                disabled={streaming || uploading}
-                title="프로젝트 폴더 통째 분석 (vendor·build 폴더 자동 제외, 최대 50개 파일)"
-              >
-                📁 폴더
-              </button>
-              <button
-                type="button"
-                className="attach-btn"
-                onClick={() => setGitModalOpen(true)}
-                disabled={streaming || uploading}
-                title="GitHub/GitLab/Bitbucket 공개 레포 URL을 입력해 소스 분석"
-              >
-                🔗 Git
               </button>
               <button
                 type="button"
@@ -769,54 +628,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </div>
       </div>
 
-      {gitModalOpen && (
-        <div className="git-backdrop" onClick={() => !gitBusy && setGitModalOpen(false)}>
-          <div className="git-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Git 레포 분석</h3>
-            <p className="git-hint">
-              공개 레포의 HTTPS URL을 입력하세요. 허용 호스트: GitHub /
-              GitLab / Bitbucket / Codeberg / sr.ht. 백엔드가 shallow
-              clone(최대 60초, 100개 파일, 파일당 200KB)으로 받아 분석합니다.
-            </p>
-            <label className="git-field">
-              <span>레포 URL</span>
-              <input
-                type="url"
-                value={gitUrl}
-                onChange={(e) => setGitUrl(e.target.value)}
-                placeholder="https://github.com/user/repo"
-                autoFocus
-                disabled={gitBusy}
-              />
-            </label>
-            <label className="git-field">
-              <span>브랜치 / 태그 (선택)</span>
-              <input
-                type="text"
-                value={gitRef}
-                onChange={(e) => setGitRef(e.target.value)}
-                placeholder="main, develop, v1.0 ..."
-                disabled={gitBusy}
-              />
-            </label>
-            <div className="git-actions">
-              <button
-                onClick={() => setGitModalOpen(false)}
-                disabled={gitBusy}
-              >
-                취소
-              </button>
-              <button
-                className="primary"
-                onClick={submitGitClone}
-                disabled={gitBusy || !gitUrl.trim()}
-              >
-                {gitBusy ? "클론 중..." : "분석 시작"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 });
