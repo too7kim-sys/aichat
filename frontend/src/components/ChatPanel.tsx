@@ -605,33 +605,54 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         <div className="composer">
           {(attachments.length > 0 || uploading) && (
             <div className="attachments">
-              {attachments.map((a, i) => (
-                <div key={i} className="attachment-chip">
-                  <span className="attachment-name" title={a.filename}>
-                    {a.filename}
-                  </span>
-                  <span className="attachment-meta">
-                    {a.method} · {a.char_count.toLocaleString()}자
+              {attachments.length > 0 && (
+                <div className="attachments-summary">
+                  <span>
+                    📎 {attachments.length}개 첨부 · 총{" "}
+                    {attachments
+                      .reduce((acc, a) => acc + a.char_count, 0)
+                      .toLocaleString()}
+                    자
                   </span>
                   <button
                     type="button"
-                    className="attachment-remove"
-                    onClick={() => removeAttachment(i)}
+                    className="attachments-clear"
+                    onClick={() => setAttachments([])}
                     disabled={streaming}
-                    aria-label="제거"
                   >
-                    ×
+                    모두 제거
                   </button>
                 </div>
-              ))}
-              {uploading && (
-                <div className="attachment-chip uploading">
-                  업로드 중
-                  {uploadProgress &&
-                    ` ${uploadProgress.done}/${uploadProgress.total}`}
-                  ...
-                </div>
               )}
+              <div className="attachment-chips">
+                {attachments.map((a, i) => (
+                  <div key={i} className="attachment-chip">
+                    <span className="attachment-name" title={a.filename}>
+                      {a.filename}
+                    </span>
+                    <span className="attachment-meta">
+                      {a.method} · {a.char_count.toLocaleString()}자
+                    </span>
+                    <button
+                      type="button"
+                      className="attachment-remove"
+                      onClick={() => removeAttachment(i)}
+                      disabled={streaming}
+                      aria-label="제거"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {uploading && (
+                  <div className="attachment-chip uploading">
+                    업로드 중
+                    {uploadProgress &&
+                      ` ${uploadProgress.done}/${uploadProgress.total}`}
+                    ...
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <textarea

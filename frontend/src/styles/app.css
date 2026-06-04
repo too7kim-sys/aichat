@@ -379,10 +379,54 @@ body {
 /* ── Attachments ─────────────────────────────────── */
 .attachments {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  /* Cap the entire attachments block so a 100-file project doesn't
+     push the textarea + send button off-screen. */
+  max-height: 180px;
+  overflow: hidden;
+}
+.attachments-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 6px 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border-bottom: 1px dashed var(--border);
+}
+.attachments-clear {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.attachments-clear:hover:not(:disabled) {
+  background: var(--bg-card);
+  color: var(--text);
+}
+.attachments-clear:disabled { opacity: 0.5; cursor: not-allowed; }
+.attachment-chips {
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 4px;
+  overflow-y: auto;
+  /* Leave room above for the summary row inside the 180px cap. */
+  max-height: 144px;
+  padding-right: 2px;
+  scrollbar-width: thin;
 }
+.attachment-chips::-webkit-scrollbar { width: 8px; }
+.attachment-chips::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+.attachment-chips::-webkit-scrollbar-track { background: transparent; }
 .attachment-chip {
   display: inline-flex;
   align-items: center;
