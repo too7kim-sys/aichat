@@ -2,7 +2,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # protected_namespaces=() lets us use MODEL_AUTO_* field names
+    # without pydantic v2 warning about the reserved "model_" prefix.
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        protected_namespaces=(),
+    )
 
     naver_client_id: str = ""
     naver_client_secret: str = ""

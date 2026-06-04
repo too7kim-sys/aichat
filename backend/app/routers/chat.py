@@ -19,9 +19,19 @@ from ..database import SessionLocal, get_db
 from ..config import settings
 from ..providers.base import ChatMessage, LLMProvider
 from ..providers.registry import get_provider
-from ..rag.retriever import format_chunks_for_prompt, retrieve
 from ..search import SearchError, format_as_context
 from ..search import search as web_search
+
+# qdrant-client may not be installed yet — RAG is an optional feature.
+# Fall back to no-op stubs so the chat path keeps working unchanged.
+try:
+    from ..rag.retriever import format_chunks_for_prompt, retrieve
+except ImportError:
+    async def retrieve(*_args, **_kwargs):  # type: ignore[misc]
+        return []
+
+    def format_chunks_for_prompt(*_args, **_kwargs) -> str:  # type: ignore[misc]
+        return ""
 
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
 

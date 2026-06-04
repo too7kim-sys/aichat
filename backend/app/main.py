@@ -8,7 +8,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
-from .routers import auth, chat, files, ollama, projects, repo, sessions
+from .routers import auth, chat, files, ollama, repo, sessions
+
+# RAG router pulls in qdrant-client. Import lazily so a missing
+# `pip install -r requirements.txt` doesn't keep the rest of the app
+# from starting — the RAG endpoints just become unavailable instead.
+try:
+    from .routers import projects as _projects_router
+    _RAG_AVAILABLE = True
+except ImportError as _rag_import_err:  # noqa: F841
+    _projects_router = None
+    _RAG_AVAILABLE = False
 from .schemas import ProviderInfo
 
 log = logging.getLogger("uvicorn.error")
@@ -80,7 +90,13 @@ app.include_router(chat.router)
 app.include_router(files.router)
 app.include_router(ollama.router)
 app.include_router(repo.router)
-app.include_router(projects.router)
+if _RAG_AVAILABLE and _projects_router is not None:
+    app.include_router(_projects_router.router)
+else:
+    log.warning(
+        "RAG endpoints disabled — qdrant-client not installed. "
+        "Run: pip install -r requirements.txt"
+    )
 
 
 @app.get("/api/health")
