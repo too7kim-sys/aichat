@@ -282,6 +282,116 @@ def _reflect_db_to_dir(connection_string: str, dest: Path) -> None:
     (dest / "schema.sql").write_text("\n".join(parts), encoding="utf-8")
 
 
+# === sftp source — download a tree of documents from a SFTP server ===
+
+_SFTP_CONNECT_TIMEOUT = 15  # seconds
+_SFTP_MAX_TREE_DEPTH = 8
+
+
+def _fetch_sftp_to_dir(connection_url: str, dest: Path, corpus_type: str) -> None:
+    """Connect to an SFTP server, walk the remote tree from the path
+    embedded in the URL, and download every file whose extension is
+    in the corpus's allowlist. Result is staged under dest so the
+    regular folder walker / chunker pipeline takes over."""
+    import stat
+    from urllib.parse import unquote, urlparse
+    import paramiko
+
+    parsed = urlparse(connection_url)
+    if parsed.scheme != "sftp":
+        raise RuntimeError(f"SFTP URL이 아닙니다: {parsed.scheme}")
+    host = parsed.hostname
+    if not host:
+        raise RuntimeError("SFTP URL에 호스트가 없습니다")
+    if not parsed.username:
+        raise RuntimeError("SFTP URL에 사용자명이 없습니다")
+    user = unquote(parsed.username)
+    password = unquote(parsed.password) if parsed.password else None
+    port = parsed.port or 22
+    remote_root = parsed.path or "/"
+    allowed_exts = _EXTS_BY_TYPE.get(corpus_type, _EXTS_DOCUMENT)
+
+    transport = paramiko.Transport((host, port))
+    transport.banner_timeout = _SFTP_CONNECT_TIMEOUT
+    sftp: paramiko.SFTPClient | None = None
+    file_count = 0
+    try:
+        try:
+            transport.connect(username=user, password=password)
+        except paramiko.SSHException as exc:
+            raise RuntimeError(f"SFTP 인증 실패: {exc}") from exc
+        except OSError as exc:
+            raise RuntimeError(
+                f"SFTP 연결 실패 ({host}:{port}): {exc}"
+            ) from exc
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        if sftp is None:
+            raise RuntimeError("SFTP 채널을 열 수 없습니다")
+
+        def walk(remote: str, local: Path, depth: int) -> None:
+            nonlocal file_count
+            if depth > _SFTP_MAX_TREE_DEPTH:
+                log.warning("SFTP walk: max depth hit at %s", remote)
+                return
+            try:
+                entries = sftp.listdir_attr(remote)  # type: ignore[union-attr]
+            except IOError as exc:
+                log.warning("SFTP listdir %s failed: %s", remote, exc)
+                return
+            for entry in entries:
+                name = entry.filename
+                if name.startswith("."):  # dotfiles like .git, .DS_Store
+                    continue
+                rpath = f"{remote.rstrip('/')}/{name}"
+                mode = entry.st_mode or 0
+                if stat.S_ISDIR(mode):
+                    sub = local / name
+                    sub.mkdir(exist_ok=True)
+                    walk(rpath, sub, depth + 1)
+                elif stat.S_ISREG(mode):
+                    ext_dot = (
+                        "." + name.rsplit(".", 1)[1].lower()
+                        if "." in name
+                        else ""
+                    )
+                    if ext_dot not in allowed_exts:
+                        continue
+                    if (entry.st_size or 0) > settings.rag_max_bytes_per_file:
+                        log.info(
+                            "SFTP skip oversize %s (%d bytes)",
+                            rpath, entry.st_size,
+                        )
+                        continue
+                    if file_count >= settings.rag_max_files:
+                        log.warning(
+                            "SFTP walk: hit RAG_MAX_FILES=%d, stopping",
+                            settings.rag_max_files,
+                        )
+                        return
+                    try:
+                        sftp.get(rpath, str(local / name))  # type: ignore[union-attr]
+                        file_count += 1
+                    except IOError as exc:
+                        log.warning("SFTP get %s failed: %s", rpath, exc)
+
+        walk(remote_root, dest, 0)
+        if file_count == 0:
+            raise RuntimeError(
+                f"SFTP 경로에서 인덱싱 가능한 파일을 찾지 못했습니다: {remote_root}"
+            )
+        log.info("SFTP fetch: %d files from %s%s", file_count, host, remote_root)
+    finally:
+        if sftp is not None:
+            try:
+                sftp.close()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            transport.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def _update_snapshot(snapshot_id: str, **patch) -> None:
     """Mirror status onto the snapshot row AND the parent project so
     the UI can show the live status without an extra join."""
@@ -367,6 +477,15 @@ async def run_indexing(snapshot_id: str) -> None:
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
             cleanup_workdir = True
             _reflect_db_to_dir(source_ref, workdir)
+            root = workdir
+        elif source_type == "sftp":
+            # SFTP folder of documents — connect, walk the remote
+            # path, download matching files (per-corpus extension
+            # allowlist) into a tempdir, then run the regular folder
+            # pipeline over it.
+            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
+            cleanup_workdir = True
+            _fetch_sftp_to_dir(source_ref, workdir, corpus_type)
             root = workdir
         else:
             raise RuntimeError(f"unknown source_type: {source_type}")

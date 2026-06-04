@@ -222,7 +222,8 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
                     <span className="proj-sidebar-name-icon" aria-hidden>
                       {p.source_type === "git" ? (
                         <IconGitBranch size={14} />
-                      ) : p.source_type === "url" ? (
+                      ) : p.source_type === "url" ||
+                        p.source_type === "sftp" ? (
                         <IconGlobe size={14} />
                       ) : p.source_type === "connection" ? (
                         <IconDatabase size={14} />

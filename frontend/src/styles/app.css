@@ -2795,6 +2795,15 @@ body {
   color: var(--text-faint);
   line-height: 1.45;
 }
+
+/* SFTP form — host (wide) + port (narrow) on one row, user (wide) on
+   another, password full-width, remote path full-width. */
+.pm-sftp-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+}
+.pm-sftp-grid .pm-field { margin: 0; }
 .pm-help code {
   background: var(--bg);
   padding: 1px 5px;

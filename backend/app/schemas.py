@@ -64,7 +64,7 @@ class ChatRequest(BaseModel):
 # ── RAG / Projects ────────────────────────────────────────────────────
 
 CorpusType = Literal["code", "document", "api", "db"]
-SourceType = Literal["folder", "git", "url", "connection"]
+SourceType = Literal["folder", "git", "url", "connection", "sftp"]
 
 
 class ProjectCreate(BaseModel):

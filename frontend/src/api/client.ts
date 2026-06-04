@@ -156,7 +156,7 @@ export interface OllamaModelList {
 }
 
 export type CorpusType = "code" | "document" | "api" | "db";
-export type SourceType = "folder" | "git" | "url" | "connection";
+export type SourceType = "folder" | "git" | "url" | "connection" | "sftp";
 
 export interface Snapshot {
   id: string;

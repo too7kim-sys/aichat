@@ -75,7 +75,7 @@ async def list_projects(
 
 _ALLOWED_SOURCE_BY_CORPUS = {
     "code": {"git", "folder"},
-    "document": {"folder", "git"},
+    "document": {"sftp", "folder"},
     "api": {"url", "folder", "git"},
     "db": {"connection"},
 }

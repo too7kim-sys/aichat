@@ -45,8 +45,8 @@ const CORPUS_META: Record<
   document: {
     label: "문서",
     icon: <IconFileText />,
-    hint: "PDF·DOCX·MD가 든 폴더 또는 문서 Git 레포. 단락 단위 검색.",
-    sources: ["folder", "git"],
+    hint: "SFTP 서버에서 PDF·DOCX·MD를 받거나 백엔드 서버의 폴더 사용. 단락 단위 검색.",
+    sources: ["sftp", "folder"],
   },
   api: {
     label: "API",
@@ -103,12 +103,19 @@ const SOURCE_META: Record<
       "지원: postgresql / mysql / mariadb / sqlite. 읽기 전용 reflection만 수행합니다.",
     inputType: "password",
   },
+  sftp: {
+    label: "SFTP",
+    icon: <IconGlobe size={14} />,
+    placeholder: "",  // unused — sftp uses a custom multi-field form
+    help: "원격 서버 정보를 입력하면 백엔드가 SFTP로 접속해 문서를 받아옵니다.",
+  },
 };
 
-/** Hide DB credentials when rendering a project's source_ref. */
+/** Hide credentials when rendering a project's source_ref. Both
+ *  the DB connection string and SFTP URL embed user:password in the
+ *  authority; replace the password section with "***". */
 function maskSourceRef(sourceType: SourceType, ref: string): string {
-  if (sourceType !== "connection") return ref;
-  // postgresql://user:pass@host/db → postgresql://user:***@host/db
+  if (sourceType !== "connection" && sourceType !== "sftp") return ref;
   return ref.replace(
     /^([a-z][a-z0-9+.-]*):\/\/([^:@/]+):[^@]+@/i,
     "$1://$2:***@",
@@ -581,7 +588,15 @@ function AddProjectForm({
     folder: "",
     url: "",
     connection: "",
+    sftp: "",  // unused — sftp uses the multi-field form below
   });
+  // SFTP fields (5) — combined into a sftp:// URL on submit so the
+  // backend sees the same shape as the rest of the source types.
+  const [sftpHost, setSftpHost] = useState("");
+  const [sftpPort, setSftpPort] = useState("22");
+  const [sftpUser, setSftpUser] = useState("");
+  const [sftpPass, setSftpPass] = useState("");
+  const [sftpPath, setSftpPath] = useState("/");
   const [name, setName] = useState("");
   const [gitBranch, setGitBranch] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -600,12 +615,39 @@ function AddProjectForm({
   const sourceMeta = SOURCE_META[sourceType];
   const corpusMeta = CORPUS_META[corpusType];
 
+  function buildSftpUrl(): string {
+    const host = sftpHost.trim();
+    const user = sftpUser.trim();
+    const port = sftpPort.trim() || "22";
+    const path = sftpPath.trim() || "/";
+    if (!host) return "";
+    if (!user) return "";
+    const encUser = encodeURIComponent(user);
+    const encPass = encodeURIComponent(sftpPass);
+    const encPath = path.startsWith("/") ? path : "/" + path;
+    const auth = sftpPass ? `${encUser}:${encPass}` : encUser;
+    return `sftp://${auth}@${host}:${port}${encPath}`;
+  }
+
   async function submit() {
     setError(null);
-    const sourceRef = (refs[sourceType] || "").trim();
-    if (!sourceRef) {
-      setError(`${sourceMeta.label}을(를) 입력하세요`);
-      return;
+    let sourceRef = "";
+    if (sourceType === "sftp") {
+      if (!sftpHost.trim()) {
+        setError("SFTP 호스트를 입력하세요");
+        return;
+      }
+      if (!sftpUser.trim()) {
+        setError("SFTP 사용자명을 입력하세요");
+        return;
+      }
+      sourceRef = buildSftpUrl();
+    } else {
+      sourceRef = (refs[sourceType] || "").trim();
+      if (!sourceRef) {
+        setError(`${sourceMeta.label}을(를) 입력하세요`);
+        return;
+      }
     }
     if (!name.trim()) {
       setError("프로젝트 이름을 입력하세요");
@@ -624,8 +666,13 @@ function AddProjectForm({
         corpus_type: corpusType,
       });
       setName("");
-      setRefs({ git: "", folder: "", url: "", connection: "" });
+      setRefs({ git: "", folder: "", url: "", connection: "", sftp: "" });
       setGitBranch("");
+      setSftpHost("");
+      setSftpPort("22");
+      setSftpUser("");
+      setSftpPass("");
+      setSftpPath("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -704,23 +751,87 @@ function AddProjectForm({
         />
       </div>
 
-      <div className="pm-field">
-        <label htmlFor="pm-source-ref">{sourceMeta.label}</label>
-        <input
-          id="pm-source-ref"
-          type={sourceMeta.inputType ?? "text"}
-          placeholder={sourceMeta.placeholder}
-          value={refs[sourceType]}
-          onChange={(e) =>
-            setRefs((prev) => ({ ...prev, [sourceType]: e.target.value }))
-          }
-          disabled={submitting}
-          autoComplete={
-            sourceType === "connection" ? "off" : undefined
-          }
-        />
-        <div className="pm-help">{sourceMeta.help}</div>
-      </div>
+      {sourceType === "sftp" ? (
+        <div className="pm-sftp-grid">
+          <div className="pm-field" style={{ gridColumn: "1 / span 2" }}>
+            <label htmlFor="pm-sftp-host">호스트</label>
+            <input
+              id="pm-sftp-host"
+              type="text"
+              placeholder="files.internal.example.com"
+              value={sftpHost}
+              onChange={(e) => setSftpHost(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+          <div className="pm-field">
+            <label htmlFor="pm-sftp-port">포트</label>
+            <input
+              id="pm-sftp-port"
+              type="number"
+              placeholder="22"
+              value={sftpPort}
+              onChange={(e) => setSftpPort(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+          <div className="pm-field">
+            <label htmlFor="pm-sftp-user">사용자명</label>
+            <input
+              id="pm-sftp-user"
+              type="text"
+              autoComplete="username"
+              value={sftpUser}
+              onChange={(e) => setSftpUser(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+          <div className="pm-field" style={{ gridColumn: "1 / span 2" }}>
+            <label htmlFor="pm-sftp-pass">비밀번호</label>
+            <input
+              id="pm-sftp-pass"
+              type="password"
+              autoComplete="new-password"
+              value={sftpPass}
+              onChange={(e) => setSftpPass(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+          <div className="pm-field" style={{ gridColumn: "1 / span 2" }}>
+            <label htmlFor="pm-sftp-path">원격 경로</label>
+            <input
+              id="pm-sftp-path"
+              type="text"
+              placeholder="/srv/docs/manuals"
+              value={sftpPath}
+              onChange={(e) => setSftpPath(e.target.value)}
+              disabled={submitting}
+            />
+            <div className="pm-help">
+              백엔드가 이 경로 이하 트리를 재귀적으로 받아옵니다 (.pdf /
+              .docx / .md / .txt …). 깊이 8단까지, RAG_MAX_FILES 한도.
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="pm-field">
+          <label htmlFor="pm-source-ref">{sourceMeta.label}</label>
+          <input
+            id="pm-source-ref"
+            type={sourceMeta.inputType ?? "text"}
+            placeholder={sourceMeta.placeholder}
+            value={refs[sourceType]}
+            onChange={(e) =>
+              setRefs((prev) => ({ ...prev, [sourceType]: e.target.value }))
+            }
+            disabled={submitting}
+            autoComplete={
+              sourceType === "connection" ? "off" : undefined
+            }
+          />
+          <div className="pm-help">{sourceMeta.help}</div>
+        </div>
+      )}
 
       {sourceType === "git" && (
         <div className="pm-field">
