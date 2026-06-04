@@ -1029,6 +1029,28 @@ body {
   background: var(--bg);
   border-color: var(--border-strong);
 }
+.proj-sidebar-item.clickable {
+  cursor: pointer;
+}
+.proj-sidebar-item.clickable:hover {
+  border-left-width: 3px;
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+.proj-sidebar-item.busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+.proj-sidebar-row-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.proj-sidebar-row-actions .proj-sidebar-del {
+  opacity: 0;
+}
+.proj-sidebar-item:hover .proj-sidebar-row-actions .proj-sidebar-del {
+  opacity: 1;
+}
 .proj-sidebar-item.status-indexing { border-left: 3px solid #3b82f6; }
 .proj-sidebar-item.status-ready    { border-left: 3px solid #16a34a; }
 .proj-sidebar-item.status-failed   { border-left: 3px solid #dc2626; }

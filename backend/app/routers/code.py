@@ -13,6 +13,7 @@ from .. import models, schemas
 from ..auth import get_current_user
 from ..code.workspace import (
     clone_repo,
+    collect_workspace_files,
     read_file,
     remove_repo,
     sync_repo,
@@ -234,6 +235,83 @@ async def workspace_tree(
         None, walk_tree, dest
     )
     return {"tree": tree, "file_count": file_count, "size_bytes": total}
+
+
+@router.post("/workspaces/{workspace_id}/start-chat")
+async def start_chat_from_workspace(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Create a fresh chat session named after the workspace and
+    bundle a representative slice of its files as attachments so the
+    LLM has the project loaded the moment the user types their first
+    prompt. Files are picked smallest-first up to a size + count cap;
+    if we don't take everything a manifest entry tells the model
+    exactly what's missing so it can ask the user for specifics."""
+    ws = await db.scalar(
+        select(models.CodeWorkspace).where(
+            models.CodeWorkspace.id == workspace_id,
+            models.CodeWorkspace.user_id == user.id,
+        )
+    )
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    if ws.status != "ready":
+        raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
+
+    root = workspace_path_for(user.id, workspace_id)
+    bundle = await asyncio.get_running_loop().run_in_executor(
+        None, collect_workspace_files, root
+    )
+
+    session = models.Session(
+        title=(ws.name or "Code workspace")[:200],
+        user_id=user.id,
+        mode="single",
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+
+    attachments = [
+        {
+            "filename": f"{ws.name}/{f['path']}",
+            "text": f["text"],
+            "char_count": len(f["text"]),
+            "method": "workspace",
+        }
+        for f in bundle["files"]
+    ]
+    # Manifest: when we couldn't fit every file, tell the model what
+    # else is in the repo so it can ask for specific files rather
+    # than hallucinate.
+    if bundle["truncated"]:
+        manifest_lines = [
+            f"# {ws.name} — workspace manifest",
+            f"전체 파일 수: {bundle['total_files_in_repo']}",
+            f"채팅에 포함된 파일: {bundle['total_files']} (텍스트, 작은 것 우선)",
+            f"미포함: 나머지 파일 ({bundle['total_files_in_repo'] - bundle['total_files']}개)",
+            "",
+            "필요한 파일이 위 목록에 없다면 정확한 경로를 알려달라고 사용자에게 요청하세요.",
+        ]
+        attachments.append(
+            {
+                "filename": f"{ws.name}/_WORKSPACE_MANIFEST.txt",
+                "text": "\n".join(manifest_lines),
+                "char_count": sum(len(s) for s in manifest_lines),
+                "method": "workspace",
+            }
+        )
+
+    return {
+        "session_id": session.id,
+        "title": session.title,
+        "attachments": attachments,
+        "file_count": bundle["total_files"],
+        "truncated": bundle["truncated"],
+        "total_files_in_repo": bundle["total_files_in_repo"],
+    }
 
 
 @router.get("/workspaces/{workspace_id}/file", response_model=schemas.WorkspaceFileContent)

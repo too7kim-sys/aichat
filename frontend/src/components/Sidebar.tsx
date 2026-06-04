@@ -8,11 +8,13 @@ import {
   IconChat,
   IconCode,
   IconDatabase,
+  IconFileText,
   IconFolder,
   IconGitBranch,
   IconGlobe,
   IconPlus,
   IconRefresh,
+  IconSend,
   IconUsers,
   IconX,
 } from "./Icon";
@@ -28,6 +30,9 @@ interface Props {
   onSelect: (id: string) => void;
   onCreate: () => void;
   onDelete: (id: string) => void;
+  /** Click on a Code workspace card → create a chat named after the
+   *  workspace and pre-attach a representative slice of its files. */
+  onStartChatFromWorkspace: (workspaceId: string) => Promise<void> | void;
 }
 
 function groupByDate(sessions: Session[]) {
@@ -70,6 +75,7 @@ export function Sidebar({
   onSelect,
   onCreate,
   onDelete,
+  onStartChatFromWorkspace,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -102,7 +108,11 @@ export function Sidebar({
       )}
       {workspace === "cowork" && <CoworkPane activeSessionId={activeId} />}
       {workspace === "code" && (
-        <CodePane activeSessionId={activeId} onCreateSession={onCreate} />
+        <CodePane
+          activeSessionId={activeId}
+          onCreateSession={onCreate}
+          onStartChatFromWorkspace={onStartChatFromWorkspace}
+        />
       )}
     </aside>
   );
@@ -297,12 +307,27 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
 function CodePane({
   activeSessionId,
   onCreateSession,
+  onStartChatFromWorkspace,
 }: {
   activeSessionId: string | null;
   onCreateSession: () => void;
+  onStartChatFromWorkspace: (workspaceId: string) => Promise<void> | void;
 }) {
   const { workspaces, refresh, sync } = useWorkspaces();
   const [modalOpen, setModalOpen] = useState(false);
+  // Track which card is currently spinning up its chat, so the row
+  // can disable itself + show the right status.
+  const [startingId, setStartingId] = useState<string | null>(null);
+
+  async function startChat(workspaceId: string) {
+    if (startingId) return;
+    setStartingId(workspaceId);
+    try {
+      await onStartChatFromWorkspace(workspaceId);
+    } finally {
+      setStartingId(null);
+    }
+  }
 
   return (
     <>
@@ -316,53 +341,80 @@ function CodePane({
         <div className="session-section">Code workspaces</div>
         {workspaces.length === 0 ? (
           <div className="sidebar-empty">
-            사내 Git 레포를 clone해 코드 분석·수정 흐름을 시작하세요. (Phase 1
-            — 보기/첨부 / Phase 2~4: AI 수정·커밋·테스트 자동화)
+            사내 Git 레포를 clone해 코드 분석·수정 흐름을 시작하세요. 카드를
+            클릭하면 프로젝트 전체가 새 채팅에 자동 첨부됩니다.
           </div>
         ) : (
           <ul className="proj-sidebar-list">
-            {workspaces.map((w) => (
-              <li
-                key={w.id}
-                className={`proj-sidebar-item status-${w.status}`}
-                onClick={() => setModalOpen(true)}
-              >
-                <div className="proj-sidebar-row">
-                  <div className="proj-sidebar-name">
-                    <span className="proj-sidebar-name-icon" aria-hidden>
-                      <IconGitBranch size={14} />
-                    </span>
-                    {w.name}
+            {workspaces.map((w) => {
+              const ready = w.status === "ready";
+              const starting = startingId === w.id;
+              return (
+                <li
+                  key={w.id}
+                  className={`proj-sidebar-item status-${w.status}${
+                    starting ? " busy" : ""
+                  }${ready ? " clickable" : ""}`}
+                  onClick={() => ready && startChat(w.id)}
+                  title={
+                    ready
+                      ? "클릭: 이 프로젝트로 새 채팅 시작 (전체 파일 자동 첨부)"
+                      : undefined
+                  }
+                >
+                  <div className="proj-sidebar-row">
+                    <div className="proj-sidebar-name">
+                      <span className="proj-sidebar-name-icon" aria-hidden>
+                        <IconGitBranch size={14} />
+                      </span>
+                      {w.name}
+                    </div>
+                    <div className="proj-sidebar-row-actions">
+                      <button
+                        type="button"
+                        className="proj-sidebar-del"
+                        aria-label="파일 보기"
+                        title="파일 트리 열기"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setModalOpen(true);
+                        }}
+                      >
+                        <IconFileText size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className="proj-sidebar-del"
+                        aria-label="동기화"
+                        title="동기화 (git pull)"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          sync(w.id);
+                        }}
+                      >
+                        <IconRefresh size={12} />
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    className="proj-sidebar-del"
-                    aria-label="동기화"
-                    title="동기화 (git pull)"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      sync(w.id);
-                    }}
-                  >
-                    <IconRefresh size={12} />
-                  </button>
-                </div>
-                <div className="proj-sidebar-meta">
-                  <span className={`proj-sidebar-status ${w.status}`}>
-                    {w.status === "ready"
-                      ? "준비됨"
-                      : w.status === "cloning"
-                      ? "클론 중…"
-                      : "실패"}
-                  </span>
-                  {w.status === "ready" && (
-                    <span className="proj-sidebar-counts">
-                      {w.file_count}f
+                  <div className="proj-sidebar-meta">
+                    <span className={`proj-sidebar-status ${w.status}`}>
+                      {starting
+                        ? "채팅 준비 중…"
+                        : w.status === "ready"
+                        ? "준비됨"
+                        : w.status === "cloning"
+                        ? "클론 중…"
+                        : "실패"}
                     </span>
-                  )}
-                </div>
-              </li>
-            ))}
+                    {w.status === "ready" && (
+                      <span className="proj-sidebar-counts">
+                        {w.file_count}f
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -374,11 +426,6 @@ function CodePane({
         }}
         onAttachFile={(filename, text) => {
           queueAttachment({ filename, text });
-          // When no chat is active, spin one up so the queued
-          // attachment has somewhere to land. The fresh ChatPanel's
-          // mount-effect drains the queue. App.tsx hands us the
-          // create-session callback that also flips activeId, which
-          // triggers the new ChatPanel to mount.
           if (!activeSessionId) {
             onCreateSession();
           }

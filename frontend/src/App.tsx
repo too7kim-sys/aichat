@@ -12,6 +12,7 @@ import { UserMenu } from "./auth/UserMenu";
 import { VerifyBanner } from "./auth/VerifyBanner";
 import { ModelProvider } from "./state/ModelContext";
 import { ProjectsProvider } from "./state/ProjectsContext";
+import { queueAttachment } from "./state/attachQueue";
 import { WorkspacesProvider } from "./state/WorkspacesContext";
 import type { ProviderInfo, Session } from "./types";
 
@@ -188,6 +189,25 @@ function AppInner({
     }
   }
 
+  async function handleCreateFromWorkspace(workspaceId: string) {
+    try {
+      const res = await api.startChatFromWorkspace(workspaceId);
+      // Queue every collected file before flipping activeId so the
+      // freshly mounted ChatPanel drains them into its composer.
+      for (const a of res.attachments) {
+        queueAttachment({ filename: a.filename, text: a.text });
+      }
+      await refreshSessions();
+      setActiveId(res.session_id);
+    } catch (e) {
+      alert(
+        `워크스페이스 채팅 시작 실패: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+  }
+
   async function handleDelete(id: string) {
     try {
       await api.deleteSession(id);
@@ -208,6 +228,7 @@ function AppInner({
         onSelect={setActiveId}
         onCreate={handleCreate}
         onDelete={handleDelete}
+        onStartChatFromWorkspace={handleCreateFromWorkspace}
       />
       <main className="main">
         <div className="app-header-strip">

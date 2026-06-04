@@ -261,6 +261,98 @@ def walk_tree(root: Path) -> tuple[list[dict], int, int]:
     return tree, file_count, total_size
 
 
+# ── Bulk collect — for "click workspace → start chat" ────────────────
+
+# Reasonable cap for the "open the whole project in chat" flow. A
+# typical Java service has dozens of small files that all fit easily;
+# big monorepos hit the cap and the chat sees a representative
+# sample + manifest pointing at the rest.
+_BULK_MAX_FILES = 50
+_BULK_MAX_BYTES_PER_FILE = 120 * 1024
+_BULK_MAX_TOTAL_BYTES = 2 * 1024 * 1024
+
+
+def collect_workspace_files(root: Path) -> dict:
+    """Walk the workspace and return:
+      - files: list of {path, text, size} that fit under the caps
+      - truncated: True if we hit a cap and skipped files
+      - total_files / total_size / total_files_in_repo for the manifest
+
+    Files are picked depth-first sorted (smaller files first so the
+    chat gets the most coverage). Binary files are skipped. The
+    caller composes attachments out of the result + an optional
+    manifest entry."""
+    all_candidates: list[tuple[Path, int]] = []
+    total_files_in_repo = 0
+
+    def visit(d: Path) -> None:
+        nonlocal total_files_in_repo
+        try:
+            entries = list(d.iterdir())
+        except OSError:
+            return
+        for entry in entries:
+            if entry.is_symlink():
+                continue
+            if entry.name in _SKIP_DIRS:
+                continue
+            if entry.is_dir():
+                visit(entry)
+                continue
+            if not entry.is_file():
+                continue
+            total_files_in_repo += 1
+            try:
+                size = entry.stat().st_size
+            except OSError:
+                continue
+            if size == 0 or size > _BULK_MAX_BYTES_PER_FILE:
+                continue
+            if entry.suffix.lower() not in _TEXT_EXTS:
+                continue
+            all_candidates.append((entry, size))
+
+    visit(root)
+    # Sort smaller-first so the cap covers more breadth.
+    all_candidates.sort(key=lambda x: x[1])
+
+    files: list[dict] = []
+    total_bytes = 0
+    for path, size in all_candidates:
+        if len(files) >= _BULK_MAX_FILES:
+            break
+        if total_bytes + size > _BULK_MAX_TOTAL_BYTES:
+            break
+        try:
+            blob = path.read_bytes()
+        except OSError:
+            continue
+        if b"\x00" in blob[:8192]:
+            continue
+        for enc in ("utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"):
+            try:
+                text = blob.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = blob.decode("utf-8", errors="replace")
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        files.append({"path": rel, "text": text, "size": size})
+        total_bytes += size
+
+    return {
+        "files": files,
+        "truncated": len(files) < total_files_in_repo,
+        "total_files": len(files),
+        "total_size": total_bytes,
+        "total_files_in_repo": total_files_in_repo,
+    }
+
+
 # ── File read ─────────────────────────────────────────────────────────
 
 _MAX_VIEW_BYTES = 2 * 1024 * 1024  # 2 MB cap for the file viewer

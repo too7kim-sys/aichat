@@ -310,6 +310,20 @@ export const api = {
     json<WorkspaceFile>(
       `/code/workspaces/${id}/file?path=${encodeURIComponent(path)}`,
     ),
+  startChatFromWorkspace: (id: string) =>
+    json<{
+      session_id: string;
+      title: string;
+      attachments: {
+        filename: string;
+        text: string;
+        char_count: number;
+        method: string;
+      }[];
+      file_count: number;
+      truncated: boolean;
+      total_files_in_repo: number;
+    }>(`/code/workspaces/${id}/start-chat`, { method: "POST" }),
 };
 
 export interface SearchSource {
