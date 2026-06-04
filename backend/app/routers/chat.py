@@ -99,6 +99,54 @@ _ACCURACY_SYSTEM = ChatMessage(
 )
 
 
+# Detect translation intent in the user prompt so we can hand the model
+# a strict format that always renders原文 + 번역 side-by-side. Patterns
+# kept generous on purpose — a false positive just adds two helpful
+# section headings, while a miss leaves the user staring at a wall of
+# target-language text with no source to compare against.
+_TRANSLATION_INTENT_RE = re.compile(
+    r"번역|"
+    r"\btranslate\b|"
+    r"\btranslation\b|"
+    r"(?:한국어|영어|일본어|중국어|독일어|프랑스어|스페인어|러시아어)\s*로|"
+    r"(?:into|to)\s+(?:Korean|English|Japanese|Chinese|German|French|"
+    r"Spanish|Russian|Vietnamese|Arabic)\b",
+    re.IGNORECASE,
+)
+
+_TRANSLATION_SYSTEM = ChatMessage(
+    role="system",
+    content=(
+        "[번역 출력 형식]\n"
+        "사용자가 번역을 요청했습니다. 답변은 반드시 아래 구조로 시작해야 "
+        "합니다:\n\n"
+        "## 원문\n"
+        "<번역 대상 텍스트만 그대로>\n\n"
+        "## 번역\n"
+        "<대상 언어로 번역한 결과>\n\n"
+        "지켜야 할 규칙:\n"
+        "1. \"원문\" 섹션에는 번역할 대상 텍스트만 옮기세요. 사용자의 "
+        "요청 문구(\"번역해줘\", \"translate to English\" 같은 메타 지시)는 "
+        "원문에서 빼세요.\n"
+        "2. 원문은 한 글자도 변경하지 말고 그대로 인용하세요. 띄어쓰기·"
+        "줄바꿈·문장부호까지 동일하게.\n"
+        "3. 단락이 여럿이면 원문/번역 모두 같은 단락 순서로 정렬하세요. "
+        "긴 텍스트는 단락 단위로 (원문/번역) 쌍을 반복해도 좋습니다.\n"
+        "4. 고유명사·코드 식별자·수식·URL은 원어 그대로 두세요.\n"
+        "5. 의역이 들어간 부분은 그 단락 뒤에 \"(직역: <원문의 직역>)\"을 "
+        "한 줄 덧붙이세요.\n"
+        "6. 번역 외 추가 설명·문화적 주석·용어 풀이는 마지막 \"## 참고\" "
+        "섹션에 모으세요.\n"
+        "예외: 사용자가 \"원문 없이\", \"번역만\", \"output translation only\" "
+        "같이 명시한 경우에만 \"## 원문\" 섹션을 생략하세요."
+    ),
+)
+
+
+def _is_translation_request(prompt: str) -> bool:
+    return bool(_TRANSLATION_INTENT_RE.search(prompt))
+
+
 def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMessage]:
     # Sliding window: keep only the last N persisted messages so the
     # context length sent to Ollama doesn't grow unbounded across a long
@@ -537,6 +585,14 @@ async def chat_single(
     # message so the model reads it first.
     if settings.accuracy_strict:
         history.insert(0, _ACCURACY_SYSTEM)
+
+    # Translation requests get a strict "## 원문" / "## 번역" output
+    # contract so the user can read source and target side-by-side
+    # instead of having to scroll back to the original to compare.
+    # Inserted after the accuracy block so it shows up nearer the
+    # user prompt (= higher attention) than the global rules.
+    if _is_translation_request(payload.prompt):
+        history.insert(-1, _TRANSLATION_SYSTEM)
 
     # Pin the language preference at the very front so it always wins
     # over the model's own default behavior.
