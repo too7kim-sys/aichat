@@ -20,7 +20,12 @@ class LLMProvider(ABC):
 
     @abstractmethod
     def stream(
-        self, messages: list[ChatMessage], model: str | None = None
+        self,
+        messages: list[ChatMessage],
+        model: str | None = None,
+        num_ctx_cap_override: int | None = None,
     ) -> AsyncIterator[str]:
-        """Yield response text chunks. Override the configured model per call."""
+        """Yield response text chunks. The chat router may pass a
+        num_ctx_cap_override when it knows the picked model supports a
+        larger native context than the global OLLAMA_NUM_CTX_MAX."""
         raise NotImplementedError

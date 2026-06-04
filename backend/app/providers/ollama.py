@@ -48,12 +48,21 @@ class OllamaProvider(LLMProvider):
         return body.get("models") or []
 
     async def stream(
-        self, messages: list[ChatMessage], model: str | None = None
+        self,
+        messages: list[ChatMessage],
+        model: str | None = None,
+        num_ctx_cap_override: int | None = None,
     ) -> AsyncIterator[str]:
+        # When auto-routing picked a model with a documented native
+        # context (qwen3-coder:30b → 256K, llama3.x → 128K, ...), the
+        # router passes that here so the auto-sizer can grow past the
+        # global OLLAMA_NUM_CTX_MAX without erroring on a smaller-ctx
+        # model.
+        cap = num_ctx_cap_override or settings.ollama_num_ctx_max
         num_ctx = _compute_num_ctx(
             messages,
             floor=settings.ollama_num_ctx,
-            cap=settings.ollama_num_ctx_max,
+            cap=cap,
         )
         log.info(
             "Ollama stream: model=%s msgs=%d total_chars=%d num_ctx=%d",

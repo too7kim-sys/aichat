@@ -132,6 +132,44 @@ _REASONING_INTENT_EN = re.compile(
 )
 _LARGE_ATTACH_CHARS = 30_000
 
+# Per-model native context length. When auto-routing picks a model,
+# we use this map to lift the auto-sized num_ctx cap to whatever the
+# model actually supports — so qwen3-coder's 256K isn't wasted by a
+# global cap that has to stay low for qwen3/exaone's 32K hard limit.
+# Match is by leading prefix on the lower-cased base name (the part
+# before ":<tag>"). Unknown models fall back to OLLAMA_NUM_CTX_MAX.
+_MODEL_CTX_LIMITS: dict[str, int] = {
+    "qwen3-coder": 262_144,  # 256K native
+    "qwen3": 32_768,
+    "qwen2.5-coder": 32_768,
+    "qwen2.5": 32_768,
+    "deepseek-r1": 131_072,
+    "deepseek-v3": 131_072,
+    "llama3.3": 131_072,
+    "llama3.2": 131_072,
+    "llama3.1": 131_072,
+    "exaone3.5": 32_768,
+    "exaone": 32_768,
+    "gemma3": 8_192,
+    "gemma2": 8_192,
+    "phi4": 16_384,
+    "phi3": 4_096,
+}
+
+
+def _ctx_cap_for_model(name: str | None) -> int | None:
+    """Return the model's native max context, or None if unknown."""
+    if not name:
+        return None
+    base = name.split(":", 1)[0].lower()
+    # Longest prefix wins so "qwen3-coder" beats "qwen3" for the
+    # qwen3-coder:30b tag.
+    best: tuple[int, int] | None = None
+    for prefix, limit in _MODEL_CTX_LIMITS.items():
+        if base.startswith(prefix) and (best is None or len(prefix) > best[0]):
+            best = (len(prefix), limit)
+    return best[1] if best else None
+
 
 def _pick(name: str, fallback: str) -> str:
     """Use a configured router model if non-empty, else the default."""
@@ -346,12 +384,15 @@ async def _stream_one(
     provider: LLMProvider,
     history: list[ChatMessage],
     model: str | None = None,
+    num_ctx_cap_override: int | None = None,
 ) -> AsyncIterator[tuple[str, str]]:
     """Yield (event_type, data_json) tuples for a single provider."""
     start = time.monotonic()
     buf: list[str] = []
     try:
-        async for delta in provider.stream(history, model=model):
+        async for delta in provider.stream(
+            history, model=model, num_ctx_cap_override=num_ctx_cap_override
+        ):
             buf.append(delta)
             yield "token", json.dumps(
                 {"provider": provider.name, "delta": delta}, ensure_ascii=False
@@ -397,6 +438,11 @@ async def chat_single(
         chosen_model, auto_reason = _choose_model(
             payload.prompt, payload.attachments
         )
+    # When auto-routing decides, also raise the num_ctx cap to the
+    # picked model's native limit. For manually selected models the
+    # global OLLAMA_NUM_CTX_MAX still applies so a user can't push
+    # qwen3 past 32K by accident.
+    auto_ctx_cap = _ctx_cap_for_model(chosen_model) if auto_reason else None
 
     # Web search context first (front of the system stack). Attachments
     # come AFTER conversation history below so they sit right next to
@@ -447,6 +493,7 @@ async def chat_single(
                             "provider": provider.name,
                             "name": chosen_model,
                             "reason": auto_reason,
+                            "ctx_cap": auto_ctx_cap,
                         },
                         ensure_ascii=False,
                     ),
@@ -459,7 +506,12 @@ async def chat_single(
                         ensure_ascii=False,
                     ),
                 }
-            async for evt, data in _stream_one(provider, history, model=chosen_model):
+            async for evt, data in _stream_one(
+                provider,
+                history,
+                model=chosen_model,
+                num_ctx_cap_override=auto_ctx_cap,
+            ):
                 if evt == "token":
                     chunks.append(json.loads(data)["delta"])
                 elif evt == "error":
