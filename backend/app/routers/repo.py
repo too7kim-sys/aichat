@@ -52,8 +52,12 @@ _ALLOWED_EXT = {
     ".md", ".markdown", ".txt", ".log", ".csv", ".tsv",
     ".vue", ".svelte", ".astro",
 }
-_MAX_FILES = 100
-_MAX_BYTES_PER_FILE = 200 * 1024
+# Larger limits to take advantage of high-memory Ollama hosts (e.g.
+# MSI EdgeXpert / DGX Spark with 128 GB unified memory). For modest
+# machines you can lower these without affecting correctness; the
+# attachments router caps the per-attachment char count separately.
+_MAX_FILES = 300
+_MAX_BYTES_PER_FILE = 500 * 1024
 _CLONE_TIMEOUT = 60
 
 
