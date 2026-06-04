@@ -209,7 +209,14 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
               >
                 <div className="proj-sidebar-row">
                   <div className="proj-sidebar-name">
-                    {p.source_type === "git" ? "🔗" : "📁"} {p.name}
+                    {p.source_type === "git"
+                      ? "🔗"
+                      : p.source_type === "url"
+                      ? "🌐"
+                      : p.source_type === "connection"
+                      ? "🗄"
+                      : "📁"}{" "}
+                    {p.name}
                   </div>
                   <button
                     type="button"

@@ -7,7 +7,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, type CorpusType, type Project } from "../api/client";
+import {
+  api,
+  type CorpusType,
+  type Project,
+  type SourceType,
+} from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
 interface ProjectsState {
@@ -16,7 +21,7 @@ interface ProjectsState {
   refresh: () => Promise<void>;
   create: (payload: {
     name: string;
-    source_type: "folder" | "git";
+    source_type: SourceType;
     source_ref: string;
     ref?: string;
     corpus_type?: CorpusType;

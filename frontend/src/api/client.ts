@@ -155,7 +155,8 @@ export interface OllamaModelList {
   models: OllamaModel[];
 }
 
-export type CorpusType = "code" | "document" | "legal" | "api" | "db";
+export type CorpusType = "code" | "document" | "api" | "db";
+export type SourceType = "folder" | "git" | "url" | "connection";
 
 export interface Snapshot {
   id: string;
@@ -172,7 +173,7 @@ export interface Snapshot {
 export interface Project {
   id: string;
   name: string;
-  source_type: "folder" | "git";
+  source_type: SourceType;
   source_ref: string;
   corpus_type: CorpusType;
   status: "pending" | "indexing" | "ready" | "failed";
@@ -217,7 +218,7 @@ export const api = {
   getProject: (id: string) => json<Project>(`/projects/${id}`),
   createProject: (payload: {
     name: string;
-    source_type: "folder" | "git";
+    source_type: SourceType;
     source_ref: string;
     ref?: string;
     corpus_type?: CorpusType;

@@ -66,6 +66,15 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_projects_corpus_type "
                     "ON projects(corpus_type)"
                 )
+            if pexisting and "corpus_type" in pexisting:
+                # The legal corpus type was retired; remap any existing
+                # rows to "document" so the modal can still render them
+                # (the chunker just runs the document path on the same
+                # files until the user re-indexes).
+                await conn.exec_driver_sql(
+                    "UPDATE projects SET corpus_type = 'document' "
+                    "WHERE corpus_type = 'legal'"
+                )
             if pexisting and "current_snapshot_id" not in pexisting:
                 # Snapshot/versioning support added later. The FK column
                 # is nullable so existing rows survive; a small backfill

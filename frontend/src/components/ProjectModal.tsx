@@ -1,37 +1,97 @@
 import { useEffect, useState } from "react";
-import type { CorpusType, Project } from "../api/client";
+import type { CorpusType, Project, SourceType } from "../api/client";
 import { useProjects } from "../state/ProjectsContext";
 
 const CORPUS_META: Record<
   CorpusType,
-  { label: string; icon: string; hint: string }
+  {
+    label: string;
+    icon: string;
+    hint: string;
+    /** Connection methods allowed for this corpus type. Order in the
+     *  UI matches the order here — the first entry becomes the
+     *  default selection when the corpus tab changes. */
+    sources: SourceType[];
+  }
 > = {
   code: {
     label: "코드",
     icon: "💻",
     hint: "소스 트리(.py / .ts / .java / …). 함수 단위 검색에 강함.",
+    sources: ["git", "folder"],
   },
   document: {
     label: "문서",
     icon: "📄",
-    hint: "매뉴얼·기획서·백서 (.pdf / .docx / .md / .txt). 단락 단위 검색.",
-  },
-  legal: {
-    label: "법령",
-    icon: "⚖",
-    hint: "법령·약관 (.pdf / .docx / .txt). 제N조 단위로 자동 분할.",
+    hint: "PDF·DOCX·MD가 든 폴더 또는 문서 Git 레포. 단락 단위 검색.",
+    sources: ["folder", "git"],
   },
   api: {
     label: "API",
     icon: "🔌",
-    hint: "OpenAPI / Swagger (.json / .yaml). 엔드포인트 단위로 분할.",
+    hint: "OpenAPI/Swagger URL 직접 fetch, 또는 .json/.yaml이 든 폴더.",
+    sources: ["url", "folder", "git"],
   },
   db: {
     label: "DB",
     icon: "🗄",
-    hint: "SQL 스키마 (.sql / .ddl). CREATE TABLE/VIEW/PROC 단위로 분할.",
+    hint:
+      "DB에 직접 접속해 스키마를 리플렉션. CREATE TABLE/VIEW/PROC 단위 분할.",
+    sources: ["connection"],
   },
 };
+
+const SOURCE_META: Record<
+  SourceType,
+  {
+    label: string;
+    icon: string;
+    placeholder: string;
+    help: string;
+    inputType?: "url" | "text" | "password";
+  }
+> = {
+  git: {
+    label: "Git URL",
+    icon: "🔗",
+    placeholder: "https://github.com/owner/repo.git",
+    help: "허용 호스트: github / gitlab / bitbucket / codeberg / sr.ht",
+    inputType: "url",
+  },
+  folder: {
+    label: "서버 폴더",
+    icon: "📁",
+    placeholder: "/workspace/projects/egov",
+    help:
+      "백엔드 서버가 직접 읽을 수 있는 절대경로. Windows라면 C:/Users/i/git/foo 식.",
+  },
+  url: {
+    label: "API URL",
+    icon: "🌐",
+    placeholder: "https://api.example.com/openapi.json",
+    help:
+      "OpenAPI/Swagger 스펙이 응답되는 HTTPS 엔드포인트. 30초 fetch, 10 MB 한도.",
+    inputType: "url",
+  },
+  connection: {
+    label: "DB 연결",
+    icon: "🗄",
+    placeholder: "postgresql://user:pass@host:5432/dbname",
+    help:
+      "지원: postgresql / mysql / mariadb / sqlite. 읽기 전용 reflection만 수행합니다.",
+    inputType: "password",
+  },
+};
+
+/** Hide DB credentials when rendering a project's source_ref. */
+function maskSourceRef(sourceType: SourceType, ref: string): string {
+  if (sourceType !== "connection") return ref;
+  // postgresql://user:pass@host/db → postgresql://user:***@host/db
+  return ref.replace(
+    /^([a-z][a-z0-9+.-]*):\/\/([^:@/]+):[^@]+@/i,
+    "$1://$2:***@",
+  );
+}
 
 interface Props {
   open: boolean;
@@ -210,7 +270,7 @@ function ProjectCard({
       <div className="pm-card-head">
         <div className="pm-card-title">
           <span className="pm-card-icon" aria-hidden>
-            {p.source_type === "git" ? "🔗" : "📁"}
+            {SOURCE_META[p.source_type]?.icon ?? "📁"}
           </span>
           <span className="pm-card-name" title={p.name}>{p.name}</span>
           <span
@@ -228,8 +288,11 @@ function ProjectCard({
         <StatusBadge status={p.status} />
       </div>
 
-      <div className="pm-card-source" title={p.source_ref}>
-        {p.source_ref}
+      <div
+        className="pm-card-source"
+        title={maskSourceRef(p.source_type, p.source_ref)}
+      >
+        {maskSourceRef(p.source_type, p.source_ref)}
       </div>
 
       {p.status === "indexing" && (
@@ -446,30 +509,47 @@ function AddProjectForm({
   onCancel?: () => void;
   onSubmit: (payload: {
     name: string;
-    source_type: "folder" | "git";
+    source_type: SourceType;
     source_ref: string;
     ref?: string;
     corpus_type: CorpusType;
   }) => Promise<void>;
 }) {
-  const [sourceType, setSourceType] = useState<"git" | "folder">("git");
   const [corpusType, setCorpusType] = useState<CorpusType>("code");
+  const [sourceType, setSourceType] = useState<SourceType>(
+    CORPUS_META.code.sources[0],
+  );
+  // One input value per source type so switching the source tab
+  // doesn't wipe what the user already typed in another tab.
+  const [refs, setRefs] = useState<Record<SourceType, string>>({
+    git: "",
+    folder: "",
+    url: "",
+    connection: "",
+  });
   const [name, setName] = useState("");
-  const [gitUrl, setGitUrl] = useState("");
-  const [ref, setRef] = useState("");
-  const [folderPath, setFolderPath] = useState("");
+  const [gitBranch, setGitBranch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // When the corpus tab changes, snap the source picker to a value
+  // that's actually allowed for that corpus.
+  function onCorpusChange(t: CorpusType) {
+    setCorpusType(t);
+    const allowed = CORPUS_META[t].sources;
+    if (!allowed.includes(sourceType)) {
+      setSourceType(allowed[0]);
+    }
+  }
+
+  const sourceMeta = SOURCE_META[sourceType];
+  const corpusMeta = CORPUS_META[corpusType];
+
   async function submit() {
     setError(null);
-    const sourceRef = sourceType === "git" ? gitUrl.trim() : folderPath.trim();
+    const sourceRef = (refs[sourceType] || "").trim();
     if (!sourceRef) {
-      setError(
-        sourceType === "git"
-          ? "Git URL을 입력하세요"
-          : "백엔드 서버가 접근 가능한 폴더 절대경로를 입력하세요",
-      );
+      setError(`${sourceMeta.label}을(를) 입력하세요`);
       return;
     }
     if (!name.trim()) {
@@ -482,13 +562,15 @@ function AddProjectForm({
         name: name.trim(),
         source_type: sourceType,
         source_ref: sourceRef,
-        ref: sourceType === "git" && ref.trim() ? ref.trim() : undefined,
+        ref:
+          sourceType === "git" && gitBranch.trim()
+            ? gitBranch.trim()
+            : undefined,
         corpus_type: corpusType,
       });
       setName("");
-      setGitUrl("");
-      setFolderPath("");
-      setRef("");
+      setRefs({ git: "", folder: "", url: "", connection: "" });
+      setGitBranch("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -502,14 +584,17 @@ function AddProjectForm({
         <header className="pm-add-hero">
           <div className="pm-add-hero-icon" aria-hidden>📚</div>
           <h4>첫 프로젝트를 추가해보세요</h4>
-          <p>Git 레포 URL 또는 백엔드 서버에서 접근 가능한 폴더 경로를 입력하면 백그라운드에서 인덱싱이 시작됩니다.</p>
+          <p>
+            코퍼스 유형을 고르면 그에 맞는 연결 방식을 선택할 수 있습니다.
+            (코드는 Git/폴더, API는 URL, DB는 연결 문자열 …)
+          </p>
         </header>
       )}
 
       <div className="pm-field">
         <label>코퍼스 유형</label>
         <div className="pm-corpus-tabs" role="tablist">
-          {(["code", "document", "legal", "api", "db"] as const).map((t) => {
+          {(["code", "document", "api", "db"] as const).map((t) => {
             const m = CORPUS_META[t];
             return (
               <button
@@ -518,7 +603,7 @@ function AddProjectForm({
                 role="tab"
                 aria-selected={corpusType === t}
                 className={corpusType === t ? "active" : ""}
-                onClick={() => setCorpusType(t)}
+                onClick={() => onCorpusChange(t)}
               >
                 <span aria-hidden>{m.icon}</span>
                 <span>{m.label}</span>
@@ -526,28 +611,28 @@ function AddProjectForm({
             );
           })}
         </div>
-        <div className="pm-help">{CORPUS_META[corpusType].hint}</div>
+        <div className="pm-help">{corpusMeta.hint}</div>
       </div>
 
-      <div className="pm-source-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={sourceType === "git"}
-          className={sourceType === "git" ? "active" : ""}
-          onClick={() => setSourceType("git")}
-        >
-          🔗 Git URL
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={sourceType === "folder"}
-          className={sourceType === "folder" ? "active" : ""}
-          onClick={() => setSourceType("folder")}
-        >
-          📁 서버 폴더
-        </button>
+      <div className="pm-field">
+        <label>연결 방식</label>
+        <div className="pm-source-tabs" role="tablist">
+          {corpusMeta.sources.map((st) => {
+            const m = SOURCE_META[st];
+            return (
+              <button
+                key={st}
+                type="button"
+                role="tab"
+                aria-selected={sourceType === st}
+                className={sourceType === st ? "active" : ""}
+                onClick={() => setSourceType(st)}
+              >
+                {m.icon} {m.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="pm-field">
@@ -562,48 +647,35 @@ function AddProjectForm({
         />
       </div>
 
-      {sourceType === "git" ? (
-        <>
-          <div className="pm-field">
-            <label htmlFor="pm-git-url">Git URL</label>
-            <input
-              id="pm-git-url"
-              type="text"
-              placeholder="https://github.com/owner/repo.git"
-              value={gitUrl}
-              onChange={(e) => setGitUrl(e.target.value)}
-              disabled={submitting}
-            />
-            <div className="pm-help">
-              허용 호스트: github / gitlab / bitbucket / codeberg / sr.ht
-            </div>
-          </div>
-          <div className="pm-field">
-            <label htmlFor="pm-ref">브랜치 / 태그 (선택)</label>
-            <input
-              id="pm-ref"
-              type="text"
-              placeholder="기본 브랜치 사용 (예: main, v1.0)"
-              value={ref}
-              onChange={(e) => setRef(e.target.value)}
-              disabled={submitting}
-            />
-          </div>
-        </>
-      ) : (
+      <div className="pm-field">
+        <label htmlFor="pm-source-ref">{sourceMeta.label}</label>
+        <input
+          id="pm-source-ref"
+          type={sourceMeta.inputType ?? "text"}
+          placeholder={sourceMeta.placeholder}
+          value={refs[sourceType]}
+          onChange={(e) =>
+            setRefs((prev) => ({ ...prev, [sourceType]: e.target.value }))
+          }
+          disabled={submitting}
+          autoComplete={
+            sourceType === "connection" ? "off" : undefined
+          }
+        />
+        <div className="pm-help">{sourceMeta.help}</div>
+      </div>
+
+      {sourceType === "git" && (
         <div className="pm-field">
-          <label htmlFor="pm-folder">서버 절대경로</label>
+          <label htmlFor="pm-ref">브랜치 / 태그 (선택)</label>
           <input
-            id="pm-folder"
+            id="pm-ref"
             type="text"
-            placeholder="/workspace/projects/egov"
-            value={folderPath}
-            onChange={(e) => setFolderPath(e.target.value)}
+            placeholder="기본 브랜치 사용 (예: main, v1.0)"
+            value={gitBranch}
+            onChange={(e) => setGitBranch(e.target.value)}
             disabled={submitting}
           />
-          <div className="pm-help">
-            백엔드 서버 자체가 읽을 수 있는 경로여야 합니다. Windows라면 <code>C:/Users/i/git/egov</code> 식으로.
-          </div>
         </div>
       )}
 

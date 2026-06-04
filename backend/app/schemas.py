@@ -63,12 +63,13 @@ class ChatRequest(BaseModel):
 
 # ── RAG / Projects ────────────────────────────────────────────────────
 
-CorpusType = Literal["code", "document", "legal", "api", "db"]
+CorpusType = Literal["code", "document", "api", "db"]
+SourceType = Literal["folder", "git", "url", "connection"]
 
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    source_type: Literal["folder", "git"]
+    source_type: SourceType
     source_ref: str = Field(min_length=1, max_length=500)
     ref: str | None = Field(default=None, max_length=120)  # git branch/tag
     corpus_type: CorpusType = "code"

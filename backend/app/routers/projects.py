@@ -73,6 +73,14 @@ async def list_projects(
     return list(result.scalars())
 
 
+_ALLOWED_SOURCE_BY_CORPUS = {
+    "code": {"git", "folder"},
+    "document": {"folder", "git"},
+    "api": {"url", "folder", "git"},
+    "db": {"connection"},
+}
+
+
 @router.post("", response_model=schemas.ProjectOut)
 async def create_project(
     payload: schemas.ProjectCreate,
@@ -81,6 +89,13 @@ async def create_project(
 ):
     if not settings.rag_enabled:
         raise HTTPException(503, "RAG가 비활성화 상태입니다 (.env: RAG_ENABLED=true)")
+    allowed = _ALLOWED_SOURCE_BY_CORPUS.get(payload.corpus_type, set())
+    if payload.source_type not in allowed:
+        raise HTTPException(
+            400,
+            f"'{payload.corpus_type}' 코퍼스에는 '{payload.source_type}' 연결을 "
+            f"사용할 수 없습니다. 허용: {', '.join(sorted(allowed))}",
+        )
     project = models.Project(
         user_id=user.id,
         name=payload.name,

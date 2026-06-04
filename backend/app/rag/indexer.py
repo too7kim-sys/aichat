@@ -39,9 +39,6 @@ _EXTS_DOCUMENT = {
     ".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm", ".rtf",
     ".log", ".csv", ".tsv",
 }
-_EXTS_LEGAL = {
-    ".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm",
-}
 _EXTS_API = {
     ".json", ".yaml", ".yml", ".md", ".markdown",
 }
@@ -52,7 +49,6 @@ _EXTS_DB = {
 _EXTS_BY_TYPE = {
     "code": _EXTS_CODE,
     "document": _EXTS_DOCUMENT,
-    "legal": _EXTS_LEGAL,
     "api": _EXTS_API,
     "db": _EXTS_DB,
 }
@@ -187,6 +183,105 @@ def _clone_git(url: str, ref: str | None, dest: Path) -> None:
         raise RuntimeError(f"git clone 실패: {detail[:300]}")
 
 
+# === url source — fetch a single OpenAPI / spec file over HTTP(S) ====
+
+_URL_FETCH_TIMEOUT = 30  # seconds
+_URL_FETCH_MAX_BYTES = 10 * 1024 * 1024  # 10 MB cap on a single spec
+_ALLOWED_URL_SCHEMES = {"http", "https"}
+
+
+def _fetch_url_to_dir(url: str, dest: Path) -> None:
+    """HTTP GET the URL and stage the body as a single file in dest.
+    The filename is taken from the URL path so the chunker's file-type
+    routing still works (e.g. openapi.yaml stays a YAML doc)."""
+    from urllib.parse import urlparse
+    import httpx
+
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_URL_SCHEMES:
+        raise RuntimeError(f"허용되지 않은 URL 스킴: {parsed.scheme}")
+    # Reuse the last path segment as the filename; fall back to spec.json
+    # for endpoints like https://api.example.com/openapi (no extension).
+    leaf = parsed.path.rsplit("/", 1)[-1] or "spec"
+    if "." not in leaf:
+        # Guess by content-type after fetch — for now default to .json.
+        leaf += ".json"
+    try:
+        with httpx.Client(timeout=_URL_FETCH_TIMEOUT, follow_redirects=True) as c:
+            resp = c.get(url)
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"URL fetch 실패: {exc}") from exc
+    if resp.status_code != 200:
+        raise RuntimeError(f"URL fetch HTTP {resp.status_code}")
+    body = resp.content
+    if len(body) > _URL_FETCH_MAX_BYTES:
+        raise RuntimeError(
+            f"URL 응답이 너무 큽니다: {len(body):,} bytes (limit "
+            f"{_URL_FETCH_MAX_BYTES:,})"
+        )
+    # Bias the extension toward what the server actually sent us when
+    # the URL itself didn't make it clear.
+    ctype = (resp.headers.get("content-type") or "").lower()
+    if "yaml" in ctype and not leaf.endswith((".yaml", ".yml")):
+        leaf = leaf.rsplit(".", 1)[0] + ".yaml"
+    elif "json" in ctype and not leaf.endswith(".json"):
+        leaf = leaf.rsplit(".", 1)[0] + ".json"
+    (dest / leaf).write_bytes(body)
+
+
+# === connection source — reflect a live DB schema =====================
+
+_ALLOWED_DB_SCHEMES = {
+    "sqlite", "postgresql", "postgres", "mysql", "mariadb",
+}
+
+
+def _reflect_db_to_dir(connection_string: str, dest: Path) -> None:
+    """Connect to the given DB, reflect every table in the default
+    schema into a synthetic CREATE TABLE DDL dump, and write it to
+    a single file under dest. The db chunker then splits it the
+    same way it would a hand-written .sql file."""
+    from urllib.parse import urlparse
+    from sqlalchemy import create_engine
+    from sqlalchemy.schema import MetaData, CreateTable
+
+    parsed = urlparse(connection_string)
+    scheme = (parsed.scheme or "").split("+")[0]
+    if scheme not in _ALLOWED_DB_SCHEMES:
+        raise RuntimeError(
+            f"허용되지 않은 DB 스킴: {scheme}. "
+            f"허용: {', '.join(sorted(_ALLOWED_DB_SCHEMES))}"
+        )
+    try:
+        engine = create_engine(
+            connection_string, connect_args={"connect_timeout": 10}
+            if scheme in {"postgresql", "postgres", "mysql", "mariadb"}
+            else {},
+        )
+    except TypeError:
+        # SQLite et al don't support connect_timeout in connect_args.
+        engine = create_engine(connection_string)
+    try:
+        meta = MetaData()
+        with engine.connect() as conn:
+            meta.reflect(bind=conn)
+            parts: list[str] = [
+                f"-- DB schema reflected at {connection_string.split('@')[-1]}",
+                f"-- {len(meta.tables)} tables",
+                "",
+            ]
+            for tname, tbl in meta.tables.items():
+                try:
+                    ddl = str(CreateTable(tbl).compile(conn))
+                except Exception as exc:  # noqa: BLE001
+                    ddl = f"-- (DDL generation failed for {tname}: {exc})"
+                parts.append(ddl.rstrip() + ";")
+                parts.append("")  # blank line between tables
+    finally:
+        engine.dispose()
+    (dest / "schema.sql").write_text("\n".join(parts), encoding="utf-8")
+
+
 async def _update_snapshot(snapshot_id: str, **patch) -> None:
     """Mirror status onto the snapshot row AND the parent project so
     the UI can show the live status without an extra join."""
@@ -256,6 +351,23 @@ async def run_indexing(snapshot_id: str) -> None:
             root = Path(source_ref).resolve()
             if not root.is_dir():
                 raise RuntimeError(f"폴더를 찾을 수 없습니다: {root}")
+        elif source_type == "url":
+            # API spec hosted at an HTTP(S) endpoint — fetch it and
+            # stage as a single-file corpus so the regular walker /
+            # chunker pipeline kicks in unchanged.
+            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
+            cleanup_workdir = True
+            _fetch_url_to_dir(source_ref, workdir)
+            root = workdir
+        elif source_type == "connection":
+            # Live database — connect, reflect every table into a
+            # synthetic CREATE TABLE DDL dump, then chunk via the db
+            # chunker. Output stays on disk for the duration of the
+            # indexing run only.
+            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
+            cleanup_workdir = True
+            _reflect_db_to_dir(source_ref, workdir)
+            root = workdir
         else:
             raise RuntimeError(f"unknown source_type: {source_type}")
 

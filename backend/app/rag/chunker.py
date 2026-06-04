@@ -132,81 +132,6 @@ def chunk_document(filename: str, body: str) -> list[Chunk]:
     return chunks
 
 
-# ── legal: Korean law / regulation, 조-boundary chunker ───────────────
-
-# Catch 제\d+조 / 제 \d+ 조 with optional subtitle in parens.
-_JO_RE = re.compile(
-    r"(?:^|\n)\s*제\s*(\d+)\s*조(?:의\s*\d+)?\s*(?:\([^)]+\))?", re.U
-)
-# Higher-level structure markers for context.
-_PYEN_RE = re.compile(r"^\s*제\s*\d+\s*편", re.M | re.U)
-_JANG_RE = re.compile(r"^\s*제\s*\d+\s*장", re.M | re.U)
-_JEOL_RE = re.compile(r"^\s*제\s*\d+\s*절", re.M | re.U)
-
-
-def chunk_legal(filename: str, body: str) -> list[Chunk]:
-    """Split on 제N조 boundaries. Each 조 becomes one chunk; the chunk
-    text includes the current 편/장/절 headings as context so a
-    retrieved 조 carries its hierarchy with it. Falls back to the
-    document chunker when no 조 markers are found (e.g., a 시행세칙
-    that uses a different style)."""
-
-    text = body.replace("\r\n", "\n")
-    matches = list(_JO_RE.finditer(text))
-    if not matches:
-        return chunk_document(filename, body)
-
-    chunks: list[Chunk] = []
-    for i, m in enumerate(matches):
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        jo_body = text[start:end].strip()
-        if not jo_body:
-            continue
-
-        # Walk back from `start` to find the most recent 편/장/절 lines
-        # so we can prepend them as context. Track the LAST hit per
-        # marker type — a 제3조 sitting inside "제2장 처리원칙" should
-        # carry that 장 forward even though "제1장 통칙" appears earlier
-        # in the file.
-        prefix_window = text[:start]
-        last_by_marker: dict[str, str] = {}
-        for label_re, marker in (
-            (_PYEN_RE, "편"),
-            (_JANG_RE, "장"),
-            (_JEOL_RE, "절"),
-        ):
-            for hit in label_re.finditer(prefix_window):
-                line_end = prefix_window.find("\n", hit.end())
-                if line_end < 0:
-                    line_end = len(prefix_window)
-                last_by_marker[marker] = (
-                    prefix_window[hit.start():line_end].strip()
-                )
-
-        prefix_parts = [
-            last_by_marker[m]
-            for m in ("편", "장", "절")
-            if m in last_by_marker
-        ]
-        header_lines = [f"// {filename} (제{m.group(1)}조)"]
-        header_lines.extend(prefix_parts)
-        chunk_text = "\n".join(header_lines) + "\n\n" + jo_body
-
-        # We don't have meaningful line numbers — use the 조 ordinal so
-        # the retriever can still display something sensible.
-        chunks.append(
-            Chunk(
-                filename=filename,
-                start_line=i + 1,
-                end_line=i + 1,
-                text=chunk_text,
-            )
-        )
-
-    return chunks
-
-
 # ── api: one chunk per OpenAPI endpoint ───────────────────────────────
 
 def _try_parse_openapi(body: str, ext: str) -> dict | None:
@@ -498,7 +423,6 @@ def chunk_db(filename: str, body: str) -> list[Chunk]:
 _CHUNKERS = {
     "code": chunk_code,
     "document": chunk_document,
-    "legal": chunk_legal,
     "api": chunk_api,
     "db": chunk_db,
 }
