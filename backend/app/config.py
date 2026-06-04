@@ -64,6 +64,20 @@ class Settings(BaseSettings):
     #   qwen2.5vl:7b  /  llama3.2-vision:11b  /  gemma3:12b
     model_auto_vision: str = ""
 
+    # ── Code workspaces (Phase 1 of the in-app Code/IDE feature) ──
+    workspace_dir: str = "./workspaces"
+    # Secret used to encrypt-at-rest per-workspace git credentials.
+    # When blank, falls back to JWT_SECRET. Keep stable — rotating
+    # this invalidates every stored token.
+    workspace_secret: str = ""
+    # Comma-separated host allow-list for git URLs. Empty = any host
+    # allowed (suitable for closed-net deployments where the entire
+    # LAN is trusted). For external use, restrict to internal hosts.
+    workspace_allowed_hosts: str = ""
+    workspace_max_size_mb: int = 500
+    workspace_max_files: int = 5000
+    workspace_clone_depth: int = 50
+
     # ── RAG / 코드 검색 ────────────────────────────────────────────
     # Toggle the whole feature. When false, project routes still
     # respond (so the UI doesn't break) but no indexing/retrieval
@@ -129,6 +143,14 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def workspace_allowed_host_list(self) -> list[str]:
+        return [
+            h.strip()
+            for h in self.workspace_allowed_hosts.split(",")
+            if h.strip()
+        ]
 
 
 settings = Settings()

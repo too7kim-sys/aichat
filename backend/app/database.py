@@ -109,6 +109,33 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_indexed_files_filename "
                 "ON indexed_files(filename)"
             )
+            # code_workspaces — created by create_all when the model
+            # registers, but if an upgraded backend hits an older DB
+            # this ensures the table exists for any later route.
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS code_workspaces (
+                    id                    VARCHAR(36) PRIMARY KEY,
+                    user_id               VARCHAR(36) NOT NULL,
+                    name                  VARCHAR(120) NOT NULL,
+                    git_url               VARCHAR(500) NOT NULL,
+                    branch                VARCHAR(120) DEFAULT '',
+                    local_path            VARCHAR(500) DEFAULT '',
+                    auth_username         VARCHAR(120),
+                    auth_token_encrypted  TEXT,
+                    status                VARCHAR(20) DEFAULT 'cloning',
+                    error                 TEXT,
+                    file_count            INTEGER DEFAULT 0,
+                    size_bytes            INTEGER DEFAULT 0,
+                    last_synced_at        DATETIME,
+                    created_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_code_workspaces_user_id "
+                "ON code_workspaces(user_id)"
+            )
             if pexisting and "current_snapshot_id" not in pexisting:
                 # Snapshot/versioning support added later. The FK column
                 # is nullable so existing rows survive; a small backfill

@@ -189,6 +189,34 @@ export interface Project {
   created_at: string;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  git_url: string;
+  branch: string;
+  auth_username: string | null;
+  status: "cloning" | "ready" | "failed";
+  error: string | null;
+  file_count: number;
+  size_bytes: number;
+  last_synced_at: string | null;
+  created_at: string;
+}
+export interface WorkspaceTreeEntry {
+  name: string;
+  path: string;
+  kind: "file" | "dir";
+  size: number;
+  children: WorkspaceTreeEntry[];
+}
+export interface WorkspaceFile {
+  path: string;
+  text: string;
+  size: number;
+  truncated: boolean;
+  method: string;
+}
+
 export interface RagChunk {
   filename: string;
   start_line: number;
@@ -252,6 +280,36 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ schedule_interval_minutes: intervalMinutes }),
     }),
+
+  // Code workspaces
+  listWorkspaces: () => json<Workspace[]>("/code/workspaces"),
+  createWorkspace: (payload: {
+    name: string;
+    git_url: string;
+    branch?: string;
+    auth_username?: string;
+    auth_token?: string;
+  }) =>
+    json<Workspace>("/code/workspaces", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deleteWorkspace: (id: string) =>
+    json<{ freed_bytes: number }>(`/code/workspaces/${id}`, {
+      method: "DELETE",
+    }),
+  syncWorkspace: (id: string) =>
+    json<Workspace>(`/code/workspaces/${id}/sync`, { method: "POST" }),
+  workspaceTree: (id: string) =>
+    json<{
+      tree: WorkspaceTreeEntry[];
+      file_count: number;
+      size_bytes: number;
+    }>(`/code/workspaces/${id}/tree`),
+  workspaceFile: (id: string, path: string) =>
+    json<WorkspaceFile>(
+      `/code/workspaces/${id}/file?path=${encodeURIComponent(path)}`,
+    ),
 };
 
 export interface SearchSource {

@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useProjects } from "../state/ProjectsContext";
+import { useWorkspaces } from "../state/WorkspacesContext";
 import type { Session } from "../types";
+import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
 import {
   IconChat,
   IconCode,
@@ -8,6 +10,8 @@ import {
   IconFolder,
   IconGitBranch,
   IconGlobe,
+  IconPlus,
+  IconRefresh,
   IconUsers,
   IconX,
 } from "./Icon";
@@ -288,21 +292,85 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
 }
 
 function CodePane() {
+  const { workspaces, refresh, sync } = useWorkspaces();
+  const [modalOpen, setModalOpen] = useState(false);
+
   return (
     <>
       <div className="sidebar-actions">
-        <button className="primary" disabled>
-          🧑‍💻 코드 모드
+        <button className="primary" onClick={() => setModalOpen(true)}>
+          <IconPlus size={14} />
+          <span>+ 워크스페이스</span>
         </button>
       </div>
       <div className="sidebar-sessions">
-        <div className="session-section">Code workspace</div>
-        <div className="sidebar-empty">
-          현재 채팅에서 생성된 코드 블록은 우측 사이드 패널에서 편집·실행할 수
-          있습니다. 본격적인 IDE형 워크스페이스(파일 트리·다중 탭 편집)는 곧
-          추가됩니다.
-        </div>
+        <div className="session-section">Code workspaces</div>
+        {workspaces.length === 0 ? (
+          <div className="sidebar-empty">
+            사내 Git 레포를 clone해 코드 분석·수정 흐름을 시작하세요. (Phase 1
+            — 보기/첨부 / Phase 2~4: AI 수정·커밋·테스트 자동화)
+          </div>
+        ) : (
+          <ul className="proj-sidebar-list">
+            {workspaces.map((w) => (
+              <li
+                key={w.id}
+                className={`proj-sidebar-item status-${w.status}`}
+                onClick={() => setModalOpen(true)}
+              >
+                <div className="proj-sidebar-row">
+                  <div className="proj-sidebar-name">
+                    <span className="proj-sidebar-name-icon" aria-hidden>
+                      <IconGitBranch size={14} />
+                    </span>
+                    {w.name}
+                  </div>
+                  <button
+                    type="button"
+                    className="proj-sidebar-del"
+                    aria-label="동기화"
+                    title="동기화 (git pull)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      sync(w.id);
+                    }}
+                  >
+                    <IconRefresh size={12} />
+                  </button>
+                </div>
+                <div className="proj-sidebar-meta">
+                  <span className={`proj-sidebar-status ${w.status}`}>
+                    {w.status === "ready"
+                      ? "준비됨"
+                      : w.status === "cloning"
+                      ? "클론 중…"
+                      : "실패"}
+                  </span>
+                  {w.status === "ready" && (
+                    <span className="proj-sidebar-counts">
+                      {w.file_count}f
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+      <CodeWorkspaceModal
+        open={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          refresh();
+        }}
+        onAttachFile={(filename, text) => {
+          window.dispatchEvent(
+            new CustomEvent("chat:attach-file", {
+              detail: { filename, text },
+            }),
+          );
+        }}
+      />
     </>
   );
 }

@@ -68,6 +68,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     return () => window.removeEventListener("chat:project-linked", onLinked);
   }, [sessionId]);
 
+  // The Code workspace modal dispatches "chat:attach-file" when the
+  // user clicks "채팅에 첨부" on a file in their cloned repo. We add
+  // it straight into this session's attachments list so it rides
+  // along on the next send.
+  useEffect(() => {
+    function onAttach(e: Event) {
+      const ev = e as CustomEvent<{ filename: string; text: string }>;
+      if (!ev.detail) return;
+      const detail = ev.detail;
+      setAttachments((prev) => [
+        ...prev,
+        {
+          filename: detail.filename,
+          text: detail.text,
+          char_count: detail.text.length,
+          method: "workspace",
+        },
+      ]);
+    }
+    window.addEventListener("chat:attach-file", onAttach);
+    return () => window.removeEventListener("chat:attach-file", onAttach);
+  }, []);
+
   // Subscribe to the (possibly in-flight) stream for this session.
   const liveStream = useLiveStream(sessionId);
   const streaming = !!liveStream && !liveStream.done;

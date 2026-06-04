@@ -197,6 +197,44 @@ class IndexedFile(Base):
     indexed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CodeWorkspace(Base):
+    """A git repo cloned to a per-user directory on disk that the
+    Code tab browses, syncs, and (in later phases) commits + pushes
+    back to. Lives separately from RAG projects — the RAG project
+    just embeds a corpus for retrieval; a CodeWorkspace is a working
+    copy the user (and later the AI) can read, edit, and commit."""
+    __tablename__ = "code_workspaces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    git_url: Mapped[str] = mapped_column(String(500))
+    branch: Mapped[str] = mapped_column(String(120), default="")
+    # Local absolute path the clone lives at. Computed at create
+    # time from settings.workspace_dir + user_id + workspace_id.
+    local_path: Mapped[str] = mapped_column(String(500), default="")
+    # Credentials encrypted at rest via app.crypto. Either field may
+    # be empty for repos that allow anonymous read, or when the user
+    # has set up SSH keys at the OS level.
+    auth_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    auth_token_encrypted: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    # cloning | ready | failed
+    status: Mapped[str] = mapped_column(String(20), default="cloning", index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    last_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
 

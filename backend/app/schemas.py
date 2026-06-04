@@ -112,6 +112,52 @@ class ProjectOut(BaseModel):
         from_attributes = True
 
 
+# ── Code workspaces ───────────────────────────────────────────────────
+
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    git_url: str = Field(min_length=4, max_length=500)
+    branch: str = Field(default="", max_length=120)
+    auth_username: str | None = Field(default=None, max_length=120)
+    auth_token: str | None = Field(default=None, max_length=500)
+
+
+class WorkspaceOut(BaseModel):
+    """No secrets — auth_token_encrypted and the decrypted token are
+    never serialised back to the client. auth_username is kept so the
+    user can recognise which account they wired up."""
+    id: str
+    name: str
+    git_url: str
+    branch: str
+    auth_username: str | None
+    status: str
+    error: str | None
+    file_count: int
+    size_bytes: int
+    last_synced_at: datetime | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WorkspaceTreeEntry(BaseModel):
+    name: str
+    path: str  # relative to the workspace root, POSIX slashes
+    kind: Literal["file", "dir"]
+    size: int = 0
+    children: list["WorkspaceTreeEntry"] = []
+
+
+class WorkspaceFileContent(BaseModel):
+    path: str
+    text: str
+    size: int
+    truncated: bool = False
+    method: str = "text"  # text | binary-skipped | too-large
+
+
 class ProjectScheduleUpdate(BaseModel):
     """Configure (or disable) the auto-refresh interval for a project.
     Validation range matches what the background scheduler actually
