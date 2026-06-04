@@ -15,10 +15,12 @@ interface WorkspacesState {
   refresh: () => Promise<void>;
   create: (payload: {
     name: string;
-    git_url: string;
+    source_type?: "git" | "local";
+    git_url?: string;
     branch?: string;
     auth_username?: string;
     auth_token?: string;
+    local_path?: string;
   }) => Promise<Workspace>;
   remove: (id: string) => Promise<{ freedBytes: number }>;
   sync: (id: string) => Promise<void>;

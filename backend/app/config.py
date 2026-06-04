@@ -77,6 +77,14 @@ class Settings(BaseSettings):
     workspace_max_size_mb: int = 500
     workspace_max_files: int = 5000
     workspace_clone_depth: int = 50
+    # Comma-separated allow-list of root directories the "local folder"
+    # workspace source can register paths under. Empty = the feature is
+    # disabled (creating a local-folder workspace will return a clear
+    # error). For closed-net deployments, set this to the directories
+    # the backend process can already see — e.g. WORKSPACE_LOCAL_ROOTS=
+    # /home/user/projects,/srv/work. Symlinks are resolved before the
+    # allow-list check.
+    workspace_local_roots: str = ""
 
     # ── RAG / 코드 검색 ────────────────────────────────────────────
     # Toggle the whole feature. When false, project routes still
@@ -151,6 +159,21 @@ class Settings(BaseSettings):
             for h in self.workspace_allowed_hosts.split(",")
             if h.strip()
         ]
+
+    @property
+    def workspace_local_root_list(self) -> list[str]:
+        """Allow-list roots, with `~` expanded and normalised to
+        absolute paths. Used by the local-folder workspace source to
+        constrain which directories the user can register."""
+        import os
+        roots: list[str] = []
+        for raw in self.workspace_local_roots.split(","):
+            cleaned = raw.strip()
+            if not cleaned:
+                continue
+            expanded = os.path.abspath(os.path.expanduser(cleaned))
+            roots.append(expanded)
+        return roots
 
 
 settings = Settings()

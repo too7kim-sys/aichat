@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models, schemas
 from ..auth import get_current_user
+from pathlib import Path
+
 from ..code.workspace import (
     apply_file_write,
     clone_repo,
@@ -20,9 +22,11 @@ from ..code.workspace import (
     git_push,
     git_revert_file,
     git_status_porcelain,
+    is_git_workdir,
     read_file,
     remove_repo,
     sync_repo,
+    validate_local_folder,
     walk_tree,
     workspace_path_for,
 )
@@ -143,9 +147,53 @@ async def create_workspace(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
+    source_type = payload.source_type
+    if source_type == "local":
+        # ── Local-folder source ──
+        # No clone, no background task — the directory already exists
+        # on disk. We validate the path against the allow-list, walk
+        # the tree synchronously to populate file_count/size_bytes,
+        # and persist with status="ready" immediately.
+        try:
+            resolved = validate_local_folder(payload.local_path)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+        ws = models.CodeWorkspace(
+            user_id=user.id,
+            name=payload.name.strip(),
+            source_type="local",
+            git_url="",
+            branch="",
+            local_path=str(resolved),
+            auth_username=None,
+            auth_token_encrypted=None,
+            status="ready",
+        )
+        db.add(ws)
+        await db.flush()
+        try:
+            _tree, file_count, total = await asyncio.get_running_loop().run_in_executor(
+                None, walk_tree, resolved
+            )
+            ws.file_count = file_count
+            ws.size_bytes = total
+            ws.last_synced_at = datetime.now(timezone.utc)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Local workspace tree walk failed: %s", exc)
+            ws.error = str(exc)[:500]
+            ws.status = "failed"
+        await db.commit()
+        await db.refresh(ws)
+        return ws
+
+    # ── Git source (default) ──
+    if not (payload.git_url or "").strip():
+        raise HTTPException(400, "git_url이 비어 있습니다")
     ws = models.CodeWorkspace(
         user_id=user.id,
         name=payload.name.strip(),
+        source_type="git",
         git_url=payload.git_url.strip(),
         branch=(payload.branch or "").strip(),
         auth_username=(payload.auth_username or "").strip() or None,
@@ -181,13 +229,16 @@ async def delete_workspace(
     if not ws:
         raise HTTPException(404, "workspace not found")
     freed = 0
-    if ws.local_path:
+    # Only delete on-disk content for git clones we created. A local-
+    # folder source points at a directory the user owns — removing it
+    # would be data loss.
+    if ws.source_type == "git" and ws.local_path:
         freed = await asyncio.get_running_loop().run_in_executor(
             None, remove_repo, ws.local_path
         )
     await db.delete(ws)
     await db.commit()
-    return {"freed_bytes": freed}
+    return {"freed_bytes": freed, "removed_files": ws.source_type == "git"}
 
 
 @router.post("/workspaces/{workspace_id}/sync", response_model=schemas.WorkspaceOut)
@@ -206,6 +257,34 @@ async def sync_workspace(
         raise HTTPException(404, "workspace not found")
     if ws.status == "cloning":
         raise HTTPException(409, "이미 진행 중입니다")
+
+    # Local-folder source: "sync" = rescan the tree. No network, no
+    # fetch — just refresh file_count / size_bytes for the UI in case
+    # the user changed files outside the app.
+    if ws.source_type == "local":
+        root = Path(ws.local_path)
+        if not root.exists() or not root.is_dir():
+            ws.status = "failed"
+            ws.error = f"폴더가 더 이상 존재하지 않습니다: {ws.local_path}"
+            await db.commit()
+            await db.refresh(ws)
+            return ws
+        try:
+            _tree, file_count, total = await asyncio.get_running_loop().run_in_executor(
+                None, walk_tree, root
+            )
+            ws.file_count = file_count
+            ws.size_bytes = total
+            ws.last_synced_at = datetime.now(timezone.utc)
+            ws.error = None
+            ws.status = "ready"
+        except Exception as exc:  # noqa: BLE001
+            ws.status = "failed"
+            ws.error = str(exc)[:500]
+        await db.commit()
+        await db.refresh(ws)
+        return ws
+
     token = decrypt_secret(ws.auth_token_encrypted)
     ws.status = "cloning"
     ws.error = None
@@ -236,7 +315,7 @@ async def workspace_tree(
         raise HTTPException(404, "workspace not found")
     if ws.status != "ready":
         raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
-    dest = workspace_path_for(user.id, workspace_id)
+    dest = Path(ws.local_path)
     tree, file_count, total = await asyncio.get_running_loop().run_in_executor(
         None, walk_tree, dest
     )
@@ -301,7 +380,7 @@ async def start_chat_from_workspace(
         await db.refresh(session)
         reused = False
 
-    root = workspace_path_for(user.id, workspace_id)
+    root = Path(ws.local_path)
     bundle = await asyncio.get_running_loop().run_in_executor(
         None, collect_workspace_files, root
     )
@@ -335,7 +414,7 @@ async def workspace_file(
         raise HTTPException(404, "workspace not found")
     if ws.status != "ready":
         raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
-    dest = workspace_path_for(user.id, workspace_id)
+    dest = Path(ws.local_path)
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, read_file, dest, path
@@ -376,8 +455,8 @@ async def workspace_apply(
     """Write the LLM-generated content to a workspace file (no git
     add/commit yet — the user reviews the dirty list before
     committing)."""
-    await _fetch_workspace_owned_by(workspace_id, user, db)
-    dest = workspace_path_for(user.id, workspace_id)
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, apply_file_write, dest, payload.path, payload.content
@@ -392,16 +471,21 @@ async def workspace_status(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    """List dirty files (modified / added / untracked / deleted)."""
-    await _fetch_workspace_owned_by(workspace_id, user, db)
-    dest = workspace_path_for(user.id, workspace_id)
+    """List dirty files (modified / added / untracked / deleted).
+    Returns clean=True with `git=False` for local-folder sources that
+    aren't a git working tree — the UI uses that to hide the commit
+    panel instead of showing a confusing error."""
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not is_git_workdir(dest):
+        return {"entries": [], "clean": True, "git": False}
     try:
         entries = await asyncio.get_running_loop().run_in_executor(
             None, git_status_porcelain, dest
         )
     except RuntimeError as exc:
         raise HTTPException(500, str(exc))
-    return {"entries": entries, "clean": len(entries) == 0}
+    return {"entries": entries, "clean": len(entries) == 0, "git": True}
 
 
 @router.get("/workspaces/{workspace_id}/diff")
@@ -413,8 +497,8 @@ async def workspace_diff(
 ):
     """Working tree diff against HEAD. Pass `?path=` to scope to a
     single file; omit it for the whole tree."""
-    await _fetch_workspace_owned_by(workspace_id, user, db)
-    dest = workspace_path_for(user.id, workspace_id)
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
     try:
         text = await asyncio.get_running_loop().run_in_executor(
             None, git_diff, dest, path
@@ -437,8 +521,8 @@ async def workspace_revert(
     rel = (payload or {}).get("path")
     if not isinstance(rel, str) or not rel.strip():
         raise HTTPException(400, "path가 필요합니다")
-    await _fetch_workspace_owned_by(workspace_id, user, db)
-    dest = workspace_path_for(user.id, workspace_id)
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, git_revert_file, dest, rel
@@ -460,7 +544,12 @@ async def workspace_commit(
     and create a commit. If `push` is true, also push to origin in
     the same call so the UI can do "commit & push" in one click."""
     ws = await _fetch_workspace_owned_by(workspace_id, user, db)
-    dest = workspace_path_for(user.id, workspace_id)
+    dest = Path(ws.local_path)
+    if not is_git_workdir(dest):
+        raise HTTPException(
+            400,
+            "이 폴더는 git 저장소가 아닙니다 — 커밋하려면 .git 워킹트리가 필요합니다",
+        )
     author_name = (user.name or "").strip() or user.email.split("@")[0]
     author_email = user.email
 
@@ -481,13 +570,21 @@ async def workspace_commit(
 
     push_result: dict | None = None
     if payload.push and commit_result.get("committed"):
-        token = decrypt_secret(ws.auth_token_encrypted)
+        # Git-clone workspaces use the stored token; local-folder
+        # workspaces rely on whatever auth the working tree already
+        # has configured (SSH agent, credential helper, etc.).
+        token = (
+            decrypt_secret(ws.auth_token_encrypted)
+            if ws.source_type == "git"
+            else None
+        )
+        push_git_url = ws.git_url if ws.source_type == "git" else ""
         try:
             push_result = await asyncio.get_running_loop().run_in_executor(
                 None,
                 git_push,
                 dest,
-                ws.git_url,
+                push_git_url,
                 ws.branch,
                 ws.auth_username,
                 token,
@@ -519,14 +616,24 @@ async def workspace_push(
     outside the LLM patch flow (e.g. a series of commits already in
     place)."""
     ws = await _fetch_workspace_owned_by(workspace_id, user, db)
-    dest = workspace_path_for(user.id, workspace_id)
-    token = decrypt_secret(ws.auth_token_encrypted)
+    dest = Path(ws.local_path)
+    if not is_git_workdir(dest):
+        raise HTTPException(
+            400,
+            "이 폴더는 git 저장소가 아닙니다 — push하려면 .git 워킹트리가 필요합니다",
+        )
+    token = (
+        decrypt_secret(ws.auth_token_encrypted)
+        if ws.source_type == "git"
+        else None
+    )
+    push_git_url = ws.git_url if ws.source_type == "git" else ""
     try:
         result = await asyncio.get_running_loop().run_in_executor(
             None,
             git_push,
             dest,
-            ws.git_url,
+            push_git_url,
             ws.branch,
             ws.auth_username,
             token,

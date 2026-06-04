@@ -102,6 +102,60 @@ def workspace_path_for(user_id: str, workspace_id: str) -> Path:
     return (base / user_id / workspace_id).resolve()
 
 
+def validate_local_folder(raw: str) -> Path:
+    """For the "local folder" workspace source. Resolve the supplied
+    path (expanding `~`), confirm it sits inside one of the configured
+    allow-list roots, and return the resolved absolute Path.
+
+    Raises ValueError with a user-facing message on any failure. The
+    feature is intentionally disabled by default — an empty allow-list
+    means we refuse to register any local folder, so a misconfigured
+    server can't be tricked into exposing /etc or /home.
+    """
+    s = (raw or "").strip()
+    if not s:
+        raise ValueError("폴더 경로를 입력하세요")
+    roots = settings.workspace_local_root_list
+    if not roots:
+        raise ValueError(
+            "로컬 폴더 소스가 비활성화되어 있습니다. "
+            "관리자에게 WORKSPACE_LOCAL_ROOTS 환경변수 설정을 요청하세요."
+        )
+    # Expand ~ first, then resolve symlinks. We resolve(strict=False) so
+    # the error for a missing directory is our own clearer message
+    # below, not a cryptic PermissionError from pathlib.
+    expanded = Path(os.path.expanduser(s))
+    if not expanded.is_absolute():
+        raise ValueError("절대 경로를 입력하세요 (예: /home/user/projects/foo)")
+    resolved = expanded.resolve()
+    allowed = False
+    for root in roots:
+        root_path = Path(root).resolve()
+        try:
+            resolved.relative_to(root_path)
+            allowed = True
+            break
+        except ValueError:
+            continue
+    if not allowed:
+        raise ValueError(
+            "허용된 루트 안의 경로만 등록할 수 있습니다. "
+            f"허용 루트: {', '.join(roots)}"
+        )
+    if not resolved.exists():
+        raise ValueError(f"존재하지 않는 경로입니다: {resolved}")
+    if not resolved.is_dir():
+        raise ValueError(f"폴더가 아닙니다: {resolved}")
+    return resolved
+
+
+def is_git_workdir(root: Path) -> bool:
+    """True iff `root/.git` exists. Used to decide whether commit/push
+    are meaningful for a local-folder source (they're only enabled
+    when the registered directory is actually a git working tree)."""
+    return (root / ".git").exists()
+
+
 # ── Clone / sync ──────────────────────────────────────────────────────
 
 def _run_git(cmd: list[str], cwd: Path | None, timeout: int) -> tuple[int, bytes]:
@@ -811,19 +865,29 @@ def git_push(
     username: str | None,
     token: str | None,
 ) -> dict:
-    """Push the current branch to origin. Uses an in-memory URL with
-    credentials embedded so we don't have to persist them in the
-    repo's stored remote (they're already encrypted in the DB and
-    decrypted on demand by the caller).
+    """Push the current branch to origin.
 
-    Returns {pushed: bool, branch, ahead}. Raises RuntimeError with a
-    masked error string if the push is rejected (auth failure, fast-
-    forward conflict, etc.)."""
+    Two flows:
+      - `git_url` set (clone source): build an in-memory URL with the
+        decrypted token embedded and push to that. The on-disk remote
+        config stays clean, so a token rotation doesn't leak.
+      - `git_url` empty (local-folder source): trust the working tree's
+        own `origin` remote and let git use whatever auth the user has
+        already configured at the OS level (SSH keys, credential
+        helper, etc.). We don't touch the URL.
+
+    Returns {pushed: bool, branch}. Raises RuntimeError on push failure
+    with the credential masked out of the error text."""
     if not (root / ".git").exists():
-        raise RuntimeError("이 워크스페이스는 git 저장소가 아닙니다")
+        raise RuntimeError(
+            "이 폴더는 git 저장소가 아닙니다 (push하려면 .git 워킹트리가 필요합니다)"
+        )
     if branch and not _REF_RE.match(branch):
         raise ValueError("branch 형식이 올바르지 않습니다")
-    _validate_git_url(git_url)
+
+    use_inline_url = bool(git_url)
+    if use_inline_url:
+        _validate_git_url(git_url)
 
     # Figure out the active branch if the caller didn't pin one.
     target_branch = branch
@@ -839,10 +903,31 @@ def git_push(
     if target_branch == "HEAD":
         raise RuntimeError("detached HEAD 상태에서는 push할 수 없습니다")
 
-    url = _auth_url(git_url, username, token)
-    # Use the URL directly — don't touch the on-disk remote config,
-    # so a future rotation doesn't accidentally persist a token.
-    cmd = ["git", "push", url, f"HEAD:{target_branch}"]
+    if use_inline_url:
+        url = _auth_url(git_url, username, token)
+        cmd = ["git", "push", url, f"HEAD:{target_branch}"]
+    else:
+        # Local-folder source: push to whatever `origin` is set to in
+        # the working tree. Confirm `origin` exists first so we can
+        # surface a helpful error instead of git's terse one.
+        proc = subprocess.run(
+            ["git", "remote"],
+            cwd=str(root),
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        remotes = {
+            r.strip()
+            for r in proc.stdout.decode("utf-8", "replace").splitlines()
+            if r.strip()
+        }
+        if "origin" not in remotes:
+            raise RuntimeError(
+                "이 로컬 폴더에 origin remote가 설정되어 있지 않습니다 "
+                "(`git remote add origin <URL>`로 먼저 등록하세요)"
+            )
+        cmd = ["git", "push", "origin", f"HEAD:{target_branch}"]
     rc, stderr = _run_git(cmd, cwd=root, timeout=300)
     if rc != 0:
         detail = stderr.decode("utf-8", errors="replace")

@@ -117,11 +117,18 @@ class ProjectOut(BaseModel):
 # ── Code workspaces ───────────────────────────────────────────────────
 
 class WorkspaceCreate(BaseModel):
+    """Either flavour:
+      - source_type="git": git_url required (default for backward
+        compatibility with the original create form).
+      - source_type="local": local_path required; git_url ignored.
+    """
     name: str = Field(min_length=1, max_length=120)
-    git_url: str = Field(min_length=4, max_length=500)
+    source_type: Literal["git", "local"] = "git"
+    git_url: str = Field(default="", max_length=500)
     branch: str = Field(default="", max_length=120)
     auth_username: str | None = Field(default=None, max_length=120)
     auth_token: str | None = Field(default=None, max_length=500)
+    local_path: str = Field(default="", max_length=500)
 
 
 class WorkspaceOut(BaseModel):
@@ -130,8 +137,10 @@ class WorkspaceOut(BaseModel):
     user can recognise which account they wired up."""
     id: str
     name: str
+    source_type: str = "git"
     git_url: str
     branch: str
+    local_path: str = ""
     auth_username: str | None
     status: str
     error: str | None

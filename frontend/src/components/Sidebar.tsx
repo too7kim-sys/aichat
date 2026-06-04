@@ -365,7 +365,11 @@ function CodePane({
                   <div className="proj-sidebar-row">
                     <div className="proj-sidebar-name">
                       <span className="proj-sidebar-name-icon" aria-hidden>
-                        <IconGitBranch size={14} />
+                        {w.source_type === "local" ? (
+                          <IconFolder size={14} />
+                        ) : (
+                          <IconGitBranch size={14} />
+                        )}
                       </span>
                       {w.name}
                     </div>
@@ -385,8 +389,16 @@ function CodePane({
                       <button
                         type="button"
                         className="proj-sidebar-del"
-                        aria-label="동기화"
-                        title="동기화 (git pull)"
+                        aria-label={
+                          w.source_type === "local"
+                            ? "트리 새로고침"
+                            : "동기화"
+                        }
+                        title={
+                          w.source_type === "local"
+                            ? "트리 새로고침"
+                            : "동기화 (git pull)"
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           sync(w.id);

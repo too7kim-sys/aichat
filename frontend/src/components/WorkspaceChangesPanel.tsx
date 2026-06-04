@@ -61,6 +61,10 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
   const [entries, setEntries] = useState<WorkspaceStatusEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // false = workspace isn't a git working tree (local folder without
+  // .git). We hide the commit/push controls in that case so the user
+  // doesn't try to commit and get an error.
+  const [isGit, setIsGit] = useState<boolean>(true);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
@@ -75,6 +79,7 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
     try {
       const res = await api.workspaceStatus(workspaceId);
       setEntries(res.entries);
+      setIsGit(res.git !== false);
       // Drop any selection that no longer exists in the dirty list.
       setSelected((prev) => {
         const valid = new Set(res.entries.map((e) => e.path));
@@ -204,7 +209,15 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
         </div>
       )}
 
-      {entries.length === 0 && !loading && !error && (
+      {!isGit && !loading && !error && (
+        <div className="wsc-empty">
+          이 폴더는 git 저장소가 아닙니다.
+          <br />
+          <small>(LLM 패치 적용은 가능하지만 커밋·푸시는 비활성)</small>
+        </div>
+      )}
+
+      {isGit && entries.length === 0 && !loading && !error && (
         <div className="wsc-empty">변경된 파일이 없습니다.</div>
       )}
 

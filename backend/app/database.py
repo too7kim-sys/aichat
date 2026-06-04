@@ -151,6 +151,23 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_code_workspaces_user_id "
                 "ON code_workspaces(user_id)"
             )
+            # Phase-2 "local folder" source: a registered directory the
+            # backend can already see, instead of a clone destination.
+            # Older DBs predate the column — add it idempotently and
+            # backfill the only existing source type ("git").
+            wcols = await conn.exec_driver_sql(
+                "PRAGMA table_info(code_workspaces)"
+            )
+            wexisting = {row[1] for row in wcols.fetchall()}
+            if wexisting and "source_type" not in wexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE code_workspaces ADD COLUMN source_type "
+                    "VARCHAR(16) NOT NULL DEFAULT 'git'"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_code_workspaces_source_type "
+                    "ON code_workspaces(source_type)"
+                )
             if pexisting and "current_snapshot_id" not in pexisting:
                 # Snapshot/versioning support added later. The FK column
                 # is nullable so existing rows survive; a small backfill

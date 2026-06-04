@@ -221,10 +221,17 @@ class CodeWorkspace(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(120))
-    git_url: Mapped[str] = mapped_column(String(500))
+    # "git"   — repo cloned into per-user workspace_dir
+    # "local" — user-registered folder already on the filesystem
+    source_type: Mapped[str] = mapped_column(
+        String(16), default="git", server_default="git", index=True
+    )
+    git_url: Mapped[str] = mapped_column(String(500), default="")
     branch: Mapped[str] = mapped_column(String(120), default="")
-    # Local absolute path the clone lives at. Computed at create
-    # time from settings.workspace_dir + user_id + workspace_id.
+    # Absolute path the workspace lives at on disk. For "git" sources
+    # this is the per-user clone destination (workspace_dir/user_id/
+    # workspace_id). For "local" sources it's the user-supplied folder
+    # validated against settings.workspace_local_root_list.
     local_path: Mapped[str] = mapped_column(String(500), default="")
     # Credentials encrypted at rest via app.crypto. Either field may
     # be empty for repos that allow anonymous read, or when the user

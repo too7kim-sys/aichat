@@ -192,8 +192,10 @@ export interface Project {
 export interface Workspace {
   id: string;
   name: string;
+  source_type: "git" | "local";
   git_url: string;
   branch: string;
+  local_path: string;
   auth_username: string | null;
   status: "cloning" | "ready" | "failed";
   error: string | null;
@@ -292,10 +294,12 @@ export const api = {
   listWorkspaces: () => json<Workspace[]>("/code/workspaces"),
   createWorkspace: (payload: {
     name: string;
-    git_url: string;
+    source_type?: "git" | "local";
+    git_url?: string;
     branch?: string;
     auth_username?: string;
     auth_token?: string;
+    local_path?: string;
   }) =>
     json<Workspace>("/code/workspaces", {
       method: "POST",
@@ -336,9 +340,14 @@ export const api = {
       { method: "POST", body: JSON.stringify({ path, content }) },
     ),
   workspaceStatus: (id: string) =>
-    json<{ entries: WorkspaceStatusEntry[]; clean: boolean }>(
-      `/code/workspaces/${id}/status`,
-    ),
+    json<{
+      entries: WorkspaceStatusEntry[];
+      clean: boolean;
+      // Local-folder sources without a .git directory: status route
+      // returns git=false so the UI can hide the commit panel
+      // instead of showing a misleading "no changes" message.
+      git?: boolean;
+    }>(`/code/workspaces/${id}/status`),
   workspaceDiff: (id: string, path?: string) =>
     json<{ diff: string; path: string | null }>(
       `/code/workspaces/${id}/diff${

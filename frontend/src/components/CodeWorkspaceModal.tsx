@@ -4,6 +4,7 @@ import { useWorkspaces } from "../state/WorkspacesContext";
 import {
   IconAlertTriangle,
   IconCode,
+  IconFolder,
   IconGitBranch,
   IconPaperclip,
   IconPlus,
@@ -60,8 +61,8 @@ export function CodeWorkspaceModal({ open, onClose, onAttachFile }: Props) {
           <div className="pm-head-text">
             <h3>코드 워크스페이스</h3>
             <p>
-              사내 Git 레포를 서버에 clone해 파일을 보고 채팅에 붙입니다.
-              수정·커밋·푸시는 곧 추가됩니다.
+              사내 Git 레포를 clone하거나 서버의 로컬 폴더를 등록해 파일을 보고
+              채팅에 붙이고, LLM이 만든 패치를 적용·커밋·푸시할 수 있습니다.
             </p>
           </div>
           <button
@@ -139,7 +140,12 @@ export function CodeWorkspaceModal({ open, onClose, onAttachFile }: Props) {
                   >
                     <div className="cw-ws-top">
                       <span className="cw-ws-name">
-                        <IconGitBranch size={13} /> {w.name}
+                        {w.source_type === "local" ? (
+                          <IconFolder size={13} />
+                        ) : (
+                          <IconGitBranch size={13} />
+                        )}{" "}
+                        {w.name}
                       </span>
                       <button
                         type="button"
@@ -147,9 +153,13 @@ export function CodeWorkspaceModal({ open, onClose, onAttachFile }: Props) {
                         title="삭제"
                         onClick={async (e) => {
                           e.stopPropagation();
+                          const detail =
+                            w.source_type === "local"
+                              ? "등록만 해제되며 디스크의 폴더는 그대로 남습니다."
+                              : "로컬 clone도 함께 사라집니다.";
                           if (
                             !window.confirm(
-                              `"${w.name}" 워크스페이스를 삭제할까요?\n로컬 clone도 함께 사라집니다.`,
+                              `"${w.name}" 워크스페이스를 삭제할까요?\n${detail}`,
                             )
                           )
                             return;
@@ -259,9 +269,18 @@ function WorkspaceView({
       <header className="cw-view-head">
         <div>
           <div className="cw-view-name">{workspace.name}</div>
-          <div className="cw-view-url" title={workspace.git_url}>
-            {workspace.git_url}
-            {workspace.branch && ` · ${workspace.branch}`}
+          <div
+            className="cw-view-url"
+            title={workspace.source_type === "local" ? workspace.local_path : workspace.git_url}
+          >
+            {workspace.source_type === "local" ? (
+              <>📁 {workspace.local_path}</>
+            ) : (
+              <>
+                {workspace.git_url}
+                {workspace.branch && ` · ${workspace.branch}`}
+              </>
+            )}
           </div>
         </div>
         <button
@@ -276,9 +295,20 @@ function WorkspaceView({
               setSyncing(false);
             }
           }}
+          title={
+            workspace.source_type === "local"
+              ? "트리 다시 스캔"
+              : "원격에서 최신 변경 가져오기 (git pull)"
+          }
         >
           <IconRefresh size={13} />
-          {syncing ? "동기화 중…" : "동기화 (git pull)"}
+          {syncing
+            ? workspace.source_type === "local"
+              ? "스캔 중…"
+              : "동기화 중…"
+            : workspace.source_type === "local"
+            ? "트리 새로고침"
+            : "동기화 (git pull)"}
         </button>
       </header>
 
@@ -336,17 +366,21 @@ function AddWorkspaceForm({
   onCancel: () => void;
   onSubmit: (payload: {
     name: string;
-    git_url: string;
+    source_type: "git" | "local";
+    git_url?: string;
     branch?: string;
     auth_username?: string;
     auth_token?: string;
+    local_path?: string;
   }) => Promise<void>;
 }) {
+  const [sourceType, setSourceType] = useState<"git" | "local">("git");
   const [name, setName] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [user, setUser] = useState("");
   const [token, setToken] = useState("");
+  const [localPath, setLocalPath] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -356,24 +390,41 @@ function AddWorkspaceForm({
       setError("이름을 입력하세요");
       return;
     }
-    if (!gitUrl.trim()) {
-      setError("Git URL을 입력하세요");
-      return;
+    if (sourceType === "git") {
+      if (!gitUrl.trim()) {
+        setError("Git URL을 입력하세요");
+        return;
+      }
+    } else {
+      if (!localPath.trim()) {
+        setError("폴더 경로를 입력하세요");
+        return;
+      }
     }
     setSubmitting(true);
     try {
-      await onSubmit({
-        name: name.trim(),
-        git_url: gitUrl.trim(),
-        branch: branch.trim() || undefined,
-        auth_username: user.trim() || undefined,
-        auth_token: token || undefined,
-      });
+      if (sourceType === "git") {
+        await onSubmit({
+          name: name.trim(),
+          source_type: "git",
+          git_url: gitUrl.trim(),
+          branch: branch.trim() || undefined,
+          auth_username: user.trim() || undefined,
+          auth_token: token || undefined,
+        });
+      } else {
+        await onSubmit({
+          name: name.trim(),
+          source_type: "local",
+          local_path: localPath.trim(),
+        });
+      }
       setName("");
       setGitUrl("");
       setBranch("");
       setUser("");
       setToken("");
+      setLocalPath("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -383,60 +434,110 @@ function AddWorkspaceForm({
 
   return (
     <section className="pm-add compact cw-add">
+      <div className="cw-source-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={sourceType === "git"}
+          className={`cw-source-tab${sourceType === "git" ? " active" : ""}`}
+          onClick={() => setSourceType("git")}
+          disabled={submitting}
+        >
+          <IconGitBranch size={13} /> Git 클론
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={sourceType === "local"}
+          className={`cw-source-tab${sourceType === "local" ? " active" : ""}`}
+          onClick={() => setSourceType("local")}
+          disabled={submitting}
+        >
+          <IconFolder size={13} /> 로컬 폴더
+        </button>
+      </div>
+
       <div className="pm-field">
         <label>이름</label>
         <input
           type="text"
-          placeholder="예: 사내 결제 모듈"
+          placeholder={
+            sourceType === "git" ? "예: 사내 결제 모듈" : "예: 내 로컬 작업물"
+          }
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={submitting}
         />
       </div>
-      <div className="pm-field">
-        <label>Git URL</label>
-        <input
-          type="url"
-          placeholder="https://gitlab.internal/team/payments.git"
-          value={gitUrl}
-          onChange={(e) => setGitUrl(e.target.value)}
-          disabled={submitting}
-        />
-        <div className="pm-help">http(s) URL. 사내 호스트는 .env의 WORKSPACE_ALLOWED_HOSTS로 제한 가능.</div>
-      </div>
-      <div className="pm-field">
-        <label>브랜치 (선택)</label>
-        <input
-          type="text"
-          placeholder="main / develop"
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          disabled={submitting}
-        />
-      </div>
-      <div className="pm-field">
-        <label>사용자명 (선택)</label>
-        <input
-          type="text"
-          autoComplete="username"
-          value={user}
-          onChange={(e) => setUser(e.target.value)}
-          disabled={submitting}
-        />
-      </div>
-      <div className="pm-field">
-        <label>PAT / 비밀번호 (선택)</label>
-        <input
-          type="password"
-          autoComplete="new-password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          disabled={submitting}
-        />
-        <div className="pm-help">
-          서버에 Fernet으로 암호화 저장됩니다. 공개 레포는 비워두세요.
+
+      {sourceType === "git" ? (
+        <>
+          <div className="pm-field">
+            <label>Git URL</label>
+            <input
+              type="url"
+              placeholder="https://gitlab.internal/team/payments.git"
+              value={gitUrl}
+              onChange={(e) => setGitUrl(e.target.value)}
+              disabled={submitting}
+            />
+            <div className="pm-help">http(s) URL. 사내 호스트는 .env의 WORKSPACE_ALLOWED_HOSTS로 제한 가능.</div>
+          </div>
+          <div className="pm-field">
+            <label>브랜치 (선택)</label>
+            <input
+              type="text"
+              placeholder="main / develop"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+          <div className="pm-field">
+            <label>사용자명 (선택)</label>
+            <input
+              type="text"
+              autoComplete="username"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+          <div className="pm-field">
+            <label>PAT / 비밀번호 (선택)</label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              disabled={submitting}
+            />
+            <div className="pm-help">
+              서버에 Fernet으로 암호화 저장됩니다. 공개 레포는 비워두세요.
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="pm-field">
+          <label>폴더 경로 (서버에서 접근 가능한 절대경로)</label>
+          <input
+            type="text"
+            placeholder="/home/user/projects/my-app"
+            value={localPath}
+            onChange={(e) => setLocalPath(e.target.value)}
+            disabled={submitting}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+          <div className="pm-help">
+            서버의 <code>WORKSPACE_LOCAL_ROOTS</code> 환경변수에 허용된 루트
+            안의 절대경로만 등록할 수 있습니다. 클론·다운로드 없이 폴더를 그대로
+            사용하므로 삭제해도 디스크의 파일은 남습니다. <code>.git</code>이 있는
+            폴더라면 커밋·푸시도 가능합니다.
+          </div>
         </div>
-      </div>
+      )}
 
       {error && (
         <div className="pm-add-error">
