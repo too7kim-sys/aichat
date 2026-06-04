@@ -1999,3 +1999,173 @@ body {
   font-style: italic;
 }
 
+/* === RAG 프로젝트 칩 (chat 헤더) =================================== */
+.project-chip {
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.project-chip:hover {
+  background: var(--bg-sidebar);
+  color: var(--text);
+}
+.project-chip.linked {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* === Projects modal =============================================== */
+.projects-modal { max-width: 720px; }
+.proj-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-sidebar);
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+.proj-tabs { display: flex; gap: 4px; }
+.proj-tabs button {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.proj-tabs button.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.proj-add input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.proj-add input:focus { outline: none; border-color: var(--accent); }
+.proj-error {
+  font-size: 12px;
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.proj-list { display: flex; flex-direction: column; gap: 8px; }
+.proj-empty {
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 24px 12px;
+}
+.proj-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.proj-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+.proj-main { flex: 1; min-width: 0; }
+.proj-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.proj-name { font-weight: 600; font-size: 14px; color: var(--text); }
+.proj-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.proj-status.ready { background: #dcfce7; color: #166534; }
+.proj-status.indexing { background: #dbeafe; color: #1e40af; }
+.proj-status.pending { background: var(--bg-sidebar); color: var(--text-muted); }
+.proj-status.failed { background: #fee2e2; color: #991b1b; }
+.proj-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.proj-source {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 380px;
+}
+.proj-error-inline { color: #991b1b; }
+.proj-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.proj-actions button {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.proj-actions button:hover { background: var(--bg-sidebar); }
+.proj-actions button.danger { color: #dc2626; }
+.proj-actions button.danger:hover { background: #fee2e2; }
+
+/* === Retrieved RAG chunks (out-of-band in chat) ==================== */
+.rag-box {
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 10px 0 18px;
+  font-size: 13px;
+  color: var(--text);
+}
+.rag-list {
+  margin: 6px 0 0 0;
+  padding-left: 22px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.rag-list li { padding: 2px 0; }
+.rag-file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text);
+}
+.rag-range {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--accent);
+}
+.rag-score {
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+

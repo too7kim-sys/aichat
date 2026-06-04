@@ -4,6 +4,8 @@ import type { ProviderInfo, SessionDetail } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { useModels } from "../state/ModelContext";
+import { useProjects } from "../state/ProjectsContext";
+import { ProjectModal } from "./ProjectModal";
 import { streamStore, useLiveStream } from "../state/streamStore";
 
 interface Props {
@@ -40,6 +42,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const { models, selected: model, setSelected: setModel } = useModels();
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+
+  // Per-session RAG project link, persisted client-side. Backend reads
+  // payload.project_id and also falls back to session.project_id, but
+  // we don't bother round-tripping a PATCH for v1 — localStorage is
+  // enough to survive page reloads.
+  const projects = useProjects();
+  const projectStorageKey = `chat:session:${sessionId}:project`;
+  const [linkedProjectId, _setLinkedProjectId] = useState<string | null>(
+    () => localStorage.getItem(projectStorageKey),
+  );
+  function setLinkedProjectId(id: string | null) {
+    _setLinkedProjectId(id);
+    if (id) localStorage.setItem(projectStorageKey, id);
+    else localStorage.removeItem(projectStorageKey);
+  }
+  const linkedProject =
+    projects.projects.find((p) => p.id === linkedProjectId) ?? null;
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
 
   // Subscribe to the (possibly in-flight) stream for this session.
   const liveStream = useLiveStream(sessionId);
@@ -452,6 +472,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         filename: a.filename,
         text: a.text,
       })),
+      projectId: linkedProjectId,
     });
   }
 
@@ -492,6 +513,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           </h2>
         )}
         <div className="chat-header-right">
+          <button
+            type="button"
+            className={`project-chip${linkedProject ? " linked" : ""}`}
+            onClick={() => setProjectModalOpen(true)}
+            title={
+              linkedProject
+                ? `RAG: ${linkedProject.name} (${linkedProject.chunk_count}개 청크)`
+                : "RAG 프로젝트 연결"
+            }
+          >
+            📚{" "}
+            {linkedProject
+              ? linkedProject.name.length > 18
+                ? linkedProject.name.slice(0, 16) + "…"
+                : linkedProject.name
+              : "프로젝트"}
+          </button>
           <div className="model-select" ref={modelMenuRef}>
             <button
               type="button"
@@ -617,8 +655,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           {liveSources && (
             <SourcesBox sources={liveSources} warning={liveSearchWarning} />
           )}
+          {liveStream?.ragChunks && liveStream.ragChunks.length > 0 && (
+            <RagChunksBox chunks={liveStream.ragChunks} />
+          )}
         </div>
       </div>
+      <ProjectModal
+        open={projectModalOpen}
+        onClose={() => setProjectModalOpen(false)}
+        selectedId={linkedProjectId}
+        onSelect={setLinkedProjectId}
+      />
 
       {showJumpToLatest && (
         <button
@@ -936,6 +983,25 @@ function SourcesBox({
           </ol>
         </>
       )}
+    </div>
+  );
+}
+
+function RagChunksBox({ chunks }: { chunks: import("../api/client").RagChunk[] }) {
+  return (
+    <div className="rag-box">
+      <strong>📚 검색된 코드 청크 ({chunks.length})</strong>
+      <ol className="rag-list">
+        {chunks.map((c, i) => (
+          <li key={i}>
+            <span className="rag-file">{c.filename}</span>
+            <span className="rag-range">
+              :{c.start_line}-{c.end_line}
+            </span>
+            <span className="rag-score">{c.score.toFixed(3)}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

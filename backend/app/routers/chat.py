@@ -1,8 +1,11 @@
 import asyncio
 import json
+import logging
 import re
 import time
 from collections.abc import AsyncIterator
+
+log = logging.getLogger("uvicorn.error")
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -16,6 +19,7 @@ from ..database import SessionLocal, get_db
 from ..config import settings
 from ..providers.base import ChatMessage, LLMProvider
 from ..providers.registry import get_provider
+from ..rag.retriever import format_chunks_for_prompt, retrieve
 from ..search import SearchError, format_as_context
 from ..search import search as web_search
 
@@ -474,6 +478,44 @@ async def chat_single(
         # sees, ahead of any web search or stale conversation turns.
         history.insert(-1, attach_msg)
 
+    # Project RAG: if the session (or this request) names a project,
+    # embed the prompt + retrieve top-K chunks and inject them as
+    # another system message right before the user prompt. Failures
+    # are logged but never block the chat.
+    rag_chunks: list[dict] = []
+    project_id = payload.project_id
+    if not project_id:
+        # Session-level default — set when the user picks a project on
+        # the chat panel.
+        session_row = await db.scalar(
+            select(models.Session).where(models.Session.id == session_id)
+        )
+        if session_row is not None:
+            project_id = session_row.project_id
+    if project_id:
+        try:
+            chunks = await retrieve(project_id, payload.prompt)
+        except Exception as exc:  # noqa: BLE001
+            chunks = []
+            log.warning("RAG retrieve failed: %s", exc)
+        if chunks:
+            history.insert(
+                -1,
+                ChatMessage(
+                    role="system",
+                    content=format_chunks_for_prompt(chunks),
+                ),
+            )
+            rag_chunks = [
+                {
+                    "filename": c.filename,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                    "score": c.score,
+                }
+                for c in chunks
+            ]
+
     # Optional per-deployment system prompt from .env (house style,
     # domain rules, escalation policy, ...). Goes near the front so
     # downstream system messages can still override specifics.
@@ -496,6 +538,13 @@ async def chat_single(
 
     async def event_gen():
         try:
+            if rag_chunks:
+                yield {
+                    "event": "rag",
+                    "data": json.dumps(
+                        {"chunks": rag_chunks}, ensure_ascii=False
+                    ),
+                }
             if auto_reason:
                 yield {
                     "event": "model",

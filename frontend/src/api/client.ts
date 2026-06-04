@@ -151,6 +151,27 @@ export interface OllamaModelList {
   models: OllamaModel[];
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  source_type: "folder" | "git";
+  source_ref: string;
+  status: "pending" | "indexing" | "ready" | "failed";
+  progress_done: number;
+  progress_total: number;
+  file_count: number;
+  chunk_count: number;
+  error: string | null;
+  created_at: string;
+}
+
+export interface RagChunk {
+  filename: string;
+  start_line: number;
+  end_line: number;
+  score: number;
+}
+
 export const api = {
   listProviders: () => json<ProviderInfo[]>("/providers"),
   listOllamaModels: () => json<OllamaModelList>("/ollama/models"),
@@ -178,6 +199,24 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
   extractFile: uploadExtract,
+
+  // RAG / Projects
+  listProjects: () => json<Project[]>("/projects"),
+  getProject: (id: string) => json<Project>(`/projects/${id}`),
+  createProject: (payload: {
+    name: string;
+    source_type: "folder" | "git";
+    source_ref: string;
+    ref?: string;
+  }) =>
+    json<Project>("/projects", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  reindexProject: (id: string) =>
+    json<Project>(`/projects/${id}/reindex`, { method: "POST" }),
+  deleteProject: (id: string) =>
+    json<void>(`/projects/${id}`, { method: "DELETE" }),
 };
 
 export interface SearchSource {
@@ -196,6 +235,7 @@ export interface StreamHandlers {
   onError: (provider: string, message: string) => void;
   onSources?: (sources: SearchSource[], error: string | null) => void;
   onModel?: (provider: string, name: string, reason: string) => void;
+  onRag?: (chunks: RagChunk[]) => void;
 }
 
 export async function streamChat(
@@ -206,6 +246,7 @@ export async function streamChat(
     model?: string | null;
     webSearch?: boolean;
     attachments?: { filename: string; text: string }[];
+    projectId?: string | null;
     signal?: AbortSignal;
   } & StreamHandlers
 ) {
@@ -218,6 +259,7 @@ export async function streamChat(
       model: opts.model ?? undefined,
       web_search: !!opts.webSearch,
       attachments: opts.attachments ?? [],
+      project_id: opts.projectId ?? undefined,
     }),
     signal: opts.signal,
     openWhenHidden: true,
@@ -239,7 +281,8 @@ export async function streamChat(
         ev.event === "done" ||
         ev.event === "error" ||
         ev.event === "sources" ||
-        ev.event === "model";
+        ev.event === "model" ||
+        ev.event === "rag";
       if (!known) return;
       let data: {
         provider?: string;
@@ -250,6 +293,7 @@ export async function streamChat(
         error?: string | null;
         name?: string;
         reason?: string;
+        chunks?: RagChunk[];
       };
       try {
         data = JSON.parse(ev.data);
@@ -267,6 +311,10 @@ export async function streamChat(
           data.name ?? "",
           data.reason ?? "",
         );
+        return;
+      }
+      if (ev.event === "rag") {
+        opts.onRag?.(data.chunks ?? []);
         return;
       }
       const provider = data.provider ?? "unknown";

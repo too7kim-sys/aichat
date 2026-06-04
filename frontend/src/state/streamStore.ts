@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { streamChat, type SearchSource } from "../api/client";
+import { streamChat, type RagChunk, type SearchSource } from "../api/client";
 
 /**
  * Live state for a single in-flight chat response, indexed by sessionId.
@@ -28,6 +28,8 @@ export interface LiveStream {
   // Populated when the chat request asked for model="auto" and the
   // server picked something on the user's behalf.
   pickedModel: PickedModel | null;
+  // RAG chunks the server retrieved before generation.
+  ragChunks: RagChunk[] | null;
 }
 
 type Listener = () => void;
@@ -59,6 +61,7 @@ class StreamStore {
     model?: string | null;
     webSearch?: boolean;
     attachments?: { filename: string; text: string }[];
+    projectId?: string | null;
     onComplete?: (errors: string[]) => void;
   }): boolean {
     if (this.isStreaming(params.sessionId)) return false;
@@ -77,6 +80,7 @@ class StreamStore {
       errors,
       abort: () => controller.abort(),
       pickedModel: null,
+      ragChunks: null,
     };
     this.streams.set(params.sessionId, stream);
     this.notify();
@@ -93,6 +97,7 @@ class StreamStore {
       model: params.model ?? undefined,
       webSearch: params.webSearch,
       attachments: params.attachments,
+      projectId: params.projectId ?? undefined,
       signal: controller.signal,
       onToken: (_p, delta) => {
         buffer += delta;
@@ -106,6 +111,9 @@ class StreamStore {
       },
       onModel: (_p, name, reason) => {
         update({ pickedModel: { name, reason } });
+      },
+      onRag: (chunks) => {
+        update({ ragChunks: chunks });
       },
       onSources: (sources, error) => {
         if (error && sources.length === 0) {

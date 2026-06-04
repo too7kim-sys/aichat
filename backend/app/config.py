@@ -52,6 +52,34 @@ class Settings(BaseSettings):
     model_auto_code: str = ""
     model_auto_reasoning: str = ""
     model_auto_general: str = ""
+
+    # ── RAG / 코드 검색 ────────────────────────────────────────────
+    # Toggle the whole feature. When false, project routes still
+    # respond (so the UI doesn't break) but no indexing/retrieval
+    # work happens.
+    rag_enabled: bool = True
+    # Embedding model served by Ollama. bge-m3 is multilingual
+    # (strong in Korean), 1024-dim, 8K context. Install once with:
+    #   ollama pull bge-m3
+    rag_embed_model: str = "bge-m3"
+    rag_embed_dim: int = 1024
+    # Qdrant local persistent mode — no docker, no separate server.
+    # Path is a directory the backend may create. Switch to a remote
+    # url like http://localhost:6333 to point at a real Qdrant server
+    # later without code changes.
+    rag_qdrant_path: str = "./qdrant_data"
+    rag_qdrant_url: str = ""  # if set, uses HTTP client instead of local
+    # Chunking: line-based with overlap. 200 / 30 fits ~3-6 KB of
+    # source per chunk which embeds cleanly under bge-m3's 8K cap.
+    rag_chunk_lines: int = 200
+    rag_chunk_overlap: int = 30
+    # Retrieval: Top-K chunks per query. 12 keeps token cost sane
+    # while covering ~6-8 files of relevant code.
+    rag_top_k: int = 12
+    # Per-project file limits (separate from the git/folder upload
+    # caps because the corpus is meant to be larger).
+    rag_max_files: int = 5000
+    rag_max_bytes_per_file: int = 1024 * 1024
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     # Auth — change JWT_SECRET in .env for any non-local deployment.
     jwt_secret: str = "dev-only-change-me"

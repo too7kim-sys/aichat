@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
-from .routers import auth, chat, files, ollama, repo, sessions
+from .routers import auth, chat, files, ollama, projects, repo, sessions
 from .schemas import ProviderInfo
 
 log = logging.getLogger("uvicorn.error")
@@ -80,6 +80,7 @@ app.include_router(chat.router)
 app.include_router(files.router)
 app.include_router(ollama.router)
 app.include_router(repo.router)
+app.include_router(projects.router)
 
 
 @app.get("/api/health")

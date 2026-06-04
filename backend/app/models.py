@@ -67,6 +67,12 @@ class Session(Base):
     user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # Optional link to a RAG project — when set, the chat router runs
+    # retrieval against this project's vector index on every turn and
+    # injects the top-K chunks as system context.
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -77,6 +83,37 @@ class Session(Base):
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="Message.created_at",
+    )
+
+
+class Project(Base):
+    """A code-corpus the user has indexed for RAG retrieval.
+
+    Indexing happens out-of-band (background task triggered by an API
+    call) and writes embedding vectors into Qdrant under collection
+    name `proj_<id>`. The DB row tracks lifecycle + counters so the
+    UI can show progress and the chat router can decide whether
+    retrieval is safe to attempt.
+    """
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    source_type: Mapped[str] = mapped_column(String(20))  # "folder" | "git"
+    source_ref: Mapped[str] = mapped_column(String(500))  # path or git url
+    # pending | indexing | ready | failed
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    progress_done: Mapped[int] = mapped_column(Integer, default=0)
+    progress_total: Mapped[int] = mapped_column(Integer, default=0)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )
 
 

@@ -50,6 +50,36 @@ class ChatRequest(BaseModel):
     model: str | None = None  # per-request override of the provider's default
     web_search: bool = False
     attachments: list[AttachmentIn] = []
+    # Optional: retrieve context from an indexed project. When set, the
+    # chat router runs a vector search before generation and injects the
+    # top-K matching chunks as system context.
+    project_id: str | None = None
+
+
+# ── RAG / Projects ────────────────────────────────────────────────────
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    source_type: Literal["folder", "git"]
+    source_ref: str = Field(min_length=1, max_length=500)
+    ref: str | None = Field(default=None, max_length=120)  # git branch/tag
+
+
+class ProjectOut(BaseModel):
+    id: str
+    name: str
+    source_type: str
+    source_ref: str
+    status: str
+    progress_done: int
+    progress_total: int
+    file_count: int
+    chunk_count: int
+    error: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class ProviderInfo(BaseModel):

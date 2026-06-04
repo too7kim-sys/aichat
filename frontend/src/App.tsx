@@ -11,6 +11,7 @@ import { ResetPasswordForm } from "./auth/ResetPasswordForm";
 import { UserMenu } from "./auth/UserMenu";
 import { VerifyBanner } from "./auth/VerifyBanner";
 import { ModelProvider } from "./state/ModelContext";
+import { ProjectsProvider } from "./state/ProjectsContext";
 import type { ProviderInfo, Session } from "./types";
 
 // Monaco editor is ~400 kB minified. Split it off the main bundle so the
@@ -23,9 +24,11 @@ export default function App() {
   return (
     <AuthProvider>
       <ModelProvider>
-        <ArtifactProvider>
-          <AuthGate />
-        </ArtifactProvider>
+        <ProjectsProvider>
+          <ArtifactProvider>
+            <AuthGate />
+          </ArtifactProvider>
+        </ProjectsProvider>
       </ModelProvider>
     </AuthProvider>
   );
