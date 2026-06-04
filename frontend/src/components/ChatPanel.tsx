@@ -655,6 +655,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               </div>
             </div>
           )}
+          {attachments.length > 0 && webSearch && (
+            <div className="composer-notice">
+              <span>
+                💡 첨부 파일 분석 시 웹검색은 보통 모델을 산만하게 만들어요.
+              </span>
+              <button
+                type="button"
+                className="composer-notice-action"
+                onClick={() => setWebSearch(false)}
+                disabled={streaming}
+              >
+                웹검색 끄기
+              </button>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={prompt}

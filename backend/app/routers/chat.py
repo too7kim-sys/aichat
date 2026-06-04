@@ -102,7 +102,19 @@ def _attachments_message(
     # suggest improvements, propose refactors.
     is_project = code_count >= 3
 
-    parts: list[str] = ["[Attached files]"]
+    parts: list[str] = [
+        "[ATTACHED FILES — PRIMARY SOURCE OF TRUTH]",
+        "The user has attached the files listed below. These are the "
+        "canonical material you must analyze. If the user asks about "
+        "bugs, vulnerabilities, security issues, or improvements, your "
+        "answer MUST refer to THESE specific files with concrete "
+        "`path:line` citations — not to generic best-practice advice "
+        "and not to web search results. Web search context, if present, "
+        "is for cross-reference (e.g., looking up a CVE number or "
+        "library docs) and must not displace the attached source. If a "
+        "finding is not visible in the attached files, say so explicitly "
+        "instead of inventing one.",
+    ]
     if is_project:
         # Build a quick tree-like summary so the model knows the
         # structure before diving into individual files.
@@ -264,16 +276,24 @@ async def chat_single(
     session = await _load_session(db, session_id, user.id)
     history = _build_history(session, payload.prompt)
 
-    attach_msg = _attachments_message(payload.attachments)
-    if attach_msg is not None:
-        history.insert(0, attach_msg)
-
+    # Web search context first (front of the system stack). Attachments
+    # come AFTER conversation history below so they sit right next to
+    # the new user prompt — otherwise the model latches onto search
+    # results when both are present.
     search_sources: list[dict] = []
     search_error: str | None = None
     if payload.web_search:
         sys_msg, search_sources, search_error = await _run_web_search(payload.prompt)
         if sys_msg is not None:
             history.insert(0, sys_msg)
+
+    attach_msg = _attachments_message(payload.attachments)
+    if attach_msg is not None:
+        # Place the attachment context right BEFORE the new user prompt
+        # (which _build_history appended as the final element). This
+        # keeps the attached source as the freshest context the model
+        # sees, ahead of any web search or stale conversation turns.
+        history.insert(-1, attach_msg)
 
     # Pin the language preference at the very front so it always wins
     # over the model's own default behavior.

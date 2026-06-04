@@ -427,6 +427,34 @@ body {
   border-radius: 4px;
 }
 .attachment-chips::-webkit-scrollbar-track { background: transparent; }
+
+.composer-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 4px 0;
+  padding: 6px 10px;
+  background: #fef9c3;
+  border: 1px solid #facc15;
+  color: #713f12;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.composer-notice-action {
+  background: white;
+  border: 1px solid #ca8a04;
+  color: #713f12;
+  border-radius: 6px;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.composer-notice-action:hover:not(:disabled) { background: #fef08a; }
+.composer-notice-action:disabled { opacity: 0.6; cursor: not-allowed; }
 .attachment-chip {
   display: inline-flex;
   align-items: center;
