@@ -334,7 +334,7 @@ function CodePane({
       <div className="sidebar-actions">
         <button className="primary" onClick={() => setModalOpen(true)}>
           <IconPlus size={14} />
-          <span>+ 워크스페이스</span>
+          <span>워크스페이스</span>
         </button>
       </div>
       <div className="sidebar-sessions">
