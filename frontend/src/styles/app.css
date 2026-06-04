@@ -2334,6 +2334,113 @@ body {
 .pm-corpus-tabs button span:first-child {
   font-size: 18px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pm-corpus-tabs button span:first-child svg {
+  display: block;
+}
+.pm-corpus-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 2px;
+}
+.pm-corpus-chip-icon svg { width: 11px; height: 11px; }
+
+/* Generic glue so every inline SVG icon vertical-aligns nicely with
+   the surrounding Korean / Latin text instead of riding on the
+   baseline. */
+.workspace-tab svg,
+.attach-btn svg,
+.web-toggle svg,
+.send-btn svg,
+.stop-btn svg,
+.modal-close svg,
+.pm-link-btn svg,
+.pm-icon-btn svg,
+.pm-snap-btn svg,
+.pm-snap-toggle svg,
+.pm-add-cta svg,
+.pm-btn-primary svg,
+.pm-storage svg,
+.proj-sidebar-name-icon svg,
+.proj-sidebar-del svg,
+.composer-notice svg,
+.composer-drop-hint svg,
+.pm-card-error svg,
+.pm-add-error svg {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Buttons that hold icon + label want a flex layout for a clean gap. */
+.attach-btn,
+.web-toggle,
+.send-btn,
+.stop-btn,
+.pm-link-btn,
+.pm-btn-primary,
+.pm-add-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Status-badge icons stay flush with the label. */
+.pm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pm-badge svg { display: block; }
+
+.pm-spin {
+  animation: pm-spin 1.1s linear infinite;
+}
+@keyframes pm-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Sidebar project row name + icon row */
+.proj-sidebar-name-icon {
+  display: inline-flex;
+  margin-right: 4px;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+/* Composer notice + drop hint with inline icon */
+.composer-notice span,
+.composer-drop-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.composer-drop-hint span { font-weight: 600; }
+
+/* Card error rows */
+.pm-card-error,
+.pm-add-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.pm-card-error svg,
+.pm-add-error svg { flex-shrink: 0; margin-top: 1px; }
+
+/* History block uses inline-flex now */
+.pm-snap-toggle {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Storage chip in modal header */
+.pm-storage {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* ── Snapshot block (per-card history) ─────────────────────── */

@@ -1,6 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useProjects } from "../state/ProjectsContext";
 import type { Session } from "../types";
+import {
+  IconChat,
+  IconCode,
+  IconDatabase,
+  IconFolder,
+  IconGitBranch,
+  IconGlobe,
+  IconUsers,
+  IconX,
+} from "./Icon";
 import { ProjectModal } from "./ProjectModal";
 
 export type Workspace = "chat" | "cowork" | "code";
@@ -41,10 +51,10 @@ function groupByDate(sessions: Session[]) {
   return { today, yesterday, lastWeek, earlier };
 }
 
-const TABS: { id: Workspace; label: string; icon: string }[] = [
-  { id: "chat", label: "Chat", icon: "💬" },
-  { id: "cowork", label: "Cowork", icon: "🤝" },
-  { id: "code", label: "Code", icon: "🧑‍💻" },
+const TABS: { id: Workspace; label: string; icon: ReactNode }[] = [
+  { id: "chat", label: "Chat", icon: <IconChat size={18} /> },
+  { id: "cowork", label: "Cowork", icon: <IconUsers size={18} /> },
+  { id: "code", label: "Code", icon: <IconCode size={18} /> },
 ];
 
 export function Sidebar({
@@ -209,13 +219,17 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
               >
                 <div className="proj-sidebar-row">
                   <div className="proj-sidebar-name">
-                    {p.source_type === "git"
-                      ? "🔗"
-                      : p.source_type === "url"
-                      ? "🌐"
-                      : p.source_type === "connection"
-                      ? "🗄"
-                      : "📁"}{" "}
+                    <span className="proj-sidebar-name-icon" aria-hidden>
+                      {p.source_type === "git" ? (
+                        <IconGitBranch size={14} />
+                      ) : p.source_type === "url" ? (
+                        <IconGlobe size={14} />
+                      ) : p.source_type === "connection" ? (
+                        <IconDatabase size={14} />
+                      ) : (
+                        <IconFolder size={14} />
+                      )}
+                    </span>
                     {p.name}
                   </div>
                   <button
@@ -240,7 +254,7 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
                       }
                     }}
                   >
-                    ×
+                    <IconX size={14} />
                   </button>
                 </div>
                 <div className="proj-sidebar-meta">

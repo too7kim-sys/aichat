@@ -1,6 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { api, type ExtractedFile } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
+import {
+  IconDownload,
+  IconPaperclip,
+  IconSearch,
+  IconSend,
+  IconSparkles,
+  IconX,
+} from "./Icon";
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { useModels } from "../state/ModelContext";
@@ -537,7 +545,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         onDrop={onComposerDrop}
       >
         {dragOver && (
-          <div className="composer-drop-hint">📥 여기에 놓으세요</div>
+          <div className="composer-drop-hint">
+            <IconDownload size={20} />
+            <span>여기에 놓으세요</span>
+          </div>
         )}
         <div className="composer">
           {(attachments.length > 0 || uploading) && (
@@ -616,7 +627,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           {attachments.length > 0 && webSearch && (
             <div className="composer-notice">
               <span>
-                💡 첨부 파일 분석 시 웹검색은 보통 모델을 산만하게 만들어요.
+                <IconSparkles size={14} /> 첨부 파일 분석 시 웹검색은 보통 모델을 산만하게 만들어요.
               </span>
               <button
                 type="button"
@@ -660,7 +671,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 disabled={streaming || uploading}
                 title="파일 첨부 (PDF / DOCX / 이미지 / 텍스트)"
               >
-                📎 첨부
+                <IconPaperclip size={14} />
+                <span>첨부</span>
               </button>
               <button
                 type="button"
@@ -669,7 +681,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 disabled={streaming}
                 title="웹 검색 결과를 LLM 컨텍스트에 포함"
               >
-                🌐 {webSearch ? "검색 ON" : "검색"}
+                <IconSearch size={14} />
+                <span>{webSearch ? "검색 ON" : "검색"}</span>
               </button>
             </div>
             <div className="composer-right">
@@ -679,15 +692,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   onClick={() => liveStream?.abort()}
                   title="응답 생성을 중단"
                 >
-                  ■ 중단 {formatElapsed(elapsedSec)}
+                  <IconX size={14} />
+                  <span>중단 {formatElapsed(elapsedSec)}</span>
                 </button>
               ) : (
                 <button
                   className="send-btn"
                   onClick={send}
                   disabled={uploading || !prompt.trim() || !activeProvider}
+                  aria-label="전송"
                 >
-                  전송
+                  <IconSend size={16} />
                 </button>
               )}
             </div>

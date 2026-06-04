@@ -1,12 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { CorpusType, Project, SourceType } from "../api/client";
 import { useProjects } from "../state/ProjectsContext";
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconCheckCircle,
+  IconChevronDown,
+  IconChevronRight,
+  IconClock,
+  IconCode,
+  IconDatabase,
+  IconDownload,
+  IconFileText,
+  IconFolder,
+  IconGitBranch,
+  IconGlobe,
+  IconBookOpen,
+  IconHistory,
+  IconPlug,
+  IconPlus,
+  IconRefresh,
+  IconTrash,
+  IconX,
+} from "./Icon";
 
 const CORPUS_META: Record<
   CorpusType,
   {
     label: string;
-    icon: string;
+    icon: ReactNode;
     hint: string;
     /** Connection methods allowed for this corpus type. Order in the
      *  UI matches the order here — the first entry becomes the
@@ -16,25 +38,25 @@ const CORPUS_META: Record<
 > = {
   code: {
     label: "코드",
-    icon: "💻",
+    icon: <IconCode />,
     hint: "소스 트리(.py / .ts / .java / …). 함수 단위 검색에 강함.",
     sources: ["git", "folder"],
   },
   document: {
     label: "문서",
-    icon: "📄",
+    icon: <IconFileText />,
     hint: "PDF·DOCX·MD가 든 폴더 또는 문서 Git 레포. 단락 단위 검색.",
     sources: ["folder", "git"],
   },
   api: {
     label: "API",
-    icon: "🔌",
+    icon: <IconPlug />,
     hint: "OpenAPI/Swagger URL 직접 fetch, 또는 .json/.yaml이 든 폴더.",
     sources: ["url", "folder", "git"],
   },
   db: {
     label: "DB",
-    icon: "🗄",
+    icon: <IconDatabase />,
     hint:
       "DB에 직접 접속해 스키마를 리플렉션. CREATE TABLE/VIEW/PROC 단위 분할.",
     sources: ["connection"],
@@ -45,7 +67,7 @@ const SOURCE_META: Record<
   SourceType,
   {
     label: string;
-    icon: string;
+    icon: ReactNode;
     placeholder: string;
     help: string;
     inputType?: "url" | "text" | "password";
@@ -53,21 +75,21 @@ const SOURCE_META: Record<
 > = {
   git: {
     label: "Git URL",
-    icon: "🔗",
+    icon: <IconGitBranch size={14} />,
     placeholder: "https://github.com/owner/repo.git",
     help: "허용 호스트: github / gitlab / bitbucket / codeberg / sr.ht",
     inputType: "url",
   },
   folder: {
     label: "서버 폴더",
-    icon: "📁",
+    icon: <IconFolder size={14} />,
     placeholder: "/workspace/projects/egov",
     help:
       "백엔드 서버가 직접 읽을 수 있는 절대경로. Windows라면 C:/Users/i/git/foo 식.",
   },
   url: {
     label: "API URL",
-    icon: "🌐",
+    icon: <IconGlobe size={14} />,
     placeholder: "https://api.example.com/openapi.json",
     help:
       "OpenAPI/Swagger 스펙이 응답되는 HTTPS 엔드포인트. 30초 fetch, 10 MB 한도.",
@@ -75,7 +97,7 @@ const SOURCE_META: Record<
   },
   connection: {
     label: "DB 연결",
-    icon: "🗄",
+    icon: <IconDatabase size={14} />,
     placeholder: "postgresql://user:pass@host:5432/dbname",
     help:
       "지원: postgresql / mysql / mariadb / sqlite. 읽기 전용 reflection만 수행합니다.",
@@ -157,7 +179,7 @@ export function ProjectModal({
           <div className="pm-head-right">
             {storageBytes > 0 && (
               <div className="pm-storage" title="벡터 인덱스가 차지하는 디스크 용량">
-                💾 {fmtBytes(storageBytes)}
+                <IconDownload size={12} /> {fmtBytes(storageBytes)}
               </div>
             )}
             <button
@@ -166,7 +188,7 @@ export function ProjectModal({
               onClick={onClose}
               aria-label="닫기"
             >
-              ×
+              <IconX size={18} />
             </button>
           </div>
         </header>
@@ -227,7 +249,8 @@ export function ProjectModal({
               className="pm-add-cta"
               onClick={() => setAddOpen(true)}
             >
-              + 새 프로젝트 추가
+              <IconPlus size={14} />
+              <span>새 프로젝트 추가</span>
             </button>
           )}
         </div>
@@ -270,18 +293,21 @@ function ProjectCard({
       <div className="pm-card-head">
         <div className="pm-card-title">
           <span className="pm-card-icon" aria-hidden>
-            {SOURCE_META[p.source_type]?.icon ?? "📁"}
+            {SOURCE_META[p.source_type]?.icon ?? <IconFolder size={14} />}
           </span>
           <span className="pm-card-name" title={p.name}>{p.name}</span>
           <span
             className={`pm-corpus-chip corpus-${p.corpus_type}`}
             title={meta.hint}
           >
-            {meta.icon} {meta.label}
+            <span className="pm-corpus-chip-icon" aria-hidden>
+              {meta.icon}
+            </span>
+            {meta.label}
           </span>
           {linked && (
             <span className="pm-card-linked-badge" title="현재 채팅에 연결됨">
-              ✓ 현재 채팅
+              <IconCheck size={11} /> 현재 채팅
             </span>
           )}
         </div>
@@ -321,7 +347,10 @@ function ProjectCard({
       )}
 
       {p.status === "failed" && p.error && (
-        <div className="pm-card-error">⚠ {p.error}</div>
+        <div className="pm-card-error">
+          <IconAlertTriangle size={14} />
+          <span>{p.error}</span>
+        </div>
       )}
 
       {totalSnapshots > 0 && (
@@ -332,7 +361,14 @@ function ProjectCard({
             onClick={() => setSnapshotsOpen((v) => !v)}
             aria-expanded={snapshotsOpen}
           >
-            <span aria-hidden>{snapshotsOpen ? "▾" : "▸"}</span>
+            <span aria-hidden>
+              {snapshotsOpen ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} />
+              )}
+            </span>
+            <IconHistory size={14} />
             <span>
               스냅샷 {totalSnapshots}개
               {currentSnapshot && (
@@ -433,7 +469,7 @@ function ProjectCard({
                             }}
                             title="이 스냅샷만 삭제"
                           >
-                            🗑
+                            <IconTrash size={13} />
                           </button>
                         )}
                       </div>
@@ -452,7 +488,14 @@ function ProjectCard({
             className={`pm-link-btn${linked ? " linked" : ""}`}
             onClick={onLink}
           >
-            {linked ? "✓ 연결됨" : "이 채팅에 연결"}
+            {linked ? (
+              <>
+                <IconCheck size={14} />
+                <span>연결됨</span>
+              </>
+            ) : (
+              <span>이 채팅에 연결</span>
+            )}
           </button>
         )}
         {(p.status === "ready" || p.status === "failed") && (
@@ -463,7 +506,7 @@ function ProjectCard({
             title="새 스냅샷으로 다시 인덱싱 (이전 스냅샷 유지)"
             aria-label="다시 인덱싱"
           >
-            🔄
+            <IconRefresh size={15} />
           </button>
         )}
         <button
@@ -473,7 +516,7 @@ function ProjectCard({
           title="삭제"
           aria-label="삭제"
         >
-          🗑
+          <IconTrash size={15} />
         </button>
       </div>
     </article>
@@ -484,15 +527,27 @@ function ProjectCard({
 
 function StatusBadge({ status }: { status: Project["status"] }) {
   const map = {
-    ready: { icon: "✓", label: "준비됨", cls: "ready" },
-    indexing: { icon: "⏳", label: "인덱싱 중", cls: "indexing" },
-    pending: { icon: "○", label: "대기", cls: "pending" },
-    failed: { icon: "✕", label: "실패", cls: "failed" },
+    ready: {
+      icon: <IconCheckCircle size={12} />,
+      label: "준비됨",
+      cls: "ready",
+    },
+    indexing: {
+      icon: <IconRefresh size={12} className="pm-spin" />,
+      label: "인덱싱 중",
+      cls: "indexing",
+    },
+    pending: { icon: <IconClock size={12} />, label: "대기", cls: "pending" },
+    failed: {
+      icon: <IconAlertTriangle size={12} />,
+      label: "실패",
+      cls: "failed",
+    },
   } as const;
   const s = map[status];
   return (
     <span className={`pm-badge ${s.cls}`}>
-      <span aria-hidden>{s.icon}</span>
+      {s.icon}
       {s.label}
     </span>
   );
@@ -582,7 +637,9 @@ function AddProjectForm({
     <section className={`pm-add ${compact ? "compact" : "hero"}`}>
       {!compact && (
         <header className="pm-add-hero">
-          <div className="pm-add-hero-icon" aria-hidden>📚</div>
+          <div className="pm-add-hero-icon" aria-hidden>
+            <IconBookOpen size={36} />
+          </div>
           <h4>첫 프로젝트를 추가해보세요</h4>
           <p>
             코퍼스 유형을 고르면 그에 맞는 연결 방식을 선택할 수 있습니다.
@@ -679,7 +736,12 @@ function AddProjectForm({
         </div>
       )}
 
-      {error && <div className="pm-add-error">⚠ {error}</div>}
+      {error && (
+        <div className="pm-add-error">
+          <IconAlertTriangle size={14} />
+          <span>{error}</span>
+        </div>
+      )}
 
       <div className="pm-add-actions">
         {onCancel && (
@@ -698,7 +760,14 @@ function AddProjectForm({
           onClick={submit}
           disabled={submitting}
         >
-          {submitting ? "추가 중..." : "+ 인덱싱 시작"}
+          {submitting ? (
+            "추가 중..."
+          ) : (
+            <>
+              <IconPlus size={14} />
+              <span>인덱싱 시작</span>
+            </>
+          )}
         </button>
       </div>
     </section>
