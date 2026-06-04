@@ -258,8 +258,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (it.kind === "file") {
-        const f = it.getAsFile();
-        if (f) files.push(f);
+        const raw = it.getAsFile();
+        if (!raw) continue;
+        // Clipboard images often arrive as just "image.png" or with no
+        // name at all on some browsers. Rename to a timestamped form so
+        // the backend's extension routing always picks them up and the
+        // user can tell pastes apart in the attachments list.
+        if (raw.type.startsWith("image/")) {
+          const ext = raw.type.split("/")[1]?.split("+")[0] || "png";
+          const ts = new Date()
+            .toISOString()
+            .replace(/[:.]/g, "-")
+            .replace("T", "_")
+            .slice(0, 19);
+          files.push(
+            new File([raw], `clipboard-${ts}.${ext}`, { type: raw.type }),
+          );
+        } else {
+          files.push(raw);
+        }
       }
     }
     if (files.length > 0) {

@@ -138,6 +138,22 @@ def _extract_docx(blob: bytes) -> str:
     return "\n".join(parts)
 
 
+def _looks_like_image(blob: bytes) -> bool:
+    """Magic-byte sniff so a clipboard paste with no/wrong extension
+    still gets routed to OCR. Covers PNG, JPEG, GIF, BMP, WEBP, TIFF."""
+    if len(blob) < 12:
+        return False
+    head = blob[:12]
+    return (
+        head.startswith(b"\x89PNG\r\n\x1a\n")  # PNG
+        or head.startswith(b"\xff\xd8\xff")     # JPEG
+        or head.startswith(b"GIF87a") or head.startswith(b"GIF89a")
+        or head.startswith(b"BM")               # BMP
+        or (head[:4] == b"RIFF" and head[8:12] == b"WEBP")
+        or head.startswith(b"II*\x00") or head.startswith(b"MM\x00*")  # TIFF
+    )
+
+
 def extract(filename: str, blob: bytes) -> Extracted:
     if len(blob) > settings.max_upload_bytes:
         raise ExtractError(
@@ -145,12 +161,28 @@ def extract(filename: str, blob: bytes) -> Extracted:
         )
 
     ext = _ext(filename)
+    is_image = ext in _IMAGE_EXTENSIONS or (
+        not ext and _looks_like_image(blob)
+    )
+
     if ext == ".pdf":
         text, method = _extract_pdf(blob)
     elif ext == ".docx":
         text, method = _extract_docx(blob), "docx"
-    elif ext in _IMAGE_EXTENSIONS:
-        text, method = _ocr_image(blob), "ocr"
+    elif is_image:
+        # Image attachments never 400 — OCR is best-effort. If Tesseract
+        # is missing or the image has no readable text we still return a
+        # placeholder so the chat can proceed (and vision-capable models
+        # can later use the binary out-of-band).
+        try:
+            text = _ocr_image(blob)
+            method = "ocr"
+        except ExtractError as exc:
+            text = (
+                f"[이미지 첨부됨: {filename or 'image'}, {len(blob):,} bytes]\n"
+                f"[OCR을 수행할 수 없습니다: {exc}]"
+            )
+            method = "image-no-ocr"
     elif ext in _TEXT_EXTENSIONS or not ext:
         text, method = _decode_text(blob), "text"
     else:
@@ -159,9 +191,17 @@ def extract(filename: str, blob: bytes) -> Extracted:
 
     text = text.strip()
     if not text:
-        raise ExtractError(
-            "No text could be extracted (empty document or unsupported content)."
-        )
+        if is_image:
+            text = (
+                f"[이미지 첨부됨: {filename or 'image'}, {len(blob):,} bytes]\n"
+                "[OCR 결과 추출 가능한 텍스트가 없습니다. 비전 모델에서 "
+                "이미지 내용을 확인할 수 있습니다.]"
+            )
+            method = "image-no-text"
+        else:
+            raise ExtractError(
+                "No text could be extracted (empty document or unsupported content)."
+            )
 
     text = _truncate(text)
     return Extracted(
