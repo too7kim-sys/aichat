@@ -263,26 +263,99 @@ def walk_tree(root: Path) -> tuple[list[dict], int, int]:
 
 # ── Bulk collect — for "click workspace → start chat" ────────────────
 
-# Reasonable cap for the "open the whole project in chat" flow. A
-# typical Java service has dozens of small files that all fit easily;
-# big monorepos hit the cap and the chat sees a representative
-# sample + manifest pointing at the rest.
-_BULK_MAX_FILES = 50
-_BULK_MAX_BYTES_PER_FILE = 120 * 1024
-_BULK_MAX_TOTAL_BYTES = 2 * 1024 * 1024
+# Caps tuned for code review: a typical Java/Python/TS service has
+# dozens of source files plus a long tail of config. The previous
+# "smallest first" sort kept controllers + services + DAOs OUT of
+# the bundle in favour of pom.xml, .properties, and empty POJOs,
+# which meant the model never saw the actual business logic — and
+# vulnerability questions came back as generic examples. We now
+# walk source code FIRST and only fall back to scripts / templates /
+# config when there's still room.
+_BULK_MAX_FILES = 80
+_BULK_MAX_BYTES_PER_FILE = 200 * 1024
+_BULK_MAX_TOTAL_BYTES = int(2.5 * 1024 * 1024)
+
+# Higher tier wins. The match is "first tier whose set contains the
+# extension". Anything outside every tier still inside _TEXT_EXTS is
+# treated as tier 99 (very last resort).
+_FILE_TIERS: list[set[str]] = [
+    # Tier 0: real source code — what the model actually needs to
+    # see for a vulnerability / review answer.
+    {
+        ".py", ".java", ".kt", ".rs", ".go", ".c", ".cpp", ".cc", ".h",
+        ".hpp", ".cs", ".rb", ".php", ".ts", ".tsx", ".jsx", ".js",
+        ".mjs", ".cjs", ".vue", ".svelte", ".swift", ".scala",
+        ".groovy", ".dart", ".lua", ".pl",
+    },
+    # Tier 1: queries + shell scripts (also high-risk for injection
+    # and command-execution review).
+    {".sql", ".sh", ".bash", ".zsh"},
+    # Tier 2: server-rendered templates — JSP / HTML / XML with
+    # potential XSS surface.
+    {".jsp", ".jspx", ".html", ".htm", ".xml", ".xsd", ".xsl",
+     ".tag", ".tld"},
+    # Tier 3: stylesheets (much lower risk but occasionally useful).
+    {".css", ".scss", ".sass"},
+    # Tier 4: config files — picked LAST so they don't crowd out
+    # source code under the cap.
+    {".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+     ".conf", ".properties", ".gradle"},
+    # Tier 5: docs.
+    {".md", ".markdown", ".txt", ".csv", ".tsv"},
+]
+# Path hints that bump a candidate's priority within its tier — code
+# review almost always cares more about auth/controller/dao layers
+# than DTOs or generated stubs.
+_NAME_HINTS_BOOST = (
+    "auth", "controller", "service", "dao", "mapper", "repository",
+    "security", "login", "session", "password", "token", "api",
+    "endpoint", "handler", "route", "middleware",
+)
+_PATH_HINTS_PENALTY = (
+    # Directory matches only — "/example" without a trailing slash
+    # used to false-positive on Java's "com.example" package, which
+    # ranks the actual application code BELOW config files. Same
+    # caveat for "/sample" vs sampler libraries, etc.
+    "/test/", "/tests/", "/__tests__/", "/spec/", "/specs/",
+    "/example/", "/examples/", "/sample/", "/samples/",
+    "/mocks/", "/__mocks__/",
+    "/docs/", "/generated/", "/build/", "/dist/", "/vendor/",
+    ".test.", ".spec.", ".min.",
+)
+
+
+def _tier_of(ext: str) -> int:
+    for i, group in enumerate(_FILE_TIERS):
+        if ext in group:
+            return i
+    return 99
+
+
+def _name_boost(rel_path: str) -> int:
+    """Lower number == higher priority. Returns a small adjustment
+    that tips the sort within a tier toward security-relevant files."""
+    lower = rel_path.lower()
+    boost = 0
+    if any(h in lower for h in _NAME_HINTS_BOOST):
+        boost -= 1
+    if any(h in lower for h in _PATH_HINTS_PENALTY):
+        boost += 2
+    return boost
 
 
 def collect_workspace_files(root: Path) -> dict:
-    """Walk the workspace and return:
-      - files: list of {path, text, size} that fit under the caps
-      - truncated: True if we hit a cap and skipped files
-      - total_files / total_size / total_files_in_repo for the manifest
+    """Walk the workspace and return a representative slice + manifest
+    metadata. Picking order:
+      1. tier (source code → ... → docs)
+      2. name/path hint (auth/controller/dao first, tests/examples last)
+      3. larger source files first inside the same tier so a real
+         service implementation wins over an empty marker class.
 
-    Files are picked depth-first sorted (smaller files first so the
-    chat gets the most coverage). Binary files are skipped. The
-    caller composes attachments out of the result + an optional
-    manifest entry."""
-    all_candidates: list[tuple[Path, int]] = []
+    The result is what gets stuffed into the chat as attachments on
+    every turn of a code-focused session, so the priority directly
+    drives whether vulnerability questions touch real code or fall
+    back to generic boilerplate."""
+    all_candidates: list[tuple[int, int, int, Path]] = []
     total_files_in_repo = 0
 
     def visit(d: Path) -> None:
@@ -308,21 +381,30 @@ def collect_workspace_files(root: Path) -> dict:
                 continue
             if size == 0 or size > _BULK_MAX_BYTES_PER_FILE:
                 continue
-            if entry.suffix.lower() not in _TEXT_EXTS:
+            ext = entry.suffix.lower()
+            if ext not in _TEXT_EXTS:
                 continue
-            all_candidates.append((entry, size))
+            try:
+                rel = entry.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            tier = _tier_of(ext) + _name_boost(rel)
+            # Bigger source files inside the same tier rank higher —
+            # they're more likely to hold the actual logic the
+            # reviewer needs to see.
+            inv_size = -size
+            all_candidates.append((tier, inv_size, size, entry))
 
     visit(root)
-    # Sort smaller-first so the cap covers more breadth.
-    all_candidates.sort(key=lambda x: x[1])
+    all_candidates.sort(key=lambda x: (x[0], x[1]))
 
     files: list[dict] = []
     total_bytes = 0
-    for path, size in all_candidates:
+    for _tier, _inv, size, path in all_candidates:
         if len(files) >= _BULK_MAX_FILES:
             break
         if total_bytes + size > _BULK_MAX_TOTAL_BYTES:
-            break
+            continue  # try smaller files later in the loop
         try:
             blob = path.read_bytes()
         except OSError:
