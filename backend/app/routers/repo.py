@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -59,6 +60,13 @@ _ALLOWED_EXT = {
 _MAX_FILES = 300
 _MAX_BYTES_PER_FILE = 500 * 1024
 _CLONE_TIMEOUT = 60
+
+# Acceptable git ref (branch / tag / short commit). Restricting the
+# alphabet blocks argument injection through --branch — without it a
+# ref like "--upload-pack=…" would be parsed by git as an option
+# rather than a branch name. Also rejects leading "-" / "." which git
+# itself dislikes, and any backslash that could confuse Windows.
+_REF_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._\-/]{0,119}$")
 
 
 def _run_git_clone(
@@ -127,6 +135,11 @@ async def clone_repo(
             400,
             f"호스트 미허용: {parsed.hostname}. 허용: {', '.join(sorted(_ALLOWED_HOSTS))}",
         )
+    if payload.ref and not _REF_RE.match(payload.ref):
+        raise HTTPException(
+            400,
+            "ref 형식이 올바르지 않습니다 (영문/숫자/._-/만 허용, '-' 시작 불가)",
+        )
 
     tmpdir = tempfile.mkdtemp(prefix="chat-repo-")
     try:
@@ -139,6 +152,11 @@ async def clone_repo(
         ]
         if payload.ref:
             cmd.extend(["--branch", payload.ref])
+        # Sentinel before positional args defeats any future code path
+        # that lets a "--option" through validation: git treats
+        # everything after "--" as positional, so the URL can never be
+        # parsed as a flag even if it somehow started with one.
+        cmd.append("--")
         cmd.extend([str(payload.url), tmpdir])
 
         env = {

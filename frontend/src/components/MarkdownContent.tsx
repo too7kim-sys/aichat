@@ -55,13 +55,28 @@ function detectFileMarker(
   return { path, body };
 }
 
+// The path string here comes from a marker the LLM wrote, so we have
+// to assume it might contain anything — control chars, NULs, ".."
+// padding, very long names. Strip path separators (browsers ignore
+// directories in `download` anyway), drop any character outside a
+// safe Unicode letter/digit/. _ - set, cap at 128 chars, and fall
+// back to a sensible default if there's nothing left.
+function sanitizeBasename(fullPath: string): string {
+  const raw = fullPath.split(/[\\/]/).pop() ?? "";
+  const cleaned = raw
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/[^\p{L}\p{N}._\-]/gu, "_")
+    .replace(/^\.+/, "")
+    .slice(0, 128);
+  return cleaned || "download.txt";
+}
+
 function downloadAsFile(text: string, fullPath: string) {
-  const basename = fullPath.split(/[\\/]/).pop() || "file.txt";
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = basename;
+  a.download = sanitizeBasename(fullPath);
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
