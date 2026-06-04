@@ -1,18 +1,9 @@
 import { useEffect, useState } from "react";
-import {
-  api,
-  type Workspace,
-  type WorkspaceFile,
-  type WorkspaceTreeEntry,
-} from "../api/client";
+import { api, type Workspace, type WorkspaceFile } from "../api/client";
 import { useWorkspaces } from "../state/WorkspacesContext";
 import {
   IconAlertTriangle,
-  IconChevronDown,
-  IconChevronRight,
   IconCode,
-  IconFileText,
-  IconFolder,
   IconGitBranch,
   IconPaperclip,
   IconPlus,
@@ -20,6 +11,7 @@ import {
   IconTrash,
   IconX,
 } from "./Icon";
+import { WorkspaceTree } from "./WorkspaceTree";
 
 interface Props {
   open: boolean;
@@ -204,31 +196,13 @@ function WorkspaceView({
   onSync: () => Promise<void> | void;
   onAttachFile: (filename: string, text: string) => void;
 }) {
-  const [tree, setTree] = useState<WorkspaceTreeEntry[]>([]);
   const [filePath, setFilePath] = useState<string | null>(null);
   const [file, setFile] = useState<WorkspaceFile | null>(null);
-  const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
     setFilePath(null);
     setFile(null);
-    api
-      .workspaceTree(workspace.id)
-      .then((res) => {
-        if (!cancelled) setTree(res.tree);
-      })
-      .catch(() => {
-        if (!cancelled) setTree([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
   }, [workspace.id, workspace.last_synced_at]);
 
   useEffect(() => {
@@ -284,15 +258,11 @@ function WorkspaceView({
 
       <div className="cw-split">
         <div className="cw-tree">
-          {loading && <div className="cw-tree-loading">트리 로드 중…</div>}
-          {!loading && tree.length === 0 && (
-            <div className="cw-tree-loading">파일이 없습니다</div>
-          )}
-          <TreeList
-            items={tree}
-            depth={0}
+          <WorkspaceTree
+            workspaceId={workspace.id}
             activePath={filePath}
-            onSelect={setFilePath}
+            onSelectFile={setFilePath}
+            refreshKey={workspace.last_synced_at ?? undefined}
           />
         </div>
         <div className="cw-file">
@@ -330,86 +300,6 @@ function WorkspaceView({
   );
 }
 
-function TreeList({
-  items,
-  depth,
-  activePath,
-  onSelect,
-}: {
-  items: WorkspaceTreeEntry[];
-  depth: number;
-  activePath: string | null;
-  onSelect: (path: string) => void;
-}) {
-  return (
-    <ul className="cw-tree-list">
-      {items.map((e) => (
-        <TreeNode
-          key={e.path}
-          entry={e}
-          depth={depth}
-          activePath={activePath}
-          onSelect={onSelect}
-        />
-      ))}
-    </ul>
-  );
-}
-
-function TreeNode({
-  entry,
-  depth,
-  activePath,
-  onSelect,
-}: {
-  entry: WorkspaceTreeEntry;
-  depth: number;
-  activePath: string | null;
-  onSelect: (path: string) => void;
-}) {
-  const [open, setOpen] = useState(depth < 1);
-  const pad = { paddingLeft: 8 + depth * 12 };
-
-  if (entry.kind === "dir") {
-    return (
-      <li className="cw-tn dir">
-        <button
-          type="button"
-          className="cw-tn-row"
-          style={pad}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}
-          <IconFolder size={13} />
-          <span className="cw-tn-name">{entry.name}</span>
-        </button>
-        {open && (
-          <TreeList
-            items={entry.children}
-            depth={depth + 1}
-            activePath={activePath}
-            onSelect={onSelect}
-          />
-        )}
-      </li>
-    );
-  }
-  return (
-    <li className="cw-tn file">
-      <button
-        type="button"
-        className={`cw-tn-row${activePath === entry.path ? " active" : ""}`}
-        style={pad}
-        onClick={() => onSelect(entry.path)}
-        title={entry.path}
-      >
-        <span className="cw-tn-bullet" aria-hidden />
-        <IconFileText size={13} />
-        <span className="cw-tn-name">{entry.name}</span>
-      </button>
-    </li>
-  );
-}
 
 // ── Add workspace form ────────────────────────────────────────────────
 

@@ -4,6 +4,7 @@ import type { ProviderInfo, SessionDetail } from "../types";
 import {
   IconCode,
   IconDownload,
+  IconFolder,
   IconPaperclip,
   IconSearch,
   IconSend,
@@ -11,6 +12,7 @@ import {
   IconX,
 } from "./Icon";
 import { MessageBubble } from "./MessageBubble";
+import { WorkspaceTree } from "./WorkspaceTree";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { useModels } from "../state/ModelContext";
 import { drainAttachments } from "../state/attachQueue";
@@ -38,6 +40,38 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [attachments, setAttachments] = useState<ExtractedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  // Workspace file tree panel — only meaningful for code-focused
+  // (= workspace-linked) sessions. Persisted per session so the
+  // user's open/closed preference survives reloads.
+  const treePrefKey = `chat:session:${sessionId}:tree`;
+  const [showWorkspaceTree, _setShowWorkspaceTree] = useState<boolean>(
+    () => localStorage.getItem(treePrefKey) !== "0",
+  );
+  function setShowWorkspaceTree(v: boolean) {
+    _setShowWorkspaceTree(v);
+    localStorage.setItem(treePrefKey, v ? "1" : "0");
+  }
+  async function handleWorkspaceFileSelect(path: string) {
+    if (!session?.workspace_id) return;
+    const ws_id = session.workspace_id;
+    const ws_title = session.title;
+    try {
+      const file = await api.workspaceFile(ws_id, path);
+      setAttachments((prev) => [
+        ...prev,
+        {
+          filename: `${ws_title}/${path}`,
+          text: file.text,
+          char_count: file.text.length,
+          method: "workspace",
+        },
+      ]);
+    } catch (e) {
+      window.alert(
+        `파일 첨부 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
   const [elapsedSec, setElapsedSec] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -503,6 +537,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
+          {session.workspace_id && (
+            <button
+              type="button"
+              className="panel-toggle"
+              onClick={() => setShowWorkspaceTree(!showWorkspaceTree)}
+              title={showWorkspaceTree ? "파일 트리 숨기기" : "파일 트리 보기"}
+            >
+              <IconFolder size={14} />{" "}
+              {showWorkspaceTree ? "트리 닫기" : "파일 트리"}
+            </button>
+          )}
           {artifactsState.artifacts.length > 0 && (
             <button
               type="button"
@@ -517,6 +562,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </div>
       </header>
 
+      <div className="chat-body">
+        {session.workspace_id && showWorkspaceTree && (
+          <aside className="chat-tree-side">
+            <div className="chat-tree-head">
+              <span className="chat-tree-title">
+                <IconFolder size={13} /> {session.title}
+              </span>
+              <button
+                type="button"
+                className="chat-tree-close"
+                onClick={() => setShowWorkspaceTree(false)}
+                title="트리 닫기"
+                aria-label="트리 닫기"
+              >
+                <IconX size={13} />
+              </button>
+            </div>
+            <div className="chat-tree-hint">
+              파일을 클릭하면 다음 메시지에 첨부됩니다.
+            </div>
+            <div className="chat-tree-scroll">
+              <WorkspaceTree
+                workspaceId={session.workspace_id}
+                onSelectFile={handleWorkspaceFileSelect}
+              />
+            </div>
+          </aside>
+        )}
+        <div className="chat-main">
       <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
         <div className="messages-inner">
           {(() => {
@@ -750,6 +824,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               )}
             </div>
           </div>
+        </div>
+      </div>
         </div>
       </div>
 
