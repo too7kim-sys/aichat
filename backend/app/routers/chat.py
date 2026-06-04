@@ -52,6 +52,38 @@ _LANGUAGE_SYSTEM = ChatMessage(
 )
 
 
+# Strict accuracy / anti-hallucination prompt. Toggled by
+# settings.accuracy_strict (default true). The goal is to make the
+# model say "I don't know" instead of inventing function names, file
+# paths, line numbers, CVE IDs, or library behaviour it can't verify.
+_ACCURACY_SYSTEM = ChatMessage(
+    role="system",
+    content=(
+        "[정확성 규칙 — 매 답변에 적용]\n"
+        "1. 모르면 모른다고 답하세요. \"확실하지 않습니다\", \"현재 자료로는 "
+        "알 수 없습니다\"가 추측·일반론보다 항상 낫습니다. 안전하게 "
+        "보이려고 모호한 표현으로 도망가지 마세요.\n"
+        "2. 인용·식별자는 정확히. 함수명, 변수명, 클래스명, 파일 경로, 라인 "
+        "번호, CVE 번호, API 시그니처를 만들어내지 마세요. 첨부 파일·검색 "
+        "결과·이전 대화에 실제로 존재한 문자열만 인용하세요.\n"
+        "3. 코드를 인용할 때는 첨부 본문 그대로 옮기세요. 한 글자라도 "
+        "추측으로 채우지 마세요. 본문에 없는 줄을 \"있을 법한 모양\"으로 "
+        "만들어 보이지 마세요.\n"
+        "4. 모든 주장은 근거를 함께 제시하세요. 첨부 파일이 근거이면 "
+        "`path:line`, 검색이 근거이면 출처 번호, 그 외에는 \"(일반 지식)\" "
+        "또는 \"(추정)\"이라고 명시하세요.\n"
+        "5. 라이브러리·프레임워크 동작이나 버전·옵션 이름은 외운 것을 "
+        "단언하지 마세요. 정확한 값이 필요하면 \"공식 문서 확인 필요\"라고 "
+        "표시하세요.\n"
+        "6. 사용자 질문이 첨부 자료의 범위를 벗어나면, 범위 밖이라는 점을 "
+        "먼저 밝히고 그 다음에 일반 지식 기반 답변임을 명시하세요.\n"
+        "7. 한 답변 안에서 자기 모순을 만들지 마세요. 확신이 없으면 "
+        "처음부터 \"확신 없음\"이라고 말하세요. 잘못된 단정 뒤에 사과하는 "
+        "것보다 처음부터 정직하게 답하는 것이 신뢰를 만듭니다."
+    ),
+)
+
+
 def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMessage]:
     # Sliding window: keep only the last N persisted messages so the
     # context length sent to Ollama doesn't grow unbounded across a long
@@ -304,6 +336,18 @@ async def chat_single(
         # keeps the attached source as the freshest context the model
         # sees, ahead of any web search or stale conversation turns.
         history.insert(-1, attach_msg)
+
+    # Optional per-deployment system prompt from .env (house style,
+    # domain rules, escalation policy, ...). Goes near the front so
+    # downstream system messages can still override specifics.
+    extra = (settings.system_prompt_extra or "").strip()
+    if extra:
+        history.insert(0, ChatMessage(role="system", content=extra))
+
+    # Anti-hallucination ruleset. Inserted in front of any other system
+    # message so the model reads it first.
+    if settings.accuracy_strict:
+        history.insert(0, _ACCURACY_SYSTEM)
 
     # Pin the language preference at the very front so it always wins
     # over the model's own default behavior.

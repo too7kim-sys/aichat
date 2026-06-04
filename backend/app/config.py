@@ -17,6 +17,27 @@ class Settings(BaseSettings):
     # supports more (llama3.1 = 128k, qwen3 = 32k, etc.).
     ollama_num_ctx: int = 8192
     ollama_num_ctx_max: int = 32768
+
+    # Generation knobs. Lower temperature + top_p reduces "creative"
+    # hallucinations (made-up function names, fake CVE numbers,
+    # confident-but-wrong claims), which is what we want for code
+    # review / vulnerability analysis. Set to a negative number to fall
+    # back to the model's built-in default.
+    ollama_temperature: float = 0.3
+    ollama_top_p: float = 0.9
+    ollama_repeat_penalty: float = 1.05
+
+    # Always prepend the strict accuracy / anti-hallucination system
+    # prompt (see chat.py:_ACCURACY_SYSTEM). Set to false only if you
+    # are running a model that already follows the rules and the extra
+    # tokens are eating into your context budget.
+    accuracy_strict: bool = True
+
+    # Free-form text appended as an additional system message on every
+    # request. Use this to add house style, domain glossary, escalation
+    # rules, or any other instruction you'd otherwise paste at the top
+    # of each prompt. Leave blank for none.
+    system_prompt_extra: str = ""
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     # Auth — change JWT_SECRET in .env for any non-local deployment.
     jwt_secret: str = "dev-only-change-me"

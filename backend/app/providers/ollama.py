@@ -62,11 +62,20 @@ class OllamaProvider(LLMProvider):
             sum(len(m.content) for m in messages),
             num_ctx,
         )
+        options: dict = {"num_ctx": num_ctx}
+        # Negative values disable the override and let Ollama use its
+        # model-side default.
+        if settings.ollama_temperature >= 0:
+            options["temperature"] = settings.ollama_temperature
+        if settings.ollama_top_p >= 0:
+            options["top_p"] = settings.ollama_top_p
+        if settings.ollama_repeat_penalty >= 0:
+            options["repeat_penalty"] = settings.ollama_repeat_penalty
         payload = {
             "model": model or self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": True,
-            "options": {"num_ctx": num_ctx},
+            "options": options,
         }
         url = f"{self.base_url}/api/chat"
         # No read timeout: large models with long attached context can take
