@@ -102,18 +102,28 @@ def _attachments_message(
     # suggest improvements, propose refactors.
     is_project = code_count >= 3
 
+    total_chars = sum(len(a.text) for a in attachments)
     parts: list[str] = [
         "[ATTACHED FILES — PRIMARY SOURCE OF TRUTH]",
-        "The user has attached the files listed below. These are the "
-        "canonical material you must analyze. If the user asks about "
-        "bugs, vulnerabilities, security issues, or improvements, your "
-        "answer MUST refer to THESE specific files with concrete "
-        "`path:line` citations — not to generic best-practice advice "
-        "and not to web search results. Web search context, if present, "
-        "is for cross-reference (e.g., looking up a CVE number or "
-        "library docs) and must not displace the attached source. If a "
-        "finding is not visible in the attached files, say so explicitly "
-        "instead of inventing one.",
+        f"The user attached {len(attachments)} file(s), "
+        f"{total_chars:,} characters total. These are the canonical "
+        "material you must analyze. Findings about bugs, vulnerabilities, "
+        "or improvements MUST cite a concrete `path:line` from these "
+        "files — never generic best-practice advice and never web search "
+        "results. Web search context, if present, is for cross-reference "
+        "(CVE numbers, library docs) only.",
+        "",
+        "[금지 규칙 — 절대 다음과 같이 답하지 마세요]",
+        "  - \"전체 코드를 살펴볼 필요가 있습니다\"",
+        "  - \"제공된 코드가 제한적이므로\"",
+        "  - \"일반적인 점검 항목에 대해 검토\"",
+        "  - \"추가 정보가 필요합니다\" / \"더 많은 컨텍스트가 있어야\"",
+        "  - \"실제 코드를 보지 않고는 정확히 말씀드리기 어렵습니다\"",
+        f"위에 {len(attachments)}개 파일 ({total_chars:,}자)이 이미 제공되었습니다. "
+        "이것이 1차 자료 전부이며, 충분합니다. 즉시 첫 번째 발견 사항을 "
+        "`path:line` 인용으로 시작하세요. 발견이 없으면 \"검토 결과 "
+        "<범주>에서 문제를 찾지 못했습니다\"라고 구체적으로 말하세요. "
+        "절대로 일반론으로 회피하지 마세요.",
     ]
     if is_project:
         # Build a quick tree-like summary so the model knows the

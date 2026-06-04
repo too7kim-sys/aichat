@@ -8,6 +8,15 @@ class Settings(BaseSettings):
     naver_client_secret: str = ""
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
+    # Ollama's server default is num_ctx=2048, which silently truncates
+    # any non-trivial code attachment and makes the model claim "the
+    # provided code is limited." We pass num_ctx explicitly: the floor
+    # is used for short chats, and we grow up to the cap when the
+    # message payload demands it. 32k covers most attached projects on
+    # modern models; raise OLLAMA_NUM_CTX_MAX in .env if your model
+    # supports more (llama3.1 = 128k, qwen3 = 32k, etc.).
+    ollama_num_ctx: int = 8192
+    ollama_num_ctx_max: int = 32768
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     # Auth — change JWT_SECRET in .env for any non-local deployment.
     jwt_secret: str = "dev-only-change-me"

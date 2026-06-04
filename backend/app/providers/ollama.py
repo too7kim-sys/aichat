@@ -1,10 +1,29 @@
 import json
+import logging
 from collections.abc import AsyncIterator
 
 import httpx
 
 from ..config import settings
 from .base import ChatMessage, LLMProvider
+
+log = logging.getLogger("uvicorn.error")
+
+# Standard Ollama context tier sizes. We pick the smallest tier that
+# fits the current payload (plus output headroom) so the model isn't
+# loaded with more context than it needs.
+_CTX_TIERS = (2048, 4096, 8192, 16384, 32768, 65536, 131072)
+
+
+def _compute_num_ctx(messages: list[ChatMessage], floor: int, cap: int) -> int:
+    total_chars = sum(len(m.content) for m in messages)
+    # Korean + source code typically lands around 2.5 chars per token.
+    # 1024 tokens of headroom for the model's reply.
+    needed = int(total_chars / 2.5) + 1024
+    for size in _CTX_TIERS:
+        if size >= needed:
+            return min(max(size, floor), cap)
+    return cap
 
 
 class OllamaProvider(LLMProvider):
@@ -31,10 +50,23 @@ class OllamaProvider(LLMProvider):
     async def stream(
         self, messages: list[ChatMessage], model: str | None = None
     ) -> AsyncIterator[str]:
+        num_ctx = _compute_num_ctx(
+            messages,
+            floor=settings.ollama_num_ctx,
+            cap=settings.ollama_num_ctx_max,
+        )
+        log.info(
+            "Ollama stream: model=%s msgs=%d total_chars=%d num_ctx=%d",
+            model or self.model,
+            len(messages),
+            sum(len(m.content) for m in messages),
+            num_ctx,
+        )
         payload = {
             "model": model or self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": True,
+            "options": {"num_ctx": num_ctx},
         }
         url = f"{self.base_url}/api/chat"
         # No read timeout: large models with long attached context can take
