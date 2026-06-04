@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FindingsRender, splitFindings } from "./Findings";
 import { MarkdownContent } from "./MarkdownContent";
 
 type Segment =
@@ -94,18 +95,13 @@ export function BubbleContent({
             />
           );
         }
-        if (streaming) {
-          return (
-            <span key={i} className="stream-text">
-              {seg.text}
-              {isLast && <span className="cursor">▍</span>}
-            </span>
-          );
-        }
+        const findings = splitFindings(seg.text);
         return (
-          <MarkdownContent
+          <FindingsRender
             key={i}
-            content={seg.text}
+            segments={findings}
+            streaming={streaming}
+            isLastInBubble={isLast}
             artifactTitlePrefix={artifactTitlePrefix}
           />
         );

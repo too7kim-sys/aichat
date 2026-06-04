@@ -1891,3 +1891,95 @@ body {
 .code-download:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .code-download.done { background: #16a34a; border-color: #16a34a; }
 
+/* === 발견 카드 (코드 점검 결과) ==================================== */
+.finding {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.finding > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+.finding > summary::-webkit-details-marker { display: none; }
+.finding > summary::after {
+  content: "▶";
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.finding[open] > summary::after { transform: rotate(90deg); }
+.finding > summary:hover { background: var(--bg-sidebar); }
+
+.finding-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: white;
+  min-width: 42px;
+  text-align: center;
+}
+.badge-HIGH   { background: #dc2626; }
+.badge-MEDIUM { background: #ea580c; }
+.badge-LOW    { background: #ca8a04; }
+.badge-INFO   { background: #64748b; }
+
+.finding.sev-HIGH   { border-left-color: #dc2626; }
+.finding.sev-MEDIUM { border-left-color: #ea580c; }
+.finding.sev-LOW    { border-left-color: #ca8a04; }
+.finding.sev-INFO   { border-left-color: #64748b; }
+
+.finding-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finding-loc {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-sidebar);
+  padding: 2px 8px;
+  border-radius: 4px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finding-status {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 13px;
+}
+.finding.live {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.finding-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.finding-stream {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
