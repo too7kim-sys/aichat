@@ -408,6 +408,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       attachments: sentAttachments.map((a) => ({
         filename: a.filename,
         text: a.text,
+        image_b64: a.image_b64 ?? null,
       })),
       projectId: linkedProjectId,
     });
@@ -561,25 +562,46 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 </div>
               )}
               <div className="attachment-chips">
-                {attachments.map((a, i) => (
-                  <div key={i} className="attachment-chip">
-                    <span className="attachment-name" title={a.filename}>
-                      {a.filename}
-                    </span>
-                    <span className="attachment-meta">
-                      {a.method} · {a.char_count.toLocaleString()}자
-                    </span>
-                    <button
-                      type="button"
-                      className="attachment-remove"
-                      onClick={() => removeAttachment(i)}
-                      disabled={streaming}
-                      aria-label="제거"
+                {attachments.map((a, i) => {
+                  const isImage = !!a.image_b64;
+                  const guessMime = a.filename.toLowerCase().endsWith(".png")
+                    ? "image/png"
+                    : a.filename.toLowerCase().endsWith(".webp")
+                    ? "image/webp"
+                    : a.filename.toLowerCase().endsWith(".gif")
+                    ? "image/gif"
+                    : "image/jpeg";
+                  return (
+                    <div
+                      key={i}
+                      className={`attachment-chip${isImage ? " image" : ""}`}
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                      {isImage && (
+                        <img
+                          className="attachment-thumb"
+                          src={`data:${guessMime};base64,${a.image_b64}`}
+                          alt=""
+                          loading="lazy"
+                        />
+                      )}
+                      <span className="attachment-name" title={a.filename}>
+                        {a.filename}
+                      </span>
+                      <span className="attachment-meta">
+                        {a.method} · {a.char_count.toLocaleString()}자
+                      </span>
+                      <button
+                        type="button"
+                        className="attachment-remove"
+                        onClick={() => removeAttachment(i)}
+                        disabled={streaming}
+                        aria-label="제거"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
                 {uploading && (
                   <div className="attachment-chip uploading">
                     업로드 중

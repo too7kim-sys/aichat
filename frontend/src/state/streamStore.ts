@@ -60,7 +60,7 @@ class StreamStore {
     provider: string;
     model?: string | null;
     webSearch?: boolean;
-    attachments?: { filename: string; text: string }[];
+    attachments?: { filename: string; text: string; image_b64?: string | null }[];
     projectId?: string | null;
     onComplete?: (errors: string[]) => void;
   }): boolean {

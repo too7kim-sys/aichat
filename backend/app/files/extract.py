@@ -6,12 +6,15 @@ Strategy per extension:
   it and OCR via Tesseract (scanned PDF support)
 - .docx: python-docx
 - images (.png/.jpg/.jpeg/.gif/.bmp/.tif/.tiff/.webp): direct Tesseract OCR
+  AND (when the chat routes to a vision-capable Ollama model) the raw
+  bytes are surfaced as base64 so the model sees the image directly.
 
 Failures are surfaced as ExtractError with a user-facing message; the router
 turns these into 400 responses.
 """
 from __future__ import annotations
 
+import base64
 import io
 from dataclasses import dataclass
 
@@ -38,7 +41,11 @@ class Extracted:
     filename: str
     text: str
     char_count: int
-    method: str  # text | pdf | pdf+ocr | docx | ocr
+    method: str  # text | pdf | pdf+ocr | docx | ocr | image-no-ocr | image-no-text
+    # base64 of the original bytes when the attachment is an image —
+    # picked up by the Ollama provider when the routed model is vision-
+    # capable so the model sees the picture, not just the OCR text.
+    image_b64: str | None = None
 
 
 def _truncate(text: str) -> str:
@@ -204,6 +211,10 @@ def extract(filename: str, blob: bytes) -> Extracted:
             )
 
     text = _truncate(text)
+    image_b64 = (
+        base64.b64encode(blob).decode("ascii") if is_image else None
+    )
     return Extracted(
-        filename=filename, text=text, char_count=len(text), method=method
+        filename=filename, text=text, char_count=len(text), method=method,
+        image_b64=image_b64,
     )

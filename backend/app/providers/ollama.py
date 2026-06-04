@@ -80,9 +80,18 @@ class OllamaProvider(LLMProvider):
             options["top_p"] = settings.ollama_top_p
         if settings.ollama_repeat_penalty >= 0:
             options["repeat_penalty"] = settings.ollama_repeat_penalty
+        def _serialize(m: ChatMessage) -> dict:
+            out: dict = {"role": m.role, "content": m.content}
+            # Only include images when present — Ollama happily accepts
+            # the key on every message but the vast majority of turns
+            # are pure text, and the wire payload stays smaller.
+            if m.images:
+                out["images"] = m.images
+            return out
+
         payload = {
             "model": model or self.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [_serialize(m) for m in messages],
             "stream": True,
             "options": options,
         }

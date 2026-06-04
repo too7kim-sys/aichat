@@ -54,6 +54,10 @@ export interface ExtractedFile {
   text: string;
   char_count: number;
   method: string;
+  /** Base64 of the original bytes when the attachment is an image. The
+   *  chat router forwards this to vision-capable Ollama models as the
+   *  `images` field of the user message. */
+  image_b64?: string | null;
 }
 
 async function uploadExtract(file: File): Promise<ExtractedFile> {
@@ -266,7 +270,7 @@ export async function streamChat(
     provider: string;
     model?: string | null;
     webSearch?: boolean;
-    attachments?: { filename: string; text: string }[];
+    attachments?: { filename: string; text: string; image_b64?: string | null }[];
     projectId?: string | null;
     signal?: AbortSignal;
   } & StreamHandlers

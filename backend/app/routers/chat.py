@@ -147,16 +147,28 @@ def _is_translation_request(prompt: str) -> bool:
     return bool(_TRANSLATION_INTENT_RE.search(prompt))
 
 
-def _build_history(session: models.Session, new_user_prompt: str) -> list[ChatMessage]:
+def _build_history(
+    session: models.Session,
+    new_user_prompt: str,
+    new_user_images: list[str] | None = None,
+) -> list[ChatMessage]:
     # Sliding window: keep only the last N persisted messages so the
     # context length sent to Ollama doesn't grow unbounded across a long
-    # conversation. The new user prompt is always appended on top.
+    # conversation. The new user prompt is always appended on top, and
+    # — when the current attachments include image bytes — the base64
+    # blobs ride along on that message so vision models can see them.
     limit = max(1, settings.max_history_messages)
     recent = list(session.messages)[-limit:]
     history: list[ChatMessage] = [
         ChatMessage(role=m.role, content=m.content) for m in recent
     ]
-    history.append(ChatMessage(role="user", content=new_user_prompt))
+    history.append(
+        ChatMessage(
+            role="user",
+            content=new_user_prompt,
+            images=new_user_images or None,
+        )
+    )
     return history
 
 
@@ -204,19 +216,51 @@ _MODEL_CTX_LIMITS: dict[str, int] = {
     "qwen3-coder": 262_144,  # 256K native
     "qwen3": 32_768,
     "qwen2.5-coder": 32_768,
+    "qwen2.5vl": 32_768,
+    "qwen2-vl": 32_768,
+    "qwen-vl": 32_768,
     "qwen2.5": 32_768,
     "deepseek-r1": 131_072,
     "deepseek-v3": 131_072,
     "llama3.3": 131_072,
+    "llama3.2-vision": 131_072,
     "llama3.2": 131_072,
     "llama3.1": 131_072,
     "exaone3.5": 32_768,
     "exaone": 32_768,
-    "gemma3": 8_192,
+    "gemma3": 131_072,  # gemma3 4b/12b/27b are vision-capable + 128K ctx
     "gemma2": 8_192,
+    "phi4-multimodal": 16_384,
     "phi4": 16_384,
+    "phi3-vision": 4_096,
     "phi3": 4_096,
+    "llava": 4_096,
+    "bakllava": 4_096,
+    "minicpm-v": 32_768,
+    "moondream": 4_096,
 }
+
+
+# Model name prefixes that have vision input. The chat router uses
+# this to route image attachments to a model that can actually look at
+# them — the OCR fallback in extract.py keeps text-only models working
+# without the image. Match is by leading prefix on the lower-cased
+# base name.
+_VISION_MODEL_PREFIXES = (
+    "qwen2.5vl", "qwen2-vl", "qwen-vl",
+    "llama3.2-vision",
+    "gemma3",
+    "llava", "bakllava",
+    "minicpm-v", "moondream",
+    "phi3-vision", "phi4-multimodal",
+)
+
+
+def _is_vision_model(name: str | None) -> bool:
+    if not name:
+        return False
+    base = name.split(":", 1)[0].lower()
+    return any(base.startswith(p) for p in _VISION_MODEL_PREFIXES)
 
 
 def _ctx_cap_for_model(name: str | None) -> int | None:
@@ -245,6 +289,12 @@ def _choose_model(
     """Return (model_name, reason_tag) for auto routing."""
     default = settings.ollama_model
     general = _pick(settings.model_auto_general, default)
+
+    # Vision wins over everything else — once an image is in the room
+    # the user almost certainly wants the model to see it, not just
+    # OCR-summarise around it.
+    if any(a.image_b64 for a in attachments):
+        return _pick(settings.model_auto_vision, default), "image attachment"
 
     has_code_file = any(
         any(a.filename.lower().endswith(ext) for ext in _CODE_EXTS)
@@ -363,6 +413,15 @@ def _attachments_message(
         )
     elif code_count > 0:
         parts.append(_FILE_MARKER_HELP)
+    image_count = sum(1 for a in attachments if a.image_b64)
+    if image_count:
+        parts.append(
+            f"\n[IMAGE NOTE] 위 첨부 중 {image_count}개는 이미지입니다. "
+            "비전 모델이 라우팅된 경우 사용자 메시지의 images 필드를 통해 "
+            "이미지 픽셀을 직접 볼 수 있습니다. 텍스트 모델이면 아래 OCR "
+            "결과로만 답변하고, 시각적 세부사항(색·레이아웃·도표)에 대해서는 "
+            "\"이미지를 직접 볼 수 없습니다\"라고 명시하세요."
+        )
     for a in attachments:
         parts.append(
             f"\n--- File: {a.filename} ({len(a.text)} chars) ---\n{a.text}"
@@ -499,7 +558,6 @@ async def chat_single(
         raise HTTPException(400, f"provider '{payload.provider}' not available")
 
     session = await _load_session(db, session_id, user.id)
-    history = _build_history(session, payload.prompt)
 
     # Auto-pick a model when the client sends "auto" (the dropdown's
     # 🤖 자동 entry). The chosen name is sent down the wire to the
@@ -511,6 +569,20 @@ async def chat_single(
         chosen_model, auto_reason = _choose_model(
             payload.prompt, payload.attachments
         )
+
+    # Vision payload: only forward image bytes when the model can
+    # actually look at them. Text-only models get the OCR text from
+    # the attachments system message and ignore the image entirely.
+    user_images: list[str] = []
+    if _is_vision_model(chosen_model):
+        user_images = [
+            a.image_b64 for a in payload.attachments if a.image_b64
+        ]
+
+    history = _build_history(
+        session, payload.prompt, new_user_images=user_images or None
+    )
+
     # When auto-routing decides, also raise the num_ctx cap to the
     # picked model's native limit. For manually selected models the
     # global OLLAMA_NUM_CTX_MAX still applies so a user can't push

@@ -51,4 +51,5 @@ async def extract_file(
         "text": result.text,
         "char_count": result.char_count,
         "method": result.method,
+        "image_b64": result.image_b64,
     }

@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     model_auto_code: str = ""
     model_auto_reasoning: str = ""
     model_auto_general: str = ""
+    # Vision-capable model for image attachments. When set and the
+    # user attaches an image, auto routing sends the image bytes to
+    # this model instead of falling back to OCR-only. Examples:
+    #   qwen2.5vl:7b  /  llama3.2-vision:11b  /  gemma3:12b
+    model_auto_vision: str = ""
 
     # ── RAG / 코드 검색 ────────────────────────────────────────────
     # Toggle the whole feature. When false, project routes still

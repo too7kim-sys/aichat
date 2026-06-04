@@ -42,6 +42,11 @@ class SessionUpdate(BaseModel):
 class AttachmentIn(BaseModel):
     filename: str
     text: str
+    # base64 of the original image bytes — only set for image
+    # attachments. Forwarded to Ollama's vision API as the "images"
+    # field of the user message when the routed model can actually
+    # see images.
+    image_b64: str | None = None
 
 
 class ChatRequest(BaseModel):

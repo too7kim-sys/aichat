@@ -494,6 +494,17 @@ body {
   color: var(--text-muted);
   font-style: italic;
 }
+.attachment-chip.image {
+  padding-left: 4px;
+}
+.attachment-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+}
 .attachment-name {
   font-weight: 600;
   color: var(--text);

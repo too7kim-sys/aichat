@@ -7,6 +7,10 @@ from dataclasses import dataclass
 class ChatMessage:
     role: str  # user | assistant | system
     content: str
+    # Optional list of base64-encoded image bytes attached to this
+    # turn. The Ollama provider passes them through as the "images"
+    # field; non-vision models simply ignore the key.
+    images: list[str] | None = None
 
 
 class LLMProvider(ABC):
