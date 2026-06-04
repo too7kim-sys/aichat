@@ -53,6 +53,19 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_project_id "
                     "ON sessions(project_id)"
                 )
+            # Projects table may exist without corpus_type from the
+            # original RAG ship — default existing rows to "code".
+            pcols = await conn.exec_driver_sql("PRAGMA table_info(projects)")
+            pexisting = {row[1] for row in pcols.fetchall()}
+            if pexisting and "corpus_type" not in pexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN corpus_type "
+                    "VARCHAR(20) NOT NULL DEFAULT 'code'"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_projects_corpus_type "
+                    "ON projects(corpus_type)"
+                )
             ucols = await conn.exec_driver_sql("PRAGMA table_info(users)")
             uexisting = {row[1] for row in ucols.fetchall()}
             if uexisting and "email_verified" not in uexisting:

@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, type Project } from "../api/client";
+import { api, type CorpusType, type Project } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
 interface ProjectsState {
@@ -19,6 +19,7 @@ interface ProjectsState {
     source_type: "folder" | "git";
     source_ref: string;
     ref?: string;
+    corpus_type?: CorpusType;
   }) => Promise<Project>;
   remove: (id: string) => Promise<{ freedBytes: number }>;
   reindex: (id: string) => Promise<void>;

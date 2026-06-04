@@ -151,11 +151,14 @@ export interface OllamaModelList {
   models: OllamaModel[];
 }
 
+export type CorpusType = "code" | "document" | "legal" | "api";
+
 export interface Project {
   id: string;
   name: string;
   source_type: "folder" | "git";
   source_ref: string;
+  corpus_type: CorpusType;
   status: "pending" | "indexing" | "ready" | "failed";
   progress_done: number;
   progress_total: number;
@@ -199,6 +202,7 @@ export const api = {
     source_type: "folder" | "git";
     source_ref: string;
     ref?: string;
+    corpus_type?: CorpusType;
   }) =>
     json<Project>("/projects", {
       method: "POST",

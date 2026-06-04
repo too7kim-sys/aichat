@@ -1,26 +1,35 @@
-"""Line-based chunker — pragmatic v1.
+"""Chunkers, one per corpus type.
 
-For each file, emit overlapping windows of `chunk_lines` lines with
-`overlap` lines of context carried into the next chunk. Stops at file
-boundaries, so a chunk never crosses files (the model would lose
-context). Tree-sitter / AST-aware chunking is the v2 path.
+Public entry point: chunk_for_type(corpus_type, filename, body) → list[Chunk].
+Each chunker emits a list of overlapping windows whose text is what
+gets embedded by bge-m3 and stored in Qdrant. The strategy differs by
+corpus because retrieval quality depends on whether we slice on
+syntactic boundaries (code: line windows, legal: 조 boundaries),
+semantic boundaries (document: paragraphs / headings), or structural
+ones (API: one endpoint per chunk).
 """
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 
 from ..config import settings
+
+log = logging.getLogger("uvicorn.error")
 
 
 @dataclass
 class Chunk:
     filename: str
-    start_line: int  # 1-indexed, inclusive
-    end_line: int    # 1-indexed, inclusive
-    text: str
+    start_line: int  # 1-indexed, inclusive (line number for code,
+    end_line: int    # paragraph index for prose, "0/0" if N/A)
+    text: str        # what gets embedded; includes a header line for context
 
 
-def chunk_file(filename: str, body: str) -> list[Chunk]:
+# ── code: line windows (existing behaviour) ───────────────────────────
+
+def chunk_code(filename: str, body: str) -> list[Chunk]:
     lines = body.splitlines()
     n = len(lines)
     if n == 0:
@@ -35,19 +44,300 @@ def chunk_file(filename: str, body: str) -> list[Chunk]:
     while i < n:
         end = min(i + win, n)
         body_lines = lines[i:end]
-        # Prepend filename header so the embedding has filename signal
-        # even when the chunk's interior doesn't mention the file.
         header = f"// {filename} (lines {i + 1}-{end})"
         text = header + "\n" + "\n".join(body_lines)
         out.append(
-            Chunk(
-                filename=filename,
-                start_line=i + 1,
-                end_line=end,
-                text=text,
-            )
+            Chunk(filename=filename, start_line=i + 1, end_line=end, text=text)
         )
         if end == n:
             break
         i += step
     return out
+
+
+# ── document: paragraph windows with markdown-heading context ─────────
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
+
+
+def chunk_document(filename: str, body: str) -> list[Chunk]:
+    """Group consecutive paragraphs into ~2 KB chunks. Markdown
+    headings (#, ##, ...) are preserved at the top of every chunk
+    that falls under them, so a chunk lifted out of context still
+    advertises its section. Overlap by carrying the trailing
+    paragraph forward when it fits."""
+
+    target_chars = 2000
+    overlap_chars = 250
+
+    # Normalise CR/LF, split on blank-line boundaries.
+    paragraphs = re.split(r"\n\s*\n+", body.replace("\r\n", "\n"))
+
+    # Track the most recent heading chain so we can prepend it.
+    current_heading = ""
+
+    chunks: list[Chunk] = []
+    buf_paragraphs: list[str] = []
+    buf_chars = 0
+    para_idx = 0
+    chunk_start_para = 0
+
+    def flush():
+        nonlocal buf_paragraphs, buf_chars, chunk_start_para
+        if not buf_paragraphs:
+            return
+        header_lines = [f"// {filename} (paragraphs {chunk_start_para + 1}-{para_idx})"]
+        if current_heading:
+            header_lines.append(f"# {current_heading}")
+        text = "\n".join(header_lines) + "\n\n" + "\n\n".join(buf_paragraphs).strip()
+        chunks.append(
+            Chunk(
+                filename=filename,
+                start_line=chunk_start_para + 1,
+                end_line=para_idx,
+                text=text,
+            )
+        )
+        # Carry the tail as overlap.
+        tail_chars = 0
+        tail: list[str] = []
+        for p in reversed(buf_paragraphs):
+            if tail_chars + len(p) > overlap_chars and tail:
+                break
+            tail.insert(0, p)
+            tail_chars += len(p)
+        buf_paragraphs = list(tail)
+        buf_chars = sum(len(p) for p in buf_paragraphs)
+        chunk_start_para = para_idx - len(buf_paragraphs)
+
+    for raw_para in paragraphs:
+        para = raw_para.strip()
+        if not para:
+            continue
+        para_idx += 1
+        # Update the running heading when we see a markdown header.
+        h = _HEADING_RE.match(para)
+        if h:
+            current_heading = h.group(2).strip()
+            # Include the heading line in the buffer so the chunk reads
+            # naturally — `# Section\n\nbody…`.
+        if buf_chars + len(para) > target_chars and buf_paragraphs:
+            flush()
+        buf_paragraphs.append(para)
+        buf_chars += len(para)
+
+    if buf_paragraphs:
+        flush()
+
+    return chunks
+
+
+# ── legal: Korean law / regulation, 조-boundary chunker ───────────────
+
+# Catch 제\d+조 / 제 \d+ 조 with optional subtitle in parens.
+_JO_RE = re.compile(
+    r"(?:^|\n)\s*제\s*(\d+)\s*조(?:의\s*\d+)?\s*(?:\([^)]+\))?", re.U
+)
+# Higher-level structure markers for context.
+_PYEN_RE = re.compile(r"^\s*제\s*\d+\s*편", re.M | re.U)
+_JANG_RE = re.compile(r"^\s*제\s*\d+\s*장", re.M | re.U)
+_JEOL_RE = re.compile(r"^\s*제\s*\d+\s*절", re.M | re.U)
+
+
+def chunk_legal(filename: str, body: str) -> list[Chunk]:
+    """Split on 제N조 boundaries. Each 조 becomes one chunk; the chunk
+    text includes the current 편/장/절 headings as context so a
+    retrieved 조 carries its hierarchy with it. Falls back to the
+    document chunker when no 조 markers are found (e.g., a 시행세칙
+    that uses a different style)."""
+
+    text = body.replace("\r\n", "\n")
+    matches = list(_JO_RE.finditer(text))
+    if not matches:
+        return chunk_document(filename, body)
+
+    chunks: list[Chunk] = []
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        jo_body = text[start:end].strip()
+        if not jo_body:
+            continue
+
+        # Walk back from `start` to find the most recent 편/장/절 lines
+        # so we can prepend them as context. Track the LAST hit per
+        # marker type — a 제3조 sitting inside "제2장 처리원칙" should
+        # carry that 장 forward even though "제1장 통칙" appears earlier
+        # in the file.
+        prefix_window = text[:start]
+        last_by_marker: dict[str, str] = {}
+        for label_re, marker in (
+            (_PYEN_RE, "편"),
+            (_JANG_RE, "장"),
+            (_JEOL_RE, "절"),
+        ):
+            for hit in label_re.finditer(prefix_window):
+                line_end = prefix_window.find("\n", hit.end())
+                if line_end < 0:
+                    line_end = len(prefix_window)
+                last_by_marker[marker] = (
+                    prefix_window[hit.start():line_end].strip()
+                )
+
+        prefix_parts = [
+            last_by_marker[m]
+            for m in ("편", "장", "절")
+            if m in last_by_marker
+        ]
+        header_lines = [f"// {filename} (제{m.group(1)}조)"]
+        header_lines.extend(prefix_parts)
+        chunk_text = "\n".join(header_lines) + "\n\n" + jo_body
+
+        # We don't have meaningful line numbers — use the 조 ordinal so
+        # the retriever can still display something sensible.
+        chunks.append(
+            Chunk(
+                filename=filename,
+                start_line=i + 1,
+                end_line=i + 1,
+                text=chunk_text,
+            )
+        )
+
+    return chunks
+
+
+# ── api: one chunk per OpenAPI endpoint ───────────────────────────────
+
+def _try_parse_openapi(body: str, ext: str) -> dict | None:
+    try:
+        if ext in (".yaml", ".yml"):
+            import yaml
+            data = yaml.safe_load(body)
+        elif ext == ".json":
+            import json
+            data = json.loads(body)
+        else:
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(data, dict):
+        return None
+    # OpenAPI 3.x has "openapi"; Swagger 2.0 has "swagger".
+    if "openapi" in data or "swagger" in data:
+        return data
+    return None
+
+
+def chunk_api(filename: str, body: str) -> list[Chunk]:
+    """Endpoint-per-chunk for OpenAPI / Swagger specs. Each chunk
+    bundles the path + HTTP method + summary + description + a brief
+    parameter / request / response summary. For non-spec API docs
+    (markdown READMEs, plain text), fall through to the document
+    chunker so they still get indexed."""
+
+    ext = ("." + filename.rsplit(".", 1)[1].lower()) if "." in filename else ""
+    spec = _try_parse_openapi(body, ext)
+    if spec is None:
+        return chunk_document(filename, body)
+
+    info = spec.get("info") or {}
+    title = info.get("title") or filename
+    version = info.get("version") or "?"
+    base_paths = spec.get("paths") or {}
+
+    chunks: list[Chunk] = []
+    chunk_idx = 0
+    for path, methods in base_paths.items():
+        if not isinstance(methods, dict):
+            continue
+        for method, op in methods.items():
+            if method.lower() not in {
+                "get", "post", "put", "patch", "delete", "head", "options",
+            }:
+                continue
+            if not isinstance(op, dict):
+                continue
+            summary = (op.get("summary") or "").strip()
+            description = (op.get("description") or "").strip()
+            tags = op.get("tags") or []
+
+            param_lines: list[str] = []
+            for p in op.get("parameters") or []:
+                if not isinstance(p, dict):
+                    continue
+                name = p.get("name", "?")
+                where = p.get("in", "?")
+                required = "(required)" if p.get("required") else ""
+                ptype = (p.get("schema") or {}).get("type", "")
+                pdesc = (p.get("description") or "").strip().splitlines()[:1]
+                pdesc_str = pdesc[0] if pdesc else ""
+                param_lines.append(
+                    f"  - {name} [{where} {ptype}] {required} {pdesc_str}".rstrip()
+                )
+
+            request_body = op.get("requestBody")
+            req_summary = ""
+            if isinstance(request_body, dict):
+                content = request_body.get("content") or {}
+                req_summary = "  ".join(content.keys())
+
+            responses = op.get("responses") or {}
+            response_summary = ", ".join(str(k) for k in responses.keys())
+
+            parts = [
+                f"// {filename} ({title} {version})",
+                f"{method.upper()} {path}",
+            ]
+            if tags:
+                parts.append(f"tags: {', '.join(map(str, tags))}")
+            if summary:
+                parts.append(f"summary: {summary}")
+            if description:
+                parts.append("description:")
+                parts.append(description)
+            if param_lines:
+                parts.append("parameters:")
+                parts.extend(param_lines)
+            if req_summary:
+                parts.append(f"requestBody: {req_summary}")
+            if response_summary:
+                parts.append(f"responses: {response_summary}")
+
+            chunk_idx += 1
+            chunks.append(
+                Chunk(
+                    filename=f"{filename}#{method.upper()} {path}",
+                    start_line=chunk_idx,
+                    end_line=chunk_idx,
+                    text="\n".join(parts),
+                )
+            )
+
+    if not chunks:
+        # No paths found despite parsing — treat as a document so the
+        # info block at least gets indexed.
+        return chunk_document(filename, body)
+    return chunks
+
+
+# ── public dispatcher ────────────────────────────────────────────────
+
+_CHUNKERS = {
+    "code": chunk_code,
+    "document": chunk_document,
+    "legal": chunk_legal,
+    "api": chunk_api,
+}
+
+
+def chunk_for_type(
+    corpus_type: str, filename: str, body: str
+) -> list[Chunk]:
+    fn = _CHUNKERS.get(corpus_type, chunk_code)
+    return fn(filename, body)
+
+
+# Backwards-compatible name (old callers used chunk_file).
+def chunk_file(filename: str, body: str) -> list[Chunk]:
+    return chunk_code(filename, body)

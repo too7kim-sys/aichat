@@ -58,11 +58,15 @@ class ChatRequest(BaseModel):
 
 # ── RAG / Projects ────────────────────────────────────────────────────
 
+CorpusType = Literal["code", "document", "legal", "api"]
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     source_type: Literal["folder", "git"]
     source_ref: str = Field(min_length=1, max_length=500)
     ref: str | None = Field(default=None, max_length=120)  # git branch/tag
+    corpus_type: CorpusType = "code"
 
 
 class ProjectOut(BaseModel):
@@ -70,6 +74,7 @@ class ProjectOut(BaseModel):
     name: str
     source_type: str
     source_ref: str
+    corpus_type: str
     status: str
     progress_done: int
     progress_total: int

@@ -1,6 +1,32 @@
 import { useEffect, useState } from "react";
-import type { Project } from "../api/client";
+import type { CorpusType, Project } from "../api/client";
 import { useProjects } from "../state/ProjectsContext";
+
+const CORPUS_META: Record<
+  CorpusType,
+  { label: string; icon: string; hint: string }
+> = {
+  code: {
+    label: "코드",
+    icon: "💻",
+    hint: "소스 트리(.py / .ts / .java / …). 함수 단위 검색에 강함.",
+  },
+  document: {
+    label: "문서",
+    icon: "📄",
+    hint: "매뉴얼·기획서·백서 (.pdf / .docx / .md / .txt). 단락 단위 검색.",
+  },
+  legal: {
+    label: "법령",
+    icon: "⚖",
+    hint: "법령·약관 (.pdf / .docx / .txt). 제N조 단위로 자동 분할.",
+  },
+  api: {
+    label: "API",
+    icon: "🔌",
+    hint: "OpenAPI / Swagger (.json / .yaml). 엔드포인트 단위로 분할.",
+  },
+};
 
 interface Props {
   open: boolean;
@@ -167,6 +193,7 @@ function ProjectCard({
       ? Math.round((100 * p.progress_done) / p.progress_total)
       : 0;
 
+  const meta = CORPUS_META[p.corpus_type] ?? CORPUS_META.code;
   return (
     <article className={`pm-card status-${p.status}${linked ? " linked" : ""}`}>
       <div className="pm-card-head">
@@ -175,6 +202,12 @@ function ProjectCard({
             {p.source_type === "git" ? "🔗" : "📁"}
           </span>
           <span className="pm-card-name" title={p.name}>{p.name}</span>
+          <span
+            className={`pm-corpus-chip corpus-${p.corpus_type}`}
+            title={meta.hint}
+          >
+            {meta.icon} {meta.label}
+          </span>
           {linked && (
             <span className="pm-card-linked-badge" title="현재 채팅에 연결됨">
               ✓ 현재 채팅
@@ -284,9 +317,11 @@ function AddProjectForm({
     source_type: "folder" | "git";
     source_ref: string;
     ref?: string;
+    corpus_type: CorpusType;
   }) => Promise<void>;
 }) {
   const [sourceType, setSourceType] = useState<"git" | "folder">("git");
+  const [corpusType, setCorpusType] = useState<CorpusType>("code");
   const [name, setName] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [ref, setRef] = useState("");
@@ -316,6 +351,7 @@ function AddProjectForm({
         source_type: sourceType,
         source_ref: sourceRef,
         ref: sourceType === "git" && ref.trim() ? ref.trim() : undefined,
+        corpus_type: corpusType,
       });
       setName("");
       setGitUrl("");
@@ -337,6 +373,29 @@ function AddProjectForm({
           <p>Git 레포 URL 또는 백엔드 서버에서 접근 가능한 폴더 경로를 입력하면 백그라운드에서 인덱싱이 시작됩니다.</p>
         </header>
       )}
+
+      <div className="pm-field">
+        <label>코퍼스 유형</label>
+        <div className="pm-corpus-tabs" role="tablist">
+          {(["code", "document", "legal", "api"] as const).map((t) => {
+            const m = CORPUS_META[t];
+            return (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={corpusType === t}
+                className={corpusType === t ? "active" : ""}
+                onClick={() => setCorpusType(t)}
+              >
+                <span aria-hidden>{m.icon}</span>
+                <span>{m.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="pm-help">{CORPUS_META[corpusType].hint}</div>
+      </div>
 
       <div className="pm-source-tabs" role="tablist">
         <button

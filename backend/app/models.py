@@ -104,6 +104,13 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(120))
     source_type: Mapped[str] = mapped_column(String(20))  # "folder" | "git"
     source_ref: Mapped[str] = mapped_column(String(500))  # path or git url
+    # What kind of corpus this is — drives the chunker (line windows for
+    # code, paragraph windows for documents, 조-boundary for Korean legal
+    # text, endpoint-per-chunk for OpenAPI specs) and the retrieval
+    # system-prompt hint.
+    corpus_type: Mapped[str] = mapped_column(
+        String(20), default="code", index=True
+    )
     # pending | indexing | ready | failed
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     progress_done: Mapped[int] = mapped_column(Integer, default=0)

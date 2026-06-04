@@ -18,14 +18,14 @@ from sqlalchemy import select
 from .. import models
 from ..config import settings
 from ..database import SessionLocal
-from .chunker import chunk_file
+from .chunker import chunk_for_type
 from .embed import EmbedError, embed_many
 from .vector import collection_name, ensure_collection, get_client
 
 log = logging.getLogger("uvicorn.error")
 
 
-_ALLOWED_EXT = {
+_EXTS_CODE = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".vue", ".svelte",
     ".java", ".kt", ".rs", ".go", ".c", ".cpp", ".cc", ".h", ".hpp",
     ".cs", ".rb", ".php", ".sh", ".bash", ".zsh", ".sql", ".pl",
@@ -34,6 +34,23 @@ _ALLOWED_EXT = {
     ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
     ".properties", ".md", ".markdown", ".txt", ".csv", ".tsv", ".gradle",
     ".groovy", ".scala", ".lua", ".dart", ".swift",
+}
+_EXTS_DOCUMENT = {
+    ".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm", ".rtf",
+    ".log", ".csv", ".tsv",
+}
+_EXTS_LEGAL = {
+    ".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm",
+}
+_EXTS_API = {
+    ".json", ".yaml", ".yml", ".md", ".markdown",
+}
+
+_EXTS_BY_TYPE = {
+    "code": _EXTS_CODE,
+    "document": _EXTS_DOCUMENT,
+    "legal": _EXTS_LEGAL,
+    "api": _EXTS_API,
 }
 _SKIP_DIRS = {
     "node_modules", ".git", ".svn", ".hg", ".venv", "venv", "__pycache__",
@@ -49,8 +66,10 @@ _ALLOWED_GIT_HOSTS = {
 _GIT_CLONE_TIMEOUT = 600  # bigger than the one-off /repo/clone — RAG corpora are larger
 
 
-def _walk_corpus(root: Path) -> list[Path]:
-    """Filter walk for files we'll embed."""
+def _walk_corpus(root: Path, corpus_type: str) -> list[Path]:
+    """Filter walk for files we'll embed, using the per-type
+    extension allowlist."""
+    allowed = _EXTS_BY_TYPE.get(corpus_type, _EXTS_CODE)
     out: list[Path] = []
     for p in root.rglob("*"):
         if not p.is_file() or p.is_symlink():
@@ -61,7 +80,7 @@ def _walk_corpus(root: Path) -> list[Path]:
             continue
         if any(seg in _SKIP_DIRS for seg in rel.parts):
             continue
-        if p.suffix.lower() not in _ALLOWED_EXT:
+        if p.suffix.lower() not in allowed:
             continue
         try:
             if p.stat().st_size > settings.rag_max_bytes_per_file:
@@ -76,6 +95,51 @@ def _walk_corpus(root: Path) -> list[Path]:
             )
             break
     return out
+
+
+_HTML_TAG_RE = None  # lazily compiled
+
+
+def _read_text_for_indexing(path: Path) -> str | None:
+    """Decode the file into UTF-8 text for chunking. Routes through
+    the existing files.extract helpers for PDF and DOCX so the
+    indexer benefits from the same parsing pipeline as the chat
+    composer attachments. Returns None if the file can't be read."""
+    ext = path.suffix.lower()
+    try:
+        blob = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        if ext == ".pdf":
+            from ..files.extract import _extract_pdf
+            text, _method = _extract_pdf(blob)
+            return text
+        if ext == ".docx":
+            from ..files.extract import _extract_docx
+            return _extract_docx(blob)
+        # Everything else: try UTF-8 with Korean fallbacks.
+        for enc in ("utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"):
+            try:
+                text = blob.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = blob.decode("utf-8", errors="replace")
+        if ext in {".html", ".htm"}:
+            # Cheap HTML→text: drop tags, normalise whitespace. Avoids
+            # pulling in bs4 just for indexing.
+            global _HTML_TAG_RE
+            if _HTML_TAG_RE is None:
+                import re
+                _HTML_TAG_RE = re.compile(r"<[^>]+>")
+            text = _HTML_TAG_RE.sub(" ", text)
+            text = "\n".join(line.strip() for line in text.splitlines())
+        return text
+    except Exception as exc:  # noqa: BLE001 - keep the indexer rolling
+        log.warning("RAG indexer: failed to read %s: %s", path, exc)
+        return None
 
 
 def _clone_git(url: str, ref: str | None, dest: Path) -> None:
@@ -144,6 +208,7 @@ async def run_indexing(project_id: str) -> None:
                 return
             source_type = project.source_type
             source_ref = project.source_ref
+            corpus_type = project.corpus_type or "code"
 
         await _update_project(
             project_id, status="indexing",
@@ -162,19 +227,21 @@ async def run_indexing(project_id: str) -> None:
         else:
             raise RuntimeError(f"unknown source_type: {source_type}")
 
-        # 1) Walk the corpus and build chunks.
-        files = _walk_corpus(root)
+        # 1) Walk the corpus and build chunks (per-type allowlist +
+        #    per-type chunker).
+        files = _walk_corpus(root, corpus_type)
         if not files:
-            raise RuntimeError("인덱싱 대상 파일이 없습니다")
+            raise RuntimeError(
+                f"인덱싱 대상 파일이 없습니다 (corpus_type={corpus_type})"
+            )
 
         all_chunks = []
         for f in files:
-            try:
-                body = f.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            body = _read_text_for_indexing(f)
+            if not body:
                 continue
             rel = f.relative_to(root).as_posix()
-            all_chunks.extend(chunk_file(rel, body))
+            all_chunks.extend(chunk_for_type(corpus_type, rel, body))
 
         await _update_project(
             project_id, progress_total=len(all_chunks), file_count=len(files),
@@ -214,6 +281,7 @@ async def run_indexing(project_id: str) -> None:
                             "start_line": chunk.start_line,
                             "end_line": chunk.end_line,
                             "text": chunk.text,
+                            "corpus_type": corpus_type,
                             "hash": hashlib.sha1(
                                 chunk.text.encode("utf-8")
                             ).hexdigest(),
