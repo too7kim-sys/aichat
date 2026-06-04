@@ -21,9 +21,12 @@ const Ctx = createContext<ModelState | null>(null);
 export function ModelProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [models, setModels] = useState<OllamaModel[]>([]);
-  // Hydrate the user's last pick so it survives reloads.
+  // Hydrate the user's last pick so it survives reloads. New users
+  // (no localStorage entry) start on "auto" so the backend's auto
+  // router picks per-request — the manual dropdown is currently
+  // hidden from the UI.
   const [selected, _setSelected] = useState<string>(
-    () => localStorage.getItem(PICK_KEY) || ""
+    () => localStorage.getItem(PICK_KEY) || "auto"
   );
 
   function setSelected(name: string) {
@@ -42,8 +45,11 @@ export function ModelProvider({ children }: { children: ReactNode }) {
       .then((res) => {
         setModels(res.models);
         _setSelected((prev) => {
+          if (prev === "auto") return prev;
           if (prev && res.models.some((m) => m.name === prev)) return prev;
-          return res.current;
+          // Fallback to auto whenever the persisted pick is missing
+          // or no longer available on the Ollama server.
+          return "auto";
         });
       })
       .catch(() => {

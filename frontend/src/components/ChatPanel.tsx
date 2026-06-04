@@ -39,9 +39,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const folderInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const artifactsState = useArtifacts();
-  const { models, selected: model, setSelected: setModel } = useModels();
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const { selected: model } = useModels();
+  // Model picker UI is hidden — auto routing handles selection.
+  // ModelContext defaults `model` to "auto" so the backend's
+  // _choose_model is exercised by default.
 
   // Per-session RAG project link, persisted client-side. Backend reads
   // payload.project_id and also falls back to session.project_id, but
@@ -70,17 +71,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const liveSearchWarning = liveStream?.searchWarning ?? null;
 
   // Close dropdown on outside click.
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    function onClick(e: MouseEvent) {
-      if (!modelMenuRef.current?.contains(e.target as Node)) {
-        setModelMenuOpen(false);
-      }
-    }
-    window.addEventListener("mousedown", onClick);
-    return () => window.removeEventListener("mousedown", onClick);
-  }, [modelMenuOpen]);
-
   useImperativeHandle(ref, () => ({
     appendToPrompt(text: string) {
       setPrompt((prev) => (prev ? prev + text : text));
@@ -530,70 +520,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 : linkedProject.name
               : "프로젝트"}
           </button>
-          <div className="model-select" ref={modelMenuRef}>
-            <button
-              type="button"
-              className="model-info model-trigger"
-              onClick={() => setModelMenuOpen((v) => !v)}
-              disabled={streaming || models.length === 0}
-              title={
-                models.length
-                  ? `현재 모델: ${
-                      model === "auto"
-                        ? "🤖 자동"
-                        : model || "(기본)"
-                    } — 클릭해 변경`
-                  : "Ollama 서버에 연결되지 않음"
-              }
-            >
-              <span className="model-info-dot" aria-hidden>●</span>{" "}
-              <span className="model-info-name">
-                {model === "auto" ? "🤖 자동" : model || defaultLabel}
-              </span>
-              {models.length > 0 && <span className="model-info-caret">▾</span>}
-            </button>
-            {modelMenuOpen && (
-              <div className="popover model-popover" role="menu">
-                <div className="popover-header">Ollama 모델</div>
-                <ul className="popover-list">
-                  <li
-                    className={`auto-pick${model === "auto" ? " active" : ""}`}
-                    onClick={() => {
-                      setModel("auto");
-                      setModelMenuOpen(false);
-                    }}
-                  >
-                    <span className="popover-check" aria-hidden>
-                      {model === "auto" ? "✓" : ""}
-                    </span>
-                    <span className="popover-name">🤖 자동 (권장)</span>
-                    <span className="popover-meta">상황 맞춤</span>
-                  </li>
-                  {models.map((m) => {
-                    const active = m.name === model;
-                    return (
-                      <li
-                        key={m.name}
-                        className={active ? "active" : ""}
-                        onClick={() => {
-                          setModel(m.name);
-                          setModelMenuOpen(false);
-                        }}
-                      >
-                        <span className="popover-check" aria-hidden>
-                          {active ? "✓" : ""}
-                        </span>
-                        <span className="popover-name">{m.name}</span>
-                        <span className="popover-meta">
-                          {m.parameter_size ?? formatBytes(m.size)}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-          </div>
           {artifactsState.artifacts.length > 0 && (
             <button
               type="button"
@@ -892,13 +818,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     </div>
   );
 });
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 function SourcesBox({
   sources,
