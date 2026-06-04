@@ -42,6 +42,17 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_user_id "
                     "ON sessions(user_id)"
                 )
+            if "project_id" not in existing:
+                # RAG link added in the Phase-1 RAG commit. Nullable, so
+                # existing rows survive — the chat router just sees None
+                # and skips retrieval.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN project_id VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_project_id "
+                    "ON sessions(project_id)"
+                )
             ucols = await conn.exec_driver_sql("PRAGMA table_info(users)")
             uexisting = {row[1] for row in ucols.fetchall()}
             if uexisting and "email_verified" not in uexisting:
