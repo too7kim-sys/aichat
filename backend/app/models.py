@@ -73,6 +73,17 @@ class Session(Base):
     project_id: Mapped[str | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Code-focused mode: when this session was kicked off from a Code
+    # workspace, the workspace is pinned so the chat router auto-
+    # attaches the project files on EVERY turn (instead of relying on
+    # the user re-attaching them). code_focused also routes auto-mode
+    # selection to MODEL_AUTO_CODE and injects a coding-specialised
+    # system prompt at the head of every request.
+    workspace_id: Mapped[str | None] = mapped_column(
+        ForeignKey("code_workspaces.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    code_focused: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

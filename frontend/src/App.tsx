@@ -12,7 +12,6 @@ import { UserMenu } from "./auth/UserMenu";
 import { VerifyBanner } from "./auth/VerifyBanner";
 import { ModelProvider } from "./state/ModelContext";
 import { ProjectsProvider } from "./state/ProjectsContext";
-import { queueAttachment } from "./state/attachQueue";
 import { WorkspacesProvider } from "./state/WorkspacesContext";
 import type { ProviderInfo, Session } from "./types";
 
@@ -192,11 +191,9 @@ function AppInner({
   async function handleCreateFromWorkspace(workspaceId: string) {
     try {
       const res = await api.startChatFromWorkspace(workspaceId);
-      // Queue every collected file before flipping activeId so the
-      // freshly mounted ChatPanel drains them into its composer.
-      for (const a of res.attachments) {
-        queueAttachment({ filename: a.filename, text: a.text });
-      }
+      // No client-side queueing: the session is permanently linked
+      // to the workspace, so the chat router auto-injects the files
+      // server-side on every turn. The user never re-attaches.
       await refreshSessions();
       setActiveId(res.session_id);
     } catch (e) {

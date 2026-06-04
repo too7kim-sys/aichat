@@ -20,6 +20,8 @@ class MessageOut(BaseModel):
 class SessionOut(BaseModel):
     id: str
     title: str
+    workspace_id: str | None = None
+    code_focused: bool = False
     created_at: datetime
     updated_at: datetime
 

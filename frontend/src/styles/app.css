@@ -965,6 +965,20 @@ body {
   flex-shrink: 0;
   font-weight: 600;
 }
+.chat-code-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #e0f2fe;
+  color: #075985;
+  border: 1px solid #bae6fd;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
 
 /* === Workspace tabs (sidebar 상단, Claude 스타일) =================== */
 .workspace-tabs {

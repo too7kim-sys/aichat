@@ -314,12 +314,8 @@ export const api = {
     json<{
       session_id: string;
       title: string;
-      attachments: {
-        filename: string;
-        text: string;
-        char_count: number;
-        method: string;
-      }[];
+      workspace_id: string;
+      workspace_name: string;
       file_count: number;
       truncated: boolean;
       total_files_in_repo: number;

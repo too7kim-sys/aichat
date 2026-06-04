@@ -243,12 +243,14 @@ async def start_chat_from_workspace(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    """Create a fresh chat session named after the workspace and
-    bundle a representative slice of its files as attachments so the
-    LLM has the project loaded the moment the user types their first
-    prompt. Files are picked smallest-first up to a size + count cap;
-    if we don't take everything a manifest entry tells the model
-    exactly what's missing so it can ask the user for specifics."""
+    """Spin up a chat session that's permanently tied to a workspace.
+
+    The session is marked code_focused and gets workspace_id set so
+    the chat router auto-injects the workspace files on EVERY turn
+    (not just the first one) — the user never has to think about
+    "did I re-attach the project". Returns the new session id and
+    a brief summary of what's in the workspace so the UI can render
+    the right indicator without doing a second round-trip."""
     ws = await db.scalar(
         select(models.CodeWorkspace).where(
             models.CodeWorkspace.id == workspace_id,
@@ -260,54 +262,31 @@ async def start_chat_from_workspace(
     if ws.status != "ready":
         raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
 
-    root = workspace_path_for(user.id, workspace_id)
-    bundle = await asyncio.get_running_loop().run_in_executor(
-        None, collect_workspace_files, root
-    )
-
     session = models.Session(
         title=(ws.name or "Code workspace")[:200],
         user_id=user.id,
         mode="single",
+        workspace_id=ws.id,
+        code_focused=True,
     )
     db.add(session)
     await db.commit()
     await db.refresh(session)
 
-    attachments = [
-        {
-            "filename": f"{ws.name}/{f['path']}",
-            "text": f["text"],
-            "char_count": len(f["text"]),
-            "method": "workspace",
-        }
-        for f in bundle["files"]
-    ]
-    # Manifest: when we couldn't fit every file, tell the model what
-    # else is in the repo so it can ask for specific files rather
-    # than hallucinate.
-    if bundle["truncated"]:
-        manifest_lines = [
-            f"# {ws.name} — workspace manifest",
-            f"전체 파일 수: {bundle['total_files_in_repo']}",
-            f"채팅에 포함된 파일: {bundle['total_files']} (텍스트, 작은 것 우선)",
-            f"미포함: 나머지 파일 ({bundle['total_files_in_repo'] - bundle['total_files']}개)",
-            "",
-            "필요한 파일이 위 목록에 없다면 정확한 경로를 알려달라고 사용자에게 요청하세요.",
-        ]
-        attachments.append(
-            {
-                "filename": f"{ws.name}/_WORKSPACE_MANIFEST.txt",
-                "text": "\n".join(manifest_lines),
-                "char_count": sum(len(s) for s in manifest_lines),
-                "method": "workspace",
-            }
-        )
+    # One-off bundle for the response so the client can show a chip
+    # like "📁 사내 결제 모듈 · 23 파일 자동 첨부". The actual chat
+    # turns pull a fresh bundle server-side so a git pull halfway
+    # through the conversation lands in the very next reply.
+    root = workspace_path_for(user.id, workspace_id)
+    bundle = await asyncio.get_running_loop().run_in_executor(
+        None, collect_workspace_files, root
+    )
 
     return {
         "session_id": session.id,
         "title": session.title,
-        "attachments": attachments,
+        "workspace_id": ws.id,
+        "workspace_name": ws.name,
         "file_count": bundle["total_files"],
         "truncated": bundle["truncated"],
         "total_files_in_repo": bundle["total_files_in_repo"],

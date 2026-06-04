@@ -114,6 +114,30 @@ _TRANSLATION_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_CODE_FOCUSED_SYSTEM = ChatMessage(
+    role="system",
+    content=(
+        "[코드 작업 모드]\n"
+        "이 대화는 코드 작업에 특화되어 있습니다. 아래 \"[ATTACHED FILES]\" "
+        "시스템 메시지에 워크스페이스 전체에서 추출한 파일이 매 턴 자동으로 "
+        "포함됩니다(사용자가 매번 다시 첨부하지 않아도 됩니다).\n\n"
+        "행동 규칙:\n"
+        "1. 모든 답변은 첨부된 파일을 1차 자료로 사용하세요. 추측 금지.\n"
+        "2. 발견·인용은 `path:line` 형식으로 정확히 표기.\n"
+        "3. 코드 수정 제안 시 변경된 파일은 첫 줄에 `# file: <원본 경로>` "
+        "마커를 두고 전체 파일 내용을 출력하세요 (UI가 💾 다운로드 버튼을 "
+        "달아줍니다).\n"
+        "4. 첨부 목록에 없는 파일이 필요하면 \"이 경로의 파일을 보여주세요\"라고 "
+        "사용자에게 요청하세요. 추측해서 만들어 쓰지 마세요.\n"
+        "5. 빌드·테스트 명령을 제안할 때는 프로젝트의 실제 스택(예: pom.xml, "
+        "build.gradle, package.json)에서 확인한 것만 사용하세요.\n"
+        "6. 이전 턴에서 본 적 있는 파일이라면 다시 첨부됐다고 가정하고 "
+        "맥락을 이어가세요 — \"파일을 보여주세요\"를 매번 요청하지 마세요.\n"
+        "7. 의심스러우면 `(확인 필요)` 마크와 함께 사용자에게 검증 요청."
+    ),
+)
+
+
 _TRANSLATION_SYSTEM = ChatMessage(
     role="system",
     content=(
@@ -559,6 +583,58 @@ async def chat_single(
 
     session = await _load_session(db, session_id, user.id)
 
+    # Code-focused sessions pull their workspace files fresh each
+    # turn so the model doesn't lose the project after the first
+    # message. The list is prepended to whatever the client sent so
+    # client-side image / one-off attachments still work normally.
+    auto_workspace_attachments: list[schemas.AttachmentIn] = []
+    if session.workspace_id:
+        try:
+            ws = await db.scalar(
+                select(models.CodeWorkspace).where(
+                    models.CodeWorkspace.id == session.workspace_id,
+                    models.CodeWorkspace.user_id == user.id,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            ws = None
+        if ws and ws.status == "ready":
+            from ..code.workspace import (
+                collect_workspace_files,
+                workspace_path_for,
+            )
+            root = workspace_path_for(user.id, ws.id)
+            bundle = await asyncio.get_running_loop().run_in_executor(
+                None, collect_workspace_files, root
+            )
+            auto_workspace_attachments = [
+                schemas.AttachmentIn(
+                    filename=f"{ws.name}/{f['path']}",
+                    text=f["text"],
+                )
+                for f in bundle["files"]
+            ]
+            if bundle["truncated"]:
+                manifest = (
+                    f"# {ws.name} — workspace manifest\n"
+                    f"전체 파일: {bundle['total_files_in_repo']}\n"
+                    f"채팅에 포함: {bundle['total_files']} "
+                    "(텍스트 파일, 작은 것 우선)\n"
+                    f"미포함: {bundle['total_files_in_repo'] - bundle['total_files']}개\n\n"
+                    "필요한 파일이 위에 없으면 사용자에게 정확한 경로를 요청하세요."
+                )
+                auto_workspace_attachments.append(
+                    schemas.AttachmentIn(
+                        filename=f"{ws.name}/_WORKSPACE_MANIFEST.txt",
+                        text=manifest,
+                    )
+                )
+
+    # Merge client + auto attachments. Client-provided ones come
+    # LAST so newer one-off uploads (e.g., a screenshot) sit closer
+    # to the model's attention.
+    effective_attachments = auto_workspace_attachments + list(payload.attachments)
+
     # Auto-pick a model when the client sends "auto" (the dropdown's
     # 🤖 자동 entry). The chosen name is sent down the wire to the
     # provider AND echoed to the UI through an SSE "model" event so
@@ -567,8 +643,17 @@ async def chat_single(
     auto_reason: str | None = None
     if (payload.model or "").lower() == "auto":
         chosen_model, auto_reason = _choose_model(
-            payload.prompt, payload.attachments
+            payload.prompt, effective_attachments
         )
+        # code-focused sessions force the code bucket regardless of
+        # what _choose_model returned. This guarantees the routing
+        # reason badge says "session code-focused" instead of
+        # whatever heuristic fired.
+        if session.code_focused:
+            chosen_model = _pick(
+                settings.model_auto_code, settings.ollama_model
+            )
+            auto_reason = "session code-focused"
 
     # Vision payload: only forward image bytes when the model can
     # actually look at them. Text-only models get the OCR text from
@@ -600,7 +685,7 @@ async def chat_single(
         if sys_msg is not None:
             history.insert(0, sys_msg)
 
-    attach_msg = _attachments_message(payload.attachments)
+    attach_msg = _attachments_message(effective_attachments)
     if attach_msg is not None:
         # Place the attachment context right BEFORE the new user prompt
         # (which _build_history appended as the final element). This
@@ -665,6 +750,11 @@ async def chat_single(
     # user prompt (= higher attention) than the global rules.
     if _is_translation_request(payload.prompt):
         history.insert(-1, _TRANSLATION_SYSTEM)
+
+    # Code-focused sessions get the coding system prompt right next
+    # to the user message so its rules win over the global ruleset.
+    if session.code_focused:
+        history.insert(-1, _CODE_FOCUSED_SYSTEM)
 
     # Pin the language preference at the very front so it always wins
     # over the model's own default behavior.

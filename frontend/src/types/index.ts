@@ -16,6 +16,8 @@ export interface Message {
 export interface Session {
   id: string;
   title: string;
+  workspace_id: string | null;
+  code_focused: boolean;
   created_at: string;
   updated_at: string;
 }

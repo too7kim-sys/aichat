@@ -53,6 +53,21 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_project_id "
                     "ON sessions(project_id)"
                 )
+            if "workspace_id" not in existing:
+                # Code workspace pin + code-focused flag for the
+                # "click workspace → project chat" flow.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN workspace_id VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_workspace_id "
+                    "ON sessions(workspace_id)"
+                )
+            if "code_focused" not in existing:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN code_focused "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
             # Projects table may exist without corpus_type from the
             # original RAG ship — default existing rows to "code".
             pcols = await conn.exec_driver_sql("PRAGMA table_info(projects)")

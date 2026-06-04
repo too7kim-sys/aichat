@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { api, type ExtractedFile } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
+  IconCode,
   IconDownload,
   IconPaperclip,
   IconSearch,
@@ -491,6 +492,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             >
               {session.title}
             </h2>
+          )}
+          {session.code_focused && (
+            <span
+              className="chat-code-badge"
+              title="이 세션은 코드 작업에 특화돼 있습니다. 워크스페이스 파일이 매 턴 자동 첨부됩니다."
+            >
+              <IconCode size={11} /> 코드 모드
+            </span>
           )}
         </div>
         <div className="chat-header-right">
