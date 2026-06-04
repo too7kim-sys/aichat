@@ -2437,6 +2437,112 @@ body {
 }
 .pm-empty p { margin: 0; }
 
+/* Browse view — master-detail split (list left, single card right) */
+.pm-body-browse {
+  padding: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+.pm-side {
+  border-right: 1px solid var(--border);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.pm-side-add {
+  margin: 12px;
+  flex-shrink: 0;
+}
+.pm-side-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.pm-side-item {
+  cursor: pointer;
+  padding: 10px 12px;
+  border-left: 3px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.1s, border-color 0.1s;
+}
+.pm-side-item:hover { background: var(--bg-sidebar); }
+.pm-side-item.active {
+  background: var(--bg-sidebar);
+  border-left-color: #2563eb;
+}
+.pm-side-item.linked { /* subtle dot in the corpus chip below */ }
+.pm-side-item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+.pm-side-item-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: inline-flex;
+}
+.pm-side-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.pm-side-item-linked {
+  flex-shrink: 0;
+  color: #16a34a;
+  display: inline-flex;
+}
+.pm-side-item-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 10.5px;
+}
+.pm-side-item-corpus {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-sidebar);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.pm-side-item.active .pm-side-item-corpus { background: var(--bg-card); }
+.pm-side-item-status {
+  color: var(--text-faint);
+}
+.pm-side-item-status.status-ready { color: #16a34a; }
+.pm-side-item-status.status-indexing { color: #2563eb; }
+.pm-side-item-status.status-failed { color: #dc2626; }
+
+.pm-detail {
+  padding: 18px 24px 22px;
+  overflow-y: auto;
+  min-height: 0;
+  min-width: 0;
+}
+.pm-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 40px;
+  text-align: center;
+}
+
 .pm-list {
   display: flex;
   flex-direction: column;

@@ -153,6 +153,11 @@ export function ProjectModal({
   const { projects, storageBytes, create, remove, reindex, refresh } =
     useProjects();
   const [addOpen, setAddOpen] = useState(false);
+  // Master-detail: only one project's full card (status / snapshots /
+  // schedule / actions) is rendered at a time. The list on the left
+  // shows just name + status so the modal isn't a wall of expanded
+  // history when the user just wants to switch projects.
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -170,7 +175,27 @@ export function ProjectModal({
     if (open && projects.length === 0) setAddOpen(true);
   }, [open, projects.length]);
 
+  // Default the detail pane to the linked project on open, falling
+  // back to the first project so the right side is never empty when
+  // any project exists. Also drop the selection when the active
+  // project is deleted so the empty-state shows up instead of a
+  // stale id.
+  useEffect(() => {
+    if (!open) return;
+    if (projects.length === 0) {
+      setActiveProjectId(null);
+      return;
+    }
+    setActiveProjectId((curr) => {
+      if (curr && projects.some((p) => p.id === curr)) return curr;
+      if (linkedProjectId && projects.some((p) => p.id === linkedProjectId))
+        return linkedProjectId;
+      return projects[0].id;
+    });
+  }, [open, projects, linkedProjectId]);
+
   if (!open) return null;
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -238,65 +263,142 @@ export function ProjectModal({
             </div>
           </div>
         ) : (
-          // ── Browse view ── add CTA on top + project cards
-          <div className="pm-body">
-            <button
-              type="button"
-              className="pm-add-cta"
-              onClick={() => setAddOpen(true)}
-            >
-              <IconPlus size={14} />
-              <span>새 프로젝트 추가</span>
-            </button>
+          // ── Browse view ── master-detail (list left, single card right)
+          <div className="pm-body pm-body-browse">
+            <aside className="pm-side">
+              <button
+                type="button"
+                className="pm-add-cta pm-side-add"
+                onClick={() => setAddOpen(true)}
+              >
+                <IconPlus size={14} />
+                <span>새 프로젝트 추가</span>
+              </button>
+              {projects.length === 0 ? (
+                <div className="pm-empty">
+                  <IconBookOpen size={28} />
+                  <p>아직 추가된 프로젝트가 없습니다.</p>
+                </div>
+              ) : (
+                <ul className="pm-side-list">
+                  {projects.map((p) => (
+                    <ProjectListItem
+                      key={p.id}
+                      project={p}
+                      active={p.id === activeProjectId}
+                      linked={linkedProjectId === p.id}
+                      onSelect={() => setActiveProjectId(p.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </aside>
 
-            {projects.length === 0 ? (
-              <div className="pm-empty">
-                <IconBookOpen size={28} />
-                <p>아직 추가된 프로젝트가 없습니다.</p>
-              </div>
-            ) : (
-              <div className="pm-list">
-                {projects.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    linkable={!!linkSessionId}
-                    linked={linkedProjectId === p.id}
-                    onLink={() =>
-                      onLinkChange?.(linkedProjectId === p.id ? null : p.id)
-                    }
-                    onReindex={() => reindex(p.id)}
-                    onDelete={async () => {
-                      if (
-                        !window.confirm(
-                          `"${p.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
-                        )
+            <main className="pm-detail">
+              {activeProject ? (
+                <ProjectCard
+                  project={activeProject}
+                  linkable={!!linkSessionId}
+                  linked={linkedProjectId === activeProject.id}
+                  onLink={() =>
+                    onLinkChange?.(
+                      linkedProjectId === activeProject.id
+                        ? null
+                        : activeProject.id,
+                    )
+                  }
+                  onReindex={() => reindex(activeProject.id)}
+                  onDelete={async () => {
+                    if (
+                      !window.confirm(
+                        `"${activeProject.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
                       )
-                        return;
-                      if (linkedProjectId === p.id) onLinkChange?.(null);
-                      try {
-                        const { freedBytes } = await remove(p.id);
-                        if (freedBytes > 0) {
-                          // Light feedback so the user can see disk was
-                          // actually reclaimed (not just a DB row gone).
-                          console.info(
-                            `[RAG] "${p.name}" 삭제 — ${fmtBytes(freedBytes)} 회수`,
-                          );
-                        }
-                      } catch (e) {
-                        window.alert(
-                          `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
+                    )
+                      return;
+                    if (linkedProjectId === activeProject.id)
+                      onLinkChange?.(null);
+                    try {
+                      const { freedBytes } = await remove(activeProject.id);
+                      if (freedBytes > 0) {
+                        console.info(
+                          `[RAG] "${activeProject.name}" 삭제 — ${fmtBytes(freedBytes)} 회수`,
                         );
                       }
-                    }}
-                  />
-                ))}
-              </div>
-            )}
+                      // After deletion, refresh() runs in the hook;
+                      // the effect above will pick a new active id.
+                    } catch (e) {
+                      window.alert(
+                        `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
+                      );
+                    }
+                  }}
+                />
+              ) : (
+                <div className="pm-detail-empty">
+                  왼쪽에서 프로젝트를 선택하세요.
+                </div>
+              )}
+            </main>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// ── Project list item (left side, compact row) ───────────────────────
+
+function ProjectListItem({
+  project: p,
+  active,
+  linked,
+  onSelect,
+}: {
+  project: Project;
+  active: boolean;
+  linked: boolean;
+  onSelect: () => void;
+}) {
+  const meta = CORPUS_META[p.corpus_type] ?? CORPUS_META.document;
+  const statusText =
+    p.status === "ready"
+      ? "준비됨"
+      : p.status === "indexing"
+      ? p.progress_total
+        ? `${Math.round((100 * p.progress_done) / p.progress_total)}%`
+        : "인덱싱"
+      : p.status === "failed"
+      ? "실패"
+      : "대기";
+  return (
+    <li
+      className={`pm-side-item status-${p.status}${active ? " active" : ""}${
+        linked ? " linked" : ""
+      }`}
+      onClick={onSelect}
+    >
+      <div className="pm-side-item-top">
+        <span className="pm-side-item-icon" aria-hidden>
+          {SOURCE_META[p.source_type]?.icon ?? <IconFolder size={13} />}
+        </span>
+        <span className="pm-side-item-name" title={p.name}>
+          {p.name}
+        </span>
+        {linked && (
+          <span className="pm-side-item-linked" title="현재 채팅에 연결됨">
+            <IconCheck size={11} />
+          </span>
+        )}
+      </div>
+      <div className="pm-side-item-meta">
+        <span className={`pm-side-item-corpus corpus-${p.corpus_type}`}>
+          {meta.label}
+        </span>
+        <span className={`pm-side-item-status status-${p.status}`}>
+          {statusText}
+        </span>
+      </div>
+    </li>
   );
 }
 
