@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import time
 from collections.abc import AsyncIterator
 
@@ -102,6 +103,64 @@ _CODE_EXTS = {
     ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".sh", ".sql",
     ".css", ".scss", ".html", ".json", ".yaml", ".yml", ".toml",
 }
+
+
+# === Auto model routing =====================================================
+# Used when the client sends model="auto". We classify the request and pick
+# one of the configured models. Patterns lean Korean-first since this is a
+# KR-default UI.
+
+_CODE_INTENT_KO = re.compile(
+    r"취약점|코드\s*리뷰|코드\s*점검|보안\s*점검|버그|디버깅|"
+    r"리팩토|리펙토|개선\s*제안|구현해|코드\s*작성|코드를\s*만들|코드\s*리뷰"
+)
+_CODE_INTENT_EN = re.compile(
+    r"vulnerab|code\s*review|review\s+(?:this|the|my)?\s*code|"
+    r"security\s*(?:review|audit|check|bug)|"
+    r"\bbugs?\b|\bdebug(?:ging)?\b|refactor|implement|"
+    r"write\s*(?:code|a\s*function|a\s*script)",
+    re.IGNORECASE,
+)
+_REASONING_INTENT_KO = re.compile(
+    r"왜\s|왜냐|이유는|원인은|분석해\s*줘|증명해|단계별로\s*생각|논리적으로|"
+    r"수학|미적분|확률|논증|왜 그런"
+)
+_REASONING_INTENT_EN = re.compile(
+    r"step.by.step|reason\s*through|prove\b|explain\s*why|\bwhy\s+does|"
+    r"derive|chain.of.thought",
+    re.IGNORECASE,
+)
+_LARGE_ATTACH_CHARS = 30_000
+
+
+def _pick(name: str, fallback: str) -> str:
+    """Use a configured router model if non-empty, else the default."""
+    return name.strip() or fallback
+
+
+def _choose_model(
+    prompt: str,
+    attachments: list[schemas.AttachmentIn],
+) -> tuple[str, str]:
+    """Return (model_name, reason_tag) for auto routing."""
+    default = settings.ollama_model
+    general = _pick(settings.model_auto_general, default)
+
+    has_code_file = any(
+        any(a.filename.lower().endswith(ext) for ext in _CODE_EXTS)
+        for a in attachments
+    )
+    total_chars = sum(len(a.text) for a in attachments)
+
+    if has_code_file:
+        return _pick(settings.model_auto_code, default), "code attachment"
+    if _CODE_INTENT_KO.search(prompt) or _CODE_INTENT_EN.search(prompt):
+        return _pick(settings.model_auto_code, default), "code intent"
+    if _REASONING_INTENT_KO.search(prompt) or _REASONING_INTENT_EN.search(prompt):
+        return _pick(settings.model_auto_reasoning, default), "reasoning intent"
+    if total_chars > _LARGE_ATTACH_CHARS:
+        return _pick(settings.model_auto_code, default), "large attachment"
+    return general, "general"
 
 
 _FILE_MARKER_HELP = (
@@ -328,6 +387,17 @@ async def chat_single(
     session = await _load_session(db, session_id, user.id)
     history = _build_history(session, payload.prompt)
 
+    # Auto-pick a model when the client sends "auto" (the dropdown's
+    # 🤖 자동 entry). The chosen name is sent down the wire to the
+    # provider AND echoed to the UI through an SSE "model" event so
+    # the user can see what got selected and why.
+    chosen_model: str | None = payload.model
+    auto_reason: str | None = None
+    if (payload.model or "").lower() == "auto":
+        chosen_model, auto_reason = _choose_model(
+            payload.prompt, payload.attachments
+        )
+
     # Web search context first (front of the system stack). Attachments
     # come AFTER conversation history below so they sit right next to
     # the new user prompt — otherwise the model latches onto search
@@ -369,6 +439,18 @@ async def chat_single(
 
     async def event_gen():
         try:
+            if auto_reason:
+                yield {
+                    "event": "model",
+                    "data": json.dumps(
+                        {
+                            "provider": provider.name,
+                            "name": chosen_model,
+                            "reason": auto_reason,
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
             if search_sources or search_error:
                 yield {
                     "event": "sources",
@@ -377,7 +459,7 @@ async def chat_single(
                         ensure_ascii=False,
                     ),
                 }
-            async for evt, data in _stream_one(provider, history, model=payload.model):
+            async for evt, data in _stream_one(provider, history, model=chosen_model):
                 if evt == "token":
                     chunks.append(json.loads(data)["delta"])
                 elif evt == "error":

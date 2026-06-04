@@ -1983,3 +1983,19 @@ body {
   line-height: 1.55;
 }
 
+/* === 모델 드롭다운: 자동 선택 항목 강조 ============================ */
+.popover-list li.auto-pick {
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+.popover-list li.auto-pick:hover {
+  background: var(--accent-soft);
+  filter: brightness(0.97);
+}
+.popover-list li.auto-pick.active { background: var(--accent-soft); }
+.popover-list li.auto-pick .popover-meta {
+  color: var(--accent);
+  font-style: italic;
+}
+

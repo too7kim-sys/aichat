@@ -10,6 +10,11 @@ import { streamChat, type SearchSource } from "../api/client";
  * `buffer`, and the chat panel that next mounts for this sessionId
  * subscribes to the same object).
  */
+export interface PickedModel {
+  name: string;
+  reason: string;
+}
+
 export interface LiveStream {
   sessionId: string;
   prompt: string;
@@ -20,6 +25,9 @@ export interface LiveStream {
   done: boolean;
   errors: string[];
   abort: () => void;
+  // Populated when the chat request asked for model="auto" and the
+  // server picked something on the user's behalf.
+  pickedModel: PickedModel | null;
 }
 
 type Listener = () => void;
@@ -68,6 +76,7 @@ class StreamStore {
       done: false,
       errors,
       abort: () => controller.abort(),
+      pickedModel: null,
     };
     this.streams.set(params.sessionId, stream);
     this.notify();
@@ -94,6 +103,9 @@ class StreamStore {
         errors.push(message);
         buffer += `\n[error: ${message}]`;
         update({ buffer, errors: [...errors] });
+      },
+      onModel: (_p, name, reason) => {
+        update({ pickedModel: { name, reason } });
       },
       onSources: (sources, error) => {
         if (error && sources.length === 0) {

@@ -423,7 +423,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const enabledProviders = providers.filter((p) => p.enabled);
   const defaultLabel =
     enabledProviders.find((p) => p.name === activeProvider)?.label ?? "";
-  const activeProviderLabel = model ? `Ollama (${model})` : defaultLabel;
+  // While the model picker is set to "auto" we don't know which Ollama
+  // model the server will choose until the SSE `model` event lands.
+  // Show the actual pick (with the routing reason) once known, and a
+  // placeholder while we wait.
+  const picked = liveStream?.pickedModel ?? null;
+  const activeProviderLabel = (() => {
+    if (model === "auto") {
+      if (picked) return `Ollama (${picked.name}) · 🤖 ${picked.reason}`;
+      return "Ollama · 🤖 자동 선택 중…";
+    }
+    return model ? `Ollama (${model})` : defaultLabel;
+  })();
 
   function send() {
     if (!prompt.trim() || streaming || !activeProvider) return;
@@ -489,18 +500,37 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               disabled={streaming || models.length === 0}
               title={
                 models.length
-                  ? `현재 모델: ${model || "(기본)"} — 클릭해 변경`
+                  ? `현재 모델: ${
+                      model === "auto"
+                        ? "🤖 자동"
+                        : model || "(기본)"
+                    } — 클릭해 변경`
                   : "Ollama 서버에 연결되지 않음"
               }
             >
               <span className="model-info-dot" aria-hidden>●</span>{" "}
-              <span className="model-info-name">{model || defaultLabel}</span>
+              <span className="model-info-name">
+                {model === "auto" ? "🤖 자동" : model || defaultLabel}
+              </span>
               {models.length > 0 && <span className="model-info-caret">▾</span>}
             </button>
             {modelMenuOpen && (
               <div className="popover model-popover" role="menu">
                 <div className="popover-header">Ollama 모델</div>
                 <ul className="popover-list">
+                  <li
+                    className={`auto-pick${model === "auto" ? " active" : ""}`}
+                    onClick={() => {
+                      setModel("auto");
+                      setModelMenuOpen(false);
+                    }}
+                  >
+                    <span className="popover-check" aria-hidden>
+                      {model === "auto" ? "✓" : ""}
+                    </span>
+                    <span className="popover-name">🤖 자동 (권장)</span>
+                    <span className="popover-meta">상황 맞춤</span>
+                  </li>
                   {models.map((m) => {
                     const active = m.name === model;
                     return (

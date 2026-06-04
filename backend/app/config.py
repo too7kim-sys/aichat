@@ -38,6 +38,20 @@ class Settings(BaseSettings):
     # rules, or any other instruction you'd otherwise paste at the top
     # of each prompt. Leave blank for none.
     system_prompt_extra: str = ""
+
+    # Auto model routing. When the chat request sends `model="auto"`,
+    # the chat router classifies the prompt + attachments and picks
+    # one of the names below. Leave any of these blank to fall back
+    # to OLLAMA_MODEL — the auto-pick still happens, the chosen
+    # category just maps to the default.
+    #
+    # Suggested values for an MSI EdgeXpert (128 GB unified memory):
+    #   MODEL_AUTO_CODE=qwen2.5-coder:32b
+    #   MODEL_AUTO_REASONING=deepseek-r1:32b
+    #   MODEL_AUTO_GENERAL=llama3.1:8b      # or any fast generalist
+    model_auto_code: str = ""
+    model_auto_reasoning: str = ""
+    model_auto_general: str = ""
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     # Auth — change JWT_SECRET in .env for any non-local deployment.
     jwt_secret: str = "dev-only-change-me"

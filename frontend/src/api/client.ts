@@ -195,6 +195,7 @@ export interface StreamHandlers {
   onDone: (provider: string, info: { latency_ms?: number }) => void;
   onError: (provider: string, message: string) => void;
   onSources?: (sources: SearchSource[], error: string | null) => void;
+  onModel?: (provider: string, name: string, reason: string) => void;
 }
 
 export async function streamChat(
@@ -233,7 +234,12 @@ export async function streamChat(
     },
     onmessage(ev) {
       if (!ev.data) return; // ignore keepalive / empty pings
-      const known = ev.event === "token" || ev.event === "done" || ev.event === "error" || ev.event === "sources";
+      const known =
+        ev.event === "token" ||
+        ev.event === "done" ||
+        ev.event === "error" ||
+        ev.event === "sources" ||
+        ev.event === "model";
       if (!known) return;
       let data: {
         provider?: string;
@@ -242,6 +248,8 @@ export async function streamChat(
         latency_ms?: number;
         sources?: SearchSource[];
         error?: string | null;
+        name?: string;
+        reason?: string;
       };
       try {
         data = JSON.parse(ev.data);
@@ -251,6 +259,14 @@ export async function streamChat(
       }
       if (ev.event === "sources") {
         opts.onSources?.(data.sources ?? [], data.error ?? null);
+        return;
+      }
+      if (ev.event === "model") {
+        opts.onModel?.(
+          data.provider ?? "unknown",
+          data.name ?? "",
+          data.reason ?? "",
+        );
         return;
       }
       const provider = data.provider ?? "unknown";
