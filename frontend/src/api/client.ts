@@ -207,7 +207,9 @@ export const api = {
   reindexProject: (id: string) =>
     json<Project>(`/projects/${id}/reindex`, { method: "POST" }),
   deleteProject: (id: string) =>
-    json<void>(`/projects/${id}`, { method: "DELETE" }),
+    json<{ freed_bytes: number }>(`/projects/${id}`, { method: "DELETE" }),
+  projectStorage: () =>
+    json<{ total_bytes: number; project_count: number }>("/projects/_storage"),
 };
 
 export interface SearchSource {

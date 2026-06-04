@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models, schemas
@@ -11,7 +11,7 @@ from ..config import settings
 from ..database import get_db
 from ..rag.indexer import schedule_indexing
 from ..rag.retriever import retrieve
-from ..rag.vector import drop_collection
+from ..rag.vector import drop_collection, storage_usage_bytes
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -96,7 +96,7 @@ async def reindex(
     return project
 
 
-@router.delete("/{project_id}", status_code=204)
+@router.delete("/{project_id}")
 async def delete_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
@@ -110,9 +110,31 @@ async def delete_project(
     )
     if not project:
         raise HTTPException(404, "project not found")
-    drop_collection(project.id)
+    freed = drop_collection(project.id)
     await db.delete(project)
     await db.commit()
+    return {"freed_bytes": freed}
+
+
+@router.get("/_storage")
+async def storage_overview(
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Return total disk usage of the RAG vector store (sums across
+    every collection, the user's own as well as anyone else's on the
+    same backend) so the UI can show a live "사용 중인 저장공간"
+    figure. Per-user breakdown would need walking each user's
+    Project rows, which we skip until we actually need it."""
+    project_count = await db.scalar(
+        select(func.count(models.Project.id)).where(
+            models.Project.user_id == user.id,
+        )
+    )
+    return {
+        "total_bytes": storage_usage_bytes(),
+        "project_count": project_count or 0,
+    }
 
 
 @router.get("/{project_id}/search")

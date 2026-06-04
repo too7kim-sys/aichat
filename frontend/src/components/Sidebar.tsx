@@ -216,14 +216,20 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
                     className="proj-sidebar-del"
                     aria-label="삭제"
                     title="삭제"
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
                       if (
-                        window.confirm(
-                          `"${p.name}"을(를) 삭제할까요? 인덱스도 함께 사라집니다.`,
+                        !window.confirm(
+                          `"${p.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
                         )
-                      ) {
-                        remove(p.id);
+                      )
+                        return;
+                      try {
+                        await remove(p.id);
+                      } catch (err) {
+                        window.alert(
+                          `삭제 실패: ${err instanceof Error ? err.message : String(err)}`,
+                        );
                       }
                     }}
                   >

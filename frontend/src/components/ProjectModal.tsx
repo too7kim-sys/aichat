@@ -15,6 +15,14 @@ interface Props {
   onLinkChange?: (projectId: string | null) => void;
 }
 
+function fmtBytes(n: number): string {
+  if (n <= 0) return "0 B";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
 export function ProjectModal({
   open,
   onClose,
@@ -22,7 +30,8 @@ export function ProjectModal({
   linkedProjectId = null,
   onLinkChange,
 }: Props) {
-  const { projects, create, remove, reindex, refresh } = useProjects();
+  const { projects, storageBytes, create, remove, reindex, refresh } =
+    useProjects();
   const [addOpen, setAddOpen] = useState(false);
 
   useEffect(() => {
@@ -54,14 +63,21 @@ export function ProjectModal({
             <h3>RAG 프로젝트</h3>
             <p>대용량 코드베이스를 한 번 인덱싱해 자연어로 검색·분석하세요.</p>
           </div>
-          <button
-            type="button"
-            className="modal-close"
-            onClick={onClose}
-            aria-label="닫기"
-          >
-            ×
-          </button>
+          <div className="pm-head-right">
+            {storageBytes > 0 && (
+              <div className="pm-storage" title="벡터 인덱스가 차지하는 디스크 용량">
+                💾 {fmtBytes(storageBytes)}
+              </div>
+            )}
+            <button
+              type="button"
+              className="modal-close"
+              onClick={onClose}
+              aria-label="닫기"
+            >
+              ×
+            </button>
+          </div>
         </header>
 
         <div className="pm-body">
@@ -77,10 +93,27 @@ export function ProjectModal({
                     onLinkChange?.(linkedProjectId === p.id ? null : p.id)
                   }
                   onReindex={() => reindex(p.id)}
-                  onDelete={() => {
-                    if (window.confirm(`"${p.name}"을(를) 삭제할까요? 인덱스도 함께 사라집니다.`)) {
-                      if (linkedProjectId === p.id) onLinkChange?.(null);
-                      remove(p.id);
+                  onDelete={async () => {
+                    if (
+                      !window.confirm(
+                        `"${p.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
+                      )
+                    )
+                      return;
+                    if (linkedProjectId === p.id) onLinkChange?.(null);
+                    try {
+                      const { freedBytes } = await remove(p.id);
+                      if (freedBytes > 0) {
+                        // Light feedback so the user can see disk was
+                        // actually reclaimed (not just a DB row gone).
+                        console.info(
+                          `[RAG] "${p.name}" 삭제 — ${fmtBytes(freedBytes)} 회수`,
+                        );
+                      }
+                    } catch (e) {
+                      window.alert(
+                        `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
+                      );
                     }
                   }}
                 />

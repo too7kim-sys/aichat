@@ -2182,6 +2182,23 @@ body {
   align-self: flex-start;
   margin-top: 2px;
 }
+.pm-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.pm-storage {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 
 .pm-body {
   padding: 18px 24px 22px;

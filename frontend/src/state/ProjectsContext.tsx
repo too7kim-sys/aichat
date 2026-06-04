@@ -12,6 +12,7 @@ import { useAuth } from "../auth/AuthContext";
 
 interface ProjectsState {
   projects: Project[];
+  storageBytes: number;
   refresh: () => Promise<void>;
   create: (payload: {
     name: string;
@@ -19,7 +20,7 @@ interface ProjectsState {
     source_ref: string;
     ref?: string;
   }) => Promise<Project>;
-  remove: (id: string) => Promise<void>;
+  remove: (id: string) => Promise<{ freedBytes: number }>;
   reindex: (id: string) => Promise<void>;
 }
 
@@ -28,12 +29,17 @@ const Ctx = createContext<ProjectsState | null>(null);
 export function ProjectsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [storageBytes, setStorageBytes] = useState<number>(0);
   const pollRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const list = await api.listProjects();
+      const [list, storage] = await Promise.all([
+        api.listProjects(),
+        api.projectStorage().catch(() => ({ total_bytes: 0, project_count: 0 })),
+      ]);
       setProjects(list);
+      setStorageBytes(storage.total_bytes);
     } catch {
       /* unauthorized / RAG disabled — leave empty */
     }
@@ -82,8 +88,9 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
 
   const remove = useCallback<ProjectsState["remove"]>(
     async (id) => {
-      await api.deleteProject(id);
+      const res = await api.deleteProject(id);
       await refresh();
+      return { freedBytes: res?.freed_bytes ?? 0 };
     },
     [refresh],
   );
@@ -97,7 +104,9 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <Ctx.Provider value={{ projects, refresh, create, remove, reindex }}>
+    <Ctx.Provider
+      value={{ projects, storageBytes, refresh, create, remove, reindex }}
+    >
       {children}
     </Ctx.Provider>
   );
