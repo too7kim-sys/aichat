@@ -350,7 +350,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         {liveStream ? (
           <>
             <header className="chat-header">
-              <h2 className="chat-title">대화 불러오는 중...</h2>
+              <div className="chat-header-inner">
+                <h2 className="chat-title">대화 불러오는 중...</h2>
+              </div>
             </header>
             <div className="messages">
               <div className="messages-inner">
@@ -431,6 +433,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   return (
     <div className="chat-panel">
       <header className="chat-header">
+        <div className="chat-header-inner">
         <div className="chat-header-left">
           {editingTitle ? (
             <input
@@ -471,6 +474,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               {artifactsState.open ? "패널 닫기" : `패널 열기 (${artifactsState.artifacts.length})`}
             </button>
           )}
+        </div>
         </div>
       </header>
 

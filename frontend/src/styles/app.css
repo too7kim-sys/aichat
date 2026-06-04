@@ -158,13 +158,24 @@ body {
 }
 
 .chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 24px;
+  /* outer header spans the full width so the bottom border reaches
+     both edges; horizontal alignment of the actual title + actions
+     happens inside .chat-header-inner, which matches the
+     messages-inner container (max-width 760, auto margin, 24px
+     side padding). */
+  padding: 14px 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   flex-shrink: 0;
+}
+.chat-header-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .chat-header h2 {
   margin: 0;
@@ -281,7 +292,14 @@ body {
 
 /* ── Composer ────────────────────────────────────── */
 .composer-wrap {
+  /* Centred max-width 760 (matching messages-inner + chat-header-inner)
+     so the composer's left edge sits at exactly the same column as the
+     chat title and message avatars. */
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
   padding: 0 24px 24px;
+  box-sizing: border-box;
   background: var(--bg);
   flex-shrink: 0;
   position: relative;
