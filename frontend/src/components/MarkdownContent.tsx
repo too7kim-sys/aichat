@@ -2,7 +2,9 @@ import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { api } from "../api/client";
 import { useArtifacts } from "../artifact/ArtifactContext";
+import { useChatWorkspace } from "../state/ChatWorkspaceContext";
 
 interface Props {
   content: string;
@@ -101,6 +103,95 @@ function FileDownload({ path, body }: { path: string; body: string }) {
   );
 }
 
+/** Push the LLM's `# file: <path>` code block straight into the
+ * workspace clone on the server. Only rendered inside chats that are
+ * actually bound to a workspace (otherwise there's nowhere to apply
+ * the patch). Two confirmation states ("적용?", "✓ 적용됨") give the
+ * user a chance to back out before overwriting their file. */
+function FileApply({ path, body }: { path: string; body: string }) {
+  const { workspaceId, onPatchApplied } = useChatWorkspace();
+  const [state, setState] = useState<"idle" | "confirm" | "busy" | "done" | "error">(
+    "idle",
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  if (!workspaceId) return null;
+
+  async function apply() {
+    if (!workspaceId) return;
+    setState("busy");
+    setError(null);
+    try {
+      await api.applyWorkspaceFile(workspaceId, path, body);
+      setState("done");
+      onPatchApplied?.();
+      window.setTimeout(() => setState("idle"), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setState("error");
+      window.setTimeout(() => setState("idle"), 3500);
+    }
+  }
+
+  if (state === "confirm") {
+    return (
+      <span className="code-apply-confirm">
+        <button
+          type="button"
+          className="code-apply confirm"
+          onClick={apply}
+          title={`${path}를 워크스페이스에 덮어쓰기`}
+        >
+          ✓ 적용
+        </button>
+        <button
+          type="button"
+          className="code-apply cancel"
+          onClick={() => setState("idle")}
+        >
+          취소
+        </button>
+      </span>
+    );
+  }
+  if (state === "busy") {
+    return (
+      <button type="button" className="code-apply busy" disabled>
+        ⏳ 적용 중…
+      </button>
+    );
+  }
+  if (state === "done") {
+    return (
+      <button type="button" className="code-apply done" disabled>
+        ✓ 워크스페이스 반영됨
+      </button>
+    );
+  }
+  if (state === "error") {
+    return (
+      <button
+        type="button"
+        className="code-apply err"
+        title={error ?? ""}
+        onClick={() => setState("idle")}
+      >
+        ⚠ 실패
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="code-apply"
+      onClick={() => setState("confirm")}
+      title={`${path}를 워크스페이스에 덮어쓰기`}
+    >
+      📥 워크스페이스에 적용
+    </button>
+  );
+}
+
 function safeHref(href: string | undefined): string | undefined {
   if (!href) return undefined;
   const trimmed = href.trim();
@@ -173,6 +264,7 @@ export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
                     </span>
                   )}
                   <div className="code-header-actions">
+                    {file && <FileApply path={file.path} body={file.body} />}
                     {file && <FileDownload path={file.path} body={file.body} />}
                     <button
                       type="button"

@@ -216,6 +216,13 @@ export interface WorkspaceFile {
   truncated: boolean;
   method: string;
 }
+export interface WorkspaceStatusEntry {
+  path: string;
+  x: string;
+  y: string;
+  status: string;
+  label: string;
+}
 
 export interface RagChunk {
   filename: string;
@@ -321,6 +328,53 @@ export const api = {
       truncated: boolean;
       total_files_in_repo: number;
     }>(`/code/workspaces/${id}/start-chat`, { method: "POST" }),
+
+  // Phase 2 — apply / status / diff / commit / push
+  applyWorkspaceFile: (id: string, path: string, content: string) =>
+    json<{ path: string; size: number; created: boolean }>(
+      `/code/workspaces/${id}/apply`,
+      { method: "POST", body: JSON.stringify({ path, content }) },
+    ),
+  workspaceStatus: (id: string) =>
+    json<{ entries: WorkspaceStatusEntry[]; clean: boolean }>(
+      `/code/workspaces/${id}/status`,
+    ),
+  workspaceDiff: (id: string, path?: string) =>
+    json<{ diff: string; path: string | null }>(
+      `/code/workspaces/${id}/diff${
+        path ? `?path=${encodeURIComponent(path)}` : ""
+      }`,
+    ),
+  revertWorkspaceFile: (id: string, path: string) =>
+    json<{ path: string; removed: boolean }>(
+      `/code/workspaces/${id}/revert`,
+      { method: "POST", body: JSON.stringify({ path }) },
+    ),
+  commitWorkspace: (
+    id: string,
+    payload: { message: string; paths?: string[]; push?: boolean },
+  ) =>
+    json<{
+      commit: {
+        committed: boolean;
+        sha: string | null;
+        summary: string | null;
+        files: string[];
+      };
+      push: { pushed: boolean; branch?: string; error?: string } | null;
+    }>(`/code/workspaces/${id}/commit`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: payload.message,
+        paths: payload.paths ?? [],
+        push: payload.push ?? false,
+      }),
+    }),
+  pushWorkspace: (id: string) =>
+    json<{ pushed: boolean; branch?: string }>(
+      `/code/workspaces/${id}/push`,
+      { method: "POST" },
+    ),
 };
 
 export interface SearchSource {

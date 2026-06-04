@@ -12,8 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import models, schemas
 from ..auth import get_current_user
 from ..code.workspace import (
+    apply_file_write,
     clone_repo,
     collect_workspace_files,
+    git_commit,
+    git_diff,
+    git_push,
+    git_revert_file,
+    git_status_porcelain,
     read_file,
     remove_repo,
     sync_repo,
@@ -338,3 +344,195 @@ async def workspace_file(
         raise HTTPException(400, str(exc))
     except FileNotFoundError:
         raise HTTPException(404, "파일을 찾을 수 없습니다")
+
+
+# ── Phase 2: apply / status / diff / commit / push ────────────────────
+
+async def _fetch_workspace_owned_by(
+    workspace_id: str, user: models.User, db: AsyncSession
+) -> models.CodeWorkspace:
+    """Common guard used by every Phase-2 endpoint — fetch the row,
+    enforce ownership, require status==ready."""
+    ws = await db.scalar(
+        select(models.CodeWorkspace).where(
+            models.CodeWorkspace.id == workspace_id,
+            models.CodeWorkspace.user_id == user.id,
+        )
+    )
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    if ws.status != "ready":
+        raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
+    return ws
+
+
+@router.post("/workspaces/{workspace_id}/apply")
+async def workspace_apply(
+    workspace_id: str,
+    payload: schemas.WorkspaceApply,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Write the LLM-generated content to a workspace file (no git
+    add/commit yet — the user reviews the dirty list before
+    committing)."""
+    await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = workspace_path_for(user.id, workspace_id)
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, apply_file_write, dest, payload.path, payload.content
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/workspaces/{workspace_id}/status")
+async def workspace_status(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """List dirty files (modified / added / untracked / deleted)."""
+    await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = workspace_path_for(user.id, workspace_id)
+    try:
+        entries = await asyncio.get_running_loop().run_in_executor(
+            None, git_status_porcelain, dest
+        )
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    return {"entries": entries, "clean": len(entries) == 0}
+
+
+@router.get("/workspaces/{workspace_id}/diff")
+async def workspace_diff(
+    workspace_id: str,
+    path: str | None = Query(default=None, max_length=500),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Working tree diff against HEAD. Pass `?path=` to scope to a
+    single file; omit it for the whole tree."""
+    await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = workspace_path_for(user.id, workspace_id)
+    try:
+        text = await asyncio.get_running_loop().run_in_executor(
+            None, git_diff, dest, path
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    return {"diff": text, "path": path}
+
+
+@router.post("/workspaces/{workspace_id}/revert")
+async def workspace_revert(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Discard local changes to a single file. Body: {"path": "..."}."""
+    rel = (payload or {}).get("path")
+    if not isinstance(rel, str) or not rel.strip():
+        raise HTTPException(400, "path가 필요합니다")
+    await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = workspace_path_for(user.id, workspace_id)
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, git_revert_file, dest, rel
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+
+
+@router.post("/workspaces/{workspace_id}/commit")
+async def workspace_commit(
+    workspace_id: str,
+    payload: schemas.WorkspaceCommitRequest,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Stage the given paths (or all dirty files if `paths` is empty)
+    and create a commit. If `push` is true, also push to origin in
+    the same call so the UI can do "commit & push" in one click."""
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = workspace_path_for(user.id, workspace_id)
+    author_name = (user.name or "").strip() or user.email.split("@")[0]
+    author_email = user.email
+
+    try:
+        commit_result = await asyncio.get_running_loop().run_in_executor(
+            None,
+            git_commit,
+            dest,
+            payload.message,
+            list(payload.paths),
+            author_name,
+            author_email,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+
+    push_result: dict | None = None
+    if payload.push and commit_result.get("committed"):
+        token = decrypt_secret(ws.auth_token_encrypted)
+        try:
+            push_result = await asyncio.get_running_loop().run_in_executor(
+                None,
+                git_push,
+                dest,
+                ws.git_url,
+                ws.branch,
+                ws.auth_username,
+                token,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        except RuntimeError as exc:
+            # The commit succeeded, only the push failed — surface
+            # both so the UI can say "commit OK, push 실패: …".
+            return {
+                "commit": commit_result,
+                "push": {"pushed": False, "error": str(exc)[:300]},
+            }
+
+    return {
+        "commit": commit_result,
+        "push": push_result,
+    }
+
+
+@router.post("/workspaces/{workspace_id}/push")
+async def workspace_push(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Push the current branch to origin using the stored credentials.
+    Use this when the user wants to push commits that were created
+    outside the LLM patch flow (e.g. a series of commits already in
+    place)."""
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = workspace_path_for(user.id, workspace_id)
+    token = decrypt_secret(ws.auth_token_encrypted)
+    try:
+        result = await asyncio.get_running_loop().run_in_executor(
+            None,
+            git_push,
+            dest,
+            ws.git_url,
+            ws.branch,
+            ws.auth_username,
+            token,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    return result

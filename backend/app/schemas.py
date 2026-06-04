@@ -160,6 +160,32 @@ class WorkspaceFileContent(BaseModel):
     method: str = "text"  # text | binary-skipped | too-large
 
 
+class WorkspaceApply(BaseModel):
+    """Write a single file's content into the workspace clone. The
+    content is what the LLM emitted under the `# file: <path>` marker
+    in the chat — no patch / hunk format, just the full new file."""
+    path: str = Field(min_length=1, max_length=500)
+    content: str = Field(max_length=2 * 1024 * 1024)
+
+
+class WorkspaceStatusEntry(BaseModel):
+    path: str
+    x: str  # index status (1 char)
+    y: str  # worktree status (1 char)
+    status: str
+    label: str
+
+
+class WorkspaceCommitRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    # Empty list → commit ALL dirty files (`git add -A`). Explicit
+    # paths → only those paths. Keep validation light — the backend
+    # also runs each path through `_safe_resolve`.
+    paths: list[str] = Field(default_factory=list)
+    # If true, immediately push to origin after a successful commit.
+    push: bool = False
+
+
 class ProjectScheduleUpdate(BaseModel):
     """Configure (or disable) the auto-refresh interval for a project.
     Validation range matches what the background scheduler actually

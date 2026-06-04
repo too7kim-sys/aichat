@@ -12,8 +12,10 @@ import {
   IconX,
 } from "./Icon";
 import { MessageBubble } from "./MessageBubble";
+import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
 import { useArtifacts } from "../artifact/ArtifactContext";
+import { ChatWorkspaceProvider } from "../state/ChatWorkspaceContext";
 import { useModels } from "../state/ModelContext";
 import { drainAttachments } from "../state/attachQueue";
 import { streamStore, useLiveStream } from "../state/streamStore";
@@ -72,6 +74,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       );
     }
   }
+  // Bumped by the markdown renderer every time the user applies a
+  // `# file: <path>` patch, so the changes panel re-polls git status
+  // without a full remount.
+  const [changesRefreshKey, setChangesRefreshKey] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -562,6 +568,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </div>
       </header>
 
+      <ChatWorkspaceProvider
+        workspaceId={session.workspace_id ?? null}
+        onPatchApplied={() => setChangesRefreshKey((k) => k + 1)}
+      >
       <div className="chat-body">
         {session.workspace_id && showWorkspaceTree && (
           <aside className="chat-tree-side">
@@ -586,8 +596,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               <WorkspaceTree
                 workspaceId={session.workspace_id}
                 onSelectFile={handleWorkspaceFileSelect}
+                refreshKey={changesRefreshKey}
               />
             </div>
+            <WorkspaceChangesPanel
+              workspaceId={session.workspace_id}
+              refreshKey={changesRefreshKey}
+            />
           </aside>
         )}
         <div className="chat-main">
@@ -828,6 +843,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       </div>
         </div>
       </div>
+      </ChatWorkspaceProvider>
 
     </div>
   );

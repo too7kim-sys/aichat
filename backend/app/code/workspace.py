@@ -7,7 +7,12 @@ Phase 1 scope:
   - read_file():  safe text read with size limits
   - remove_repo(): rm -rf the working dir
 
-Phase 2+ will add diff/apply/commit/push.
+Phase 2 (LLM patch flow):
+  - apply_file_write():   write LLM-generated content to a workspace file
+  - git_status_porcelain(): list dirty files (M/A/D/??)
+  - git_diff():           textual diff (working tree vs HEAD)
+  - git_commit():         add + commit with explicit author identity
+  - git_push():           push to origin using the stored credentials
 """
 from __future__ import annotations
 
@@ -512,3 +517,374 @@ def remove_repo(local_path: str) -> int:
             continue
     shutil.rmtree(p, ignore_errors=True)
     return total
+
+
+# ── Phase 2 — apply / status / diff / commit / push ───────────────────
+
+_MAX_PATCH_BYTES = 2 * 1024 * 1024  # one applied file capped at 2 MB
+
+
+def _safe_resolve(root: Path, rel_path: str) -> Path:
+    """Resolve <root>/<rel_path> and refuse anything that escapes root
+    via "..", absolute paths, symlinks. Also blocks writing under
+    `.git/` so a hostile patch can't rewrite git internals."""
+    rel = (rel_path or "").strip().lstrip("/\\")
+    if not rel:
+        raise ValueError("경로가 비어 있습니다")
+    if len(rel) > 500:
+        raise ValueError("경로가 너무 깁니다")
+    target = (root / rel).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise ValueError("workspace 범위를 벗어난 경로입니다")
+    parts = {p.lower() for p in target.relative_to(root).parts}
+    if ".git" in parts:
+        raise ValueError(".git 내부는 수정할 수 없습니다")
+    return target
+
+
+def apply_file_write(root: Path, rel_path: str, content: str) -> dict:
+    """Overwrite (or create) `rel_path` with `content`. Returns
+    {path, size, created} for the UI. The file content is written as
+    UTF-8 with a trailing newline preserved if the caller included it.
+
+    No git operation runs here — staging happens at commit time, so
+    `git status` will report the file as modified/untracked until the
+    user actually commits it."""
+    encoded = content.encode("utf-8")
+    if len(encoded) > _MAX_PATCH_BYTES:
+        raise ValueError(
+            f"파일이 너무 큽니다: {len(encoded):,}B > {_MAX_PATCH_BYTES:,}B"
+        )
+    target = _safe_resolve(root, rel_path)
+    created = not target.exists()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Atomic write — write to a temp sibling then rename, so a crash
+    # mid-write doesn't leave a half-truncated source file behind.
+    tmp = target.with_suffix(target.suffix + ".aichat-tmp")
+    try:
+        tmp.write_bytes(encoded)
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    return {
+        "path": rel_path,
+        "size": len(encoded),
+        "created": created,
+    }
+
+
+# Single-letter codes from `git status --porcelain` that we surface to
+# the UI. Anything else (renamed, copied, unmerged, etc.) is reported
+# verbatim — those are rare and the user can read the raw status text.
+_STATUS_LABELS = {
+    "M": "modified",
+    "A": "added",
+    "D": "deleted",
+    "R": "renamed",
+    "C": "copied",
+    "U": "unmerged",
+    "?": "untracked",
+    "!": "ignored",
+}
+
+
+def _parse_status_line(line: str) -> dict | None:
+    """Parse one porcelain v1 record. Returns {path, x, y, status,
+    label} or None for malformed lines."""
+    if len(line) < 4 or line[2] != " ":
+        return None
+    x, y = line[0], line[1]
+    rest = line[3:]
+    # Renames look like `R  old -> new` — keep the new path so the
+    # user sees what they'll commit.
+    if " -> " in rest:
+        rest = rest.split(" -> ", 1)[1]
+    rest = rest.strip().strip('"')
+    if not rest:
+        return None
+    primary = x.strip() or y.strip() or "?"
+    return {
+        "path": rest,
+        "x": x,
+        "y": y,
+        "status": primary,
+        "label": _STATUS_LABELS.get(primary, primary),
+    }
+
+
+def git_status_porcelain(root: Path) -> list[dict]:
+    """List dirty files as `[{path, x, y, status, label}, ...]`.
+    Empty list = clean working tree."""
+    if not (root / ".git").exists():
+        raise RuntimeError("이 워크스페이스는 git 저장소가 아닙니다")
+    rc, stderr = _run_git(
+        ["git", "status", "--porcelain=v1", "--no-renames"],
+        cwd=root,
+        timeout=30,
+    )
+    # _run_git only returns stderr; we need stdout, so run it again
+    # capturing stdout directly. (Keeping _run_git as-is to avoid
+    # touching the clone/sync codepath that's already in production.)
+    proc = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--no-renames"],
+        cwd=str(root),
+        env={
+            **os.environ,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": "echo",
+            "GIT_LFS_SKIP_SMUDGE": "1",
+            "LC_ALL": "C",
+        },
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"git status 실패: {(proc.stderr or b'').decode('utf-8', 'replace').strip()[:200]}"
+        )
+    out = proc.stdout.decode("utf-8", errors="replace")
+    entries: list[dict] = []
+    for line in out.splitlines():
+        parsed = _parse_status_line(line)
+        if parsed:
+            entries.append(parsed)
+    return entries
+
+
+def git_diff(root: Path, rel_path: str | None = None) -> str:
+    """Diff of the working tree against HEAD. If `rel_path` is given,
+    scope the diff to that single path. Returns the raw text — empty
+    string means no changes for that scope.
+
+    We include `--no-color` and `--text` so binary files don't dump
+    Git's `Binary files differ` placeholder mid-stream (still possible
+    for actual binary blobs but no terminal escapes).
+
+    The result is capped at 256 KB so a thousand-line diff doesn't
+    blow up the response payload."""
+    if not (root / ".git").exists():
+        raise RuntimeError("이 워크스페이스는 git 저장소가 아닙니다")
+    cmd = ["git", "diff", "--no-color", "--text", "HEAD", "--"]
+    if rel_path:
+        safe = _safe_resolve(root, rel_path)
+        cmd.append(safe.relative_to(root).as_posix())
+    proc = subprocess.run(
+        cmd,
+        cwd=str(root),
+        env={
+            **os.environ,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_PAGER": "cat",
+            "LC_ALL": "C",
+        },
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    if proc.returncode not in (0, 1):
+        # `git diff` returns 1 if differences exist when --exit-code
+        # is on; without --exit-code 0 is the normal value, but some
+        # git versions still return 1 for "diff present". Treat 0/1
+        # as success.
+        raise RuntimeError(
+            f"git diff 실패: {(proc.stderr or b'').decode('utf-8', 'replace').strip()[:200]}"
+        )
+    text = proc.stdout.decode("utf-8", errors="replace")
+    cap = 256 * 1024
+    if len(text) > cap:
+        text = text[:cap] + f"\n\n[…잘림: 총 {len(proc.stdout):,} bytes, {cap:,} bytes 표시]"
+    return text
+
+
+def _git_identity_args(author_name: str, author_email: str) -> list[str]:
+    """Build the `-c user.name=… -c user.email=…` args so commits are
+    attributed to the chat user instead of whatever happens to be
+    configured globally on the server (or worse: nothing, which makes
+    `git commit` refuse to run)."""
+    name = (author_name or "").strip() or "aichat user"
+    email = (author_email or "").strip() or "aichat@localhost"
+    # Disallow newlines/control chars — git would reject them anyway,
+    # but we want a clean error instead of a cryptic one.
+    if any(c in name for c in "\r\n") or any(c in email for c in "\r\n"):
+        raise ValueError("author 정보에 줄바꿈을 포함할 수 없습니다")
+    return [
+        "-c", f"user.name={name[:120]}",
+        "-c", f"user.email={email[:120]}",
+        "-c", "commit.gpgsign=false",
+    ]
+
+
+def git_commit(
+    root: Path,
+    message: str,
+    paths: list[str] | None,
+    author_name: str,
+    author_email: str,
+) -> dict:
+    """Stage `paths` (or everything dirty if None/empty) and create a
+    commit. Returns {committed: bool, sha, summary, files: [paths]}.
+
+    Behaviour:
+      - empty message → ValueError
+      - clean tree    → {committed: False, ...}
+      - per-path safety: each entry is run through `_safe_resolve` so
+        a hostile path can't reach outside the workspace.
+    """
+    if not (root / ".git").exists():
+        raise RuntimeError("이 워크스페이스는 git 저장소가 아닙니다")
+    msg = (message or "").strip()
+    if not msg:
+        raise ValueError("커밋 메시지가 비어 있습니다")
+    if len(msg) > 4000:
+        raise ValueError("커밋 메시지가 너무 깁니다 (4000자 한도)")
+
+    # Validate paths first — fail fast if any is suspicious.
+    rel_paths: list[str] = []
+    if paths:
+        for p in paths:
+            safe = _safe_resolve(root, p)
+            rel_paths.append(safe.relative_to(root).as_posix())
+
+    if rel_paths:
+        rc, stderr = _run_git(
+            ["git", "add", "--", *rel_paths], cwd=root, timeout=60
+        )
+    else:
+        rc, stderr = _run_git(["git", "add", "-A"], cwd=root, timeout=60)
+    if rc != 0:
+        raise RuntimeError(
+            f"git add 실패: {stderr.decode('utf-8', 'replace').strip()[:200]}"
+        )
+
+    # Check whether anything is actually staged before committing —
+    # `git commit` would otherwise error out with exit 1.
+    proc = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=str(root),
+        env={**os.environ, "LC_ALL": "C"},
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    staged = [
+        l.strip() for l in proc.stdout.decode("utf-8", "replace").splitlines() if l.strip()
+    ]
+    if not staged:
+        return {"committed": False, "sha": None, "summary": None, "files": []}
+
+    identity = _git_identity_args(author_name, author_email)
+    cmd = ["git", *identity, "commit", "-m", msg]
+    rc, stderr = _run_git(cmd, cwd=root, timeout=60)
+    if rc != 0:
+        raise RuntimeError(
+            f"git commit 실패: {stderr.decode('utf-8', 'replace').strip()[:200]}"
+        )
+
+    # Grab the new HEAD sha + first-line of subject for the response.
+    sha_proc = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    sha = sha_proc.stdout.decode("utf-8", "replace").strip()[:40] if sha_proc.returncode == 0 else None
+    return {
+        "committed": True,
+        "sha": sha,
+        "summary": msg.splitlines()[0][:200],
+        "files": staged,
+    }
+
+
+def git_push(
+    root: Path,
+    git_url: str,
+    branch: str,
+    username: str | None,
+    token: str | None,
+) -> dict:
+    """Push the current branch to origin. Uses an in-memory URL with
+    credentials embedded so we don't have to persist them in the
+    repo's stored remote (they're already encrypted in the DB and
+    decrypted on demand by the caller).
+
+    Returns {pushed: bool, branch, ahead}. Raises RuntimeError with a
+    masked error string if the push is rejected (auth failure, fast-
+    forward conflict, etc.)."""
+    if not (root / ".git").exists():
+        raise RuntimeError("이 워크스페이스는 git 저장소가 아닙니다")
+    if branch and not _REF_RE.match(branch):
+        raise ValueError("branch 형식이 올바르지 않습니다")
+    _validate_git_url(git_url)
+
+    # Figure out the active branch if the caller didn't pin one.
+    target_branch = branch
+    if not target_branch:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(root),
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        target_branch = (proc.stdout.decode("utf-8", "replace").strip() or "HEAD")
+    if target_branch == "HEAD":
+        raise RuntimeError("detached HEAD 상태에서는 push할 수 없습니다")
+
+    url = _auth_url(git_url, username, token)
+    # Use the URL directly — don't touch the on-disk remote config,
+    # so a future rotation doesn't accidentally persist a token.
+    cmd = ["git", "push", url, f"HEAD:{target_branch}"]
+    rc, stderr = _run_git(cmd, cwd=root, timeout=300)
+    if rc != 0:
+        detail = stderr.decode("utf-8", errors="replace")
+        if token:
+            detail = detail.replace(quote(token, safe=""), "***")
+            detail = detail.replace(token, "***")
+        raise RuntimeError(f"git push 실패: {detail.strip()[:300]}")
+
+    return {"pushed": True, "branch": target_branch}
+
+
+def git_revert_file(root: Path, rel_path: str) -> dict:
+    """Discard local changes to `rel_path` — reset it back to HEAD.
+    Untracked files are removed; tracked-but-modified files are reset
+    to their committed state. Returns {path, removed} so the UI can
+    update its dirty-file list."""
+    if not (root / ".git").exists():
+        raise RuntimeError("이 워크스페이스는 git 저장소가 아닙니다")
+    target = _safe_resolve(root, rel_path)
+    rel = target.relative_to(root).as_posix()
+
+    # Is the file tracked? `git ls-files --error-unmatch` exits 0 for
+    # tracked paths, non-zero for untracked.
+    proc = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", rel],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    tracked = proc.returncode == 0
+
+    if tracked:
+        rc, stderr = _run_git(
+            ["git", "checkout", "HEAD", "--", rel], cwd=root, timeout=30
+        )
+        if rc != 0:
+            raise RuntimeError(
+                f"파일 되돌리기 실패: {stderr.decode('utf-8', 'replace').strip()[:200]}"
+            )
+        return {"path": rel, "removed": False}
+    # Untracked — just delete it from the working tree if it exists.
+    if target.exists() and target.is_file():
+        target.unlink()
+    return {"path": rel, "removed": True}
