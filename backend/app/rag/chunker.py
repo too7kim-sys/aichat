@@ -321,6 +321,178 @@ def chunk_api(filename: str, body: str) -> list[Chunk]:
     return chunks
 
 
+# ── db: one chunk per CREATE TABLE / VIEW / PROCEDURE ────────────────
+
+_DDL_OBJECT_RE = re.compile(
+    r"""
+    CREATE\s+
+    (?:OR\s+REPLACE\s+)?
+    (?P<kind>TABLE|VIEW|MATERIALIZED\s+VIEW|INDEX|UNIQUE\s+INDEX|
+              FUNCTION|PROCEDURE|TYPE|TRIGGER)\s+
+    (?:IF\s+NOT\s+EXISTS\s+)?
+    (?P<name>[a-zA-Z_][\w.\[\]\"`]*)
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_sql_comments(body: str) -> str:
+    """Drop -- line comments and /* */ block comments while preserving
+    string literals. Cheap pass so the boundary scanner doesn't trip
+    on commented-out semicolons."""
+    out = []
+    i = 0
+    n = len(body)
+    while i < n:
+        c = body[i]
+        # /* ... */
+        if c == "/" and i + 1 < n and body[i + 1] == "*":
+            j = body.find("*/", i + 2)
+            i = j + 2 if j >= 0 else n
+            continue
+        # -- line comment
+        if c == "-" and i + 1 < n and body[i + 1] == "-":
+            j = body.find("\n", i + 2)
+            i = j if j >= 0 else n
+            continue
+        # 'string' or "ident" — copy as-is to preserve content
+        if c in ("'", '"'):
+            quote = c
+            j = i + 1
+            while j < n:
+                if body[j] == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if body[j] == quote:
+                    j += 1
+                    break
+                j += 1
+            out.append(body[i:j])
+            i = j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _sql_statements(body: str) -> list[tuple[int, int, str]]:
+    """Split into (start_offset, end_offset, text) statements on top-level
+    semicolons. Naive but works for the vast majority of DDL dumps."""
+    cleaned = _strip_sql_comments(body)
+    stmts: list[tuple[int, int, str]] = []
+    start = 0
+    paren = 0
+    in_str: str | None = None
+    i = 0
+    n = len(cleaned)
+    while i < n:
+        c = cleaned[i]
+        if in_str:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == in_str:
+                in_str = None
+            i += 1
+            continue
+        if c in ("'", '"'):
+            in_str = c
+        elif c == "(":
+            paren += 1
+        elif c == ")":
+            paren = max(0, paren - 1)
+        elif c == ";" and paren == 0:
+            chunk = cleaned[start : i + 1].strip()
+            if chunk:
+                stmts.append((start, i + 1, chunk))
+            start = i + 1
+        i += 1
+    tail = cleaned[start:].strip()
+    if tail:
+        stmts.append((start, n, tail))
+    return stmts
+
+
+def chunk_db(filename: str, body: str) -> list[Chunk]:
+    """SQL DDL chunker — one chunk per CREATE TABLE / VIEW / PROCEDURE.
+
+    For each top-level DDL statement, we keep the original text and
+    look up the matching CREATE pattern to label the chunk. ALTER
+    TABLE and INSERT statements that reference an already-emitted
+    table are appended to that table's chunk so the indexed
+    knowledge of a table includes its constraints and seed data.
+    Files that contain no DDL fall back to the document chunker so
+    plain queries / notebooks still get indexed.
+    """
+    statements = _sql_statements(body)
+    if not statements:
+        return chunk_document(filename, body)
+
+    # First pass: emit one chunk per CREATE statement, capture name.
+    by_table: dict[str, list[str]] = {}
+    chunks: list[Chunk] = []
+    chunk_lookup: dict[str, int] = {}  # table name → chunks index
+    chunk_idx = 0
+    has_ddl = False
+
+    for _start, _end, stmt in statements:
+        m = _DDL_OBJECT_RE.match(stmt)
+        if m:
+            has_ddl = True
+            kind = " ".join(m.group("kind").upper().split())
+            name = m.group("name").strip().strip('"').strip("`").strip("[]")
+            chunk_idx += 1
+            text = (
+                f"// {filename}\n"
+                f"-- {kind}: {name}\n\n"
+                f"{stmt}"
+            )
+            chunks.append(
+                Chunk(
+                    filename=f"{filename}#{name}",
+                    start_line=chunk_idx,
+                    end_line=chunk_idx,
+                    text=text,
+                )
+            )
+            chunk_lookup[name.lower()] = len(chunks) - 1
+            by_table.setdefault(name, []).append(stmt)
+        else:
+            # ALTER TABLE foo ... / CREATE INDEX ... ON foo / INSERT INTO foo …
+            alter_re = re.match(
+                r"^\s*(?:ALTER\s+TABLE|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"
+                r"([a-zA-Z_][\w.\[\]\"`]*)",
+                stmt, re.IGNORECASE,
+            )
+            target: str | None = None
+            if alter_re:
+                target = (
+                    alter_re.group(1).strip().strip('"').strip("`").strip("[]")
+                )
+            else:
+                index_re = re.match(
+                    r"^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+\S+\s+ON\s+"
+                    r"([a-zA-Z_][\w.\[\]\"`]*)",
+                    stmt, re.IGNORECASE,
+                )
+                if index_re:
+                    target = (
+                        index_re.group(1).strip().strip('"').strip("`").strip("[]")
+                    )
+            if target and target.lower() in chunk_lookup:
+                idx = chunk_lookup[target.lower()]
+                chunks[idx] = Chunk(
+                    filename=chunks[idx].filename,
+                    start_line=chunks[idx].start_line,
+                    end_line=chunks[idx].end_line,
+                    text=chunks[idx].text + "\n\n" + stmt,
+                )
+
+    if not has_ddl:
+        return chunk_document(filename, body)
+    return chunks
+
+
 # ── public dispatcher ────────────────────────────────────────────────
 
 _CHUNKERS = {
@@ -328,6 +500,7 @@ _CHUNKERS = {
     "document": chunk_document,
     "legal": chunk_legal,
     "api": chunk_api,
+    "db": chunk_db,
 }
 
 

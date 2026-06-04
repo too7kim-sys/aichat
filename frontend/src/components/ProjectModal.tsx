@@ -26,6 +26,11 @@ const CORPUS_META: Record<
     icon: "🔌",
     hint: "OpenAPI / Swagger (.json / .yaml). 엔드포인트 단위로 분할.",
   },
+  db: {
+    label: "DB",
+    icon: "🗄",
+    hint: "SQL 스키마 (.sql / .ddl). CREATE TABLE/VIEW/PROC 단위로 분할.",
+  },
 };
 
 interface Props {
@@ -188,10 +193,16 @@ function ProjectCard({
   onReindex: () => void;
   onDelete: () => void;
 }) {
+  const { activateSnapshot, deleteSnapshot } = useProjects();
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const pct =
     p.status === "indexing" && p.progress_total
       ? Math.round((100 * p.progress_done) / p.progress_total)
       : 0;
+  const totalSnapshots = p.snapshots?.length ?? 0;
+  const currentSnapshot = p.snapshots?.find(
+    (s) => s.id === p.current_snapshot_id,
+  );
 
   const meta = CORPUS_META[p.corpus_type] ?? CORPUS_META.code;
   return (
@@ -250,6 +261,127 @@ function ProjectCard({
         <div className="pm-card-error">⚠ {p.error}</div>
       )}
 
+      {totalSnapshots > 0 && (
+        <div className="pm-snap-block">
+          <button
+            type="button"
+            className="pm-snap-toggle"
+            onClick={() => setSnapshotsOpen((v) => !v)}
+            aria-expanded={snapshotsOpen}
+          >
+            <span aria-hidden>{snapshotsOpen ? "▾" : "▸"}</span>
+            <span>
+              스냅샷 {totalSnapshots}개
+              {currentSnapshot && (
+                <span className="pm-snap-current-label">
+                  &nbsp;· 현재 {currentSnapshot.label}
+                </span>
+              )}
+            </span>
+          </button>
+          {snapshotsOpen && (
+            <ul className="pm-snap-list">
+              {p.snapshots
+                .slice()
+                .sort(
+                  (a, b) =>
+                    new Date(b.created_at).getTime() -
+                    new Date(a.created_at).getTime(),
+                )
+                .map((s) => {
+                  const isCurrent = s.id === p.current_snapshot_id;
+                  return (
+                    <li
+                      key={s.id}
+                      className={`pm-snap-item status-${s.status}${
+                        isCurrent ? " current" : ""
+                      }`}
+                    >
+                      <div className="pm-snap-main">
+                        <div className="pm-snap-label">
+                          {s.label || s.id.slice(0, 8)}
+                          {isCurrent && (
+                            <span className="pm-snap-current-pill">현재</span>
+                          )}
+                        </div>
+                        <div className="pm-snap-meta">
+                          <span className={`pm-snap-status status-${s.status}`}>
+                            {s.status === "ready"
+                              ? "준비됨"
+                              : s.status === "indexing"
+                              ? `인덱싱 ${
+                                  s.progress_total
+                                    ? Math.round(
+                                        (100 * s.progress_done) /
+                                          s.progress_total,
+                                      )
+                                    : 0
+                                }%`
+                              : s.status === "failed"
+                              ? "실패"
+                              : "대기"}
+                          </span>
+                          {s.status === "ready" && (
+                            <>
+                              <span aria-hidden>·</span>
+                              <span>
+                                {s.file_count}f / {s.chunk_count}c
+                              </span>
+                            </>
+                          )}
+                          <span aria-hidden>·</span>
+                          <span className="pm-snap-time">
+                            {new Date(s.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="pm-snap-actions">
+                        {!isCurrent && s.status === "ready" && (
+                          <button
+                            type="button"
+                            className="pm-snap-btn"
+                            onClick={() => activateSnapshot(p.id, s.id)}
+                            title="이 스냅샷을 현재로 설정"
+                          >
+                            현재로
+                          </button>
+                        )}
+                        {totalSnapshots > 1 && (
+                          <button
+                            type="button"
+                            className="pm-snap-btn danger"
+                            onClick={async () => {
+                              if (
+                                window.confirm(
+                                  `스냅샷 "${s.label}"을(를) 삭제할까요?`,
+                                )
+                              ) {
+                                await deleteSnapshot(p.id, s.id).catch(
+                                  (err) =>
+                                    window.alert(
+                                      `삭제 실패: ${
+                                        err instanceof Error
+                                          ? err.message
+                                          : String(err)
+                                      }`,
+                                    ),
+                                );
+                              }
+                            }}
+                            title="이 스냅샷만 삭제"
+                          >
+                            🗑
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
+        </div>
+      )}
+
       <div className="pm-card-actions">
         {linkable && p.status === "ready" && (
           <button
@@ -265,7 +397,7 @@ function ProjectCard({
             type="button"
             className="pm-icon-btn"
             onClick={onReindex}
-            title="다시 인덱싱"
+            title="새 스냅샷으로 다시 인덱싱 (이전 스냅샷 유지)"
             aria-label="다시 인덱싱"
           >
             🔄
@@ -377,7 +509,7 @@ function AddProjectForm({
       <div className="pm-field">
         <label>코퍼스 유형</label>
         <div className="pm-corpus-tabs" role="tablist">
-          {(["code", "document", "legal", "api"] as const).map((t) => {
+          {(["code", "document", "legal", "api", "db"] as const).map((t) => {
             const m = CORPUS_META[t];
             return (
               <button

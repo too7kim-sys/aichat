@@ -45,12 +45,16 @@ _EXTS_LEGAL = {
 _EXTS_API = {
     ".json", ".yaml", ".yml", ".md", ".markdown",
 }
+_EXTS_DB = {
+    ".sql", ".ddl", ".md", ".markdown",
+}
 
 _EXTS_BY_TYPE = {
     "code": _EXTS_CODE,
     "document": _EXTS_DOCUMENT,
     "legal": _EXTS_LEGAL,
     "api": _EXTS_API,
+    "db": _EXTS_DB,
 }
 _SKIP_DIRS = {
     "node_modules", ".git", ".svn", ".hg", ".venv", "venv", "__pycache__",
@@ -183,24 +187,52 @@ def _clone_git(url: str, ref: str | None, dest: Path) -> None:
         raise RuntimeError(f"git clone 실패: {detail[:300]}")
 
 
-async def _update_project(project_id: str, **patch) -> None:
+async def _update_snapshot(snapshot_id: str, **patch) -> None:
+    """Mirror status onto the snapshot row AND the parent project so
+    the UI can show the live status without an extra join."""
     async with SessionLocal() as db:
-        row = await db.scalar(
-            select(models.Project).where(models.Project.id == project_id)
+        snap = await db.scalar(
+            select(models.ProjectSnapshot).where(
+                models.ProjectSnapshot.id == snapshot_id
+            )
         )
-        if not row:
+        if not snap:
             return
         for k, v in patch.items():
-            setattr(row, k, v)
+            setattr(snap, k, v)
+        # If this snapshot is the current one for its project, also
+        # mirror onto the project row.
+        proj = await db.scalar(
+            select(models.Project).where(models.Project.id == snap.project_id)
+        )
+        if proj and proj.current_snapshot_id == snap.id:
+            for k, v in patch.items():
+                if hasattr(proj, k):
+                    setattr(proj, k, v)
         await db.commit()
 
 
-async def run_indexing(project_id: str) -> None:
-    """Background entry point. Catches everything to mark the row failed."""
+async def run_indexing(snapshot_id: str) -> None:
+    """Background entry point. Catches everything to mark the snapshot
+    (and mirrored project row) failed on error.
+
+    The collection name follows the snapshot id, not the project id,
+    so re-indexing always builds a fresh collection and we can keep
+    every historical snapshot side-by-side until the user purges them.
+    """
     workdir: Path | None = None
     cleanup_workdir = False
+    project_id: str | None = None
     try:
         async with SessionLocal() as db:
+            snap = await db.scalar(
+                select(models.ProjectSnapshot).where(
+                    models.ProjectSnapshot.id == snapshot_id
+                )
+            )
+            if not snap:
+                return
+            project_id = snap.project_id
             project = await db.scalar(
                 select(models.Project).where(models.Project.id == project_id)
             )
@@ -210,8 +242,8 @@ async def run_indexing(project_id: str) -> None:
             source_ref = project.source_ref
             corpus_type = project.corpus_type or "code"
 
-        await _update_project(
-            project_id, status="indexing",
+        await _update_snapshot(
+            snapshot_id, status="indexing",
             progress_done=0, progress_total=0, error=None,
         )
 
@@ -243,21 +275,22 @@ async def run_indexing(project_id: str) -> None:
             rel = f.relative_to(root).as_posix()
             all_chunks.extend(chunk_for_type(corpus_type, rel, body))
 
-        await _update_project(
-            project_id, progress_total=len(all_chunks), file_count=len(files),
+        await _update_snapshot(
+            snapshot_id, progress_total=len(all_chunks), file_count=len(files),
         )
 
         if not all_chunks:
             raise RuntimeError("청크가 생성되지 않았습니다")
 
-        # 2) Drop + recreate the per-project Qdrant collection so re-index
-        #    is idempotent and doesn't leave stale vectors behind.
+        # 2) Drop + recreate THIS snapshot's collection. Older
+        #    snapshots' collections are untouched — they stay
+        #    queryable until the user explicitly purges them.
         client = get_client()
         try:
-            client.delete_collection(collection_name(project_id))
+            client.delete_collection(collection_name(snapshot_id))
         except Exception:  # noqa: BLE001
             pass
-        cname = ensure_collection(project_id)
+        cname = ensure_collection(snapshot_id)
 
         # 3) Embed + upsert in batches.
         BATCH = 32
@@ -290,34 +323,37 @@ async def run_indexing(project_id: str) -> None:
                 )
             client.upsert(collection_name=cname, points=points)
             done += len(batch)
-            await _update_project(project_id, progress_done=done)
+            await _update_snapshot(snapshot_id, progress_done=done)
 
-        await _update_project(
-            project_id, status="ready", chunk_count=len(all_chunks),
+        await _update_snapshot(
+            snapshot_id, status="ready", chunk_count=len(all_chunks),
             progress_done=len(all_chunks),
         )
         log.info(
-            "RAG indexed project=%s files=%d chunks=%d",
-            project_id, len(files), len(all_chunks),
+            "RAG indexed snapshot=%s project=%s files=%d chunks=%d",
+            snapshot_id, project_id, len(files), len(all_chunks),
         )
     except Exception as exc:  # noqa: BLE001
-        log.exception("RAG indexing failed for project=%s", project_id)
-        await _update_project(project_id, status="failed", error=str(exc)[:500])
+        log.exception(
+            "RAG indexing failed for snapshot=%s project=%s",
+            snapshot_id, project_id,
+        )
+        await _update_snapshot(
+            snapshot_id, status="failed", error=str(exc)[:500]
+        )
     finally:
         if cleanup_workdir and workdir is not None:
             shutil.rmtree(workdir, ignore_errors=True)
 
 
-def schedule_indexing(project_id: str) -> None:
+def schedule_indexing(snapshot_id: str) -> None:
     """Fire-and-forget — kicks the indexer onto the running event loop."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        # Called from sync context (shouldn't happen via FastAPI) — make
-        # a one-off loop to schedule onto.
-        asyncio.run(run_indexing(project_id))
+        asyncio.run(run_indexing(snapshot_id))
         return
-    task = loop.create_task(run_indexing(project_id))
+    task = loop.create_task(run_indexing(snapshot_id))
     _BACKGROUND_INDEX_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_INDEX_TASKS.discard)
 

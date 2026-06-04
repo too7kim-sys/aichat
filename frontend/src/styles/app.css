@@ -2289,10 +2289,11 @@ body {
 .pm-corpus-chip.corpus-document { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
 .pm-corpus-chip.corpus-legal    { background: #fef3c7; color: #92400e; border-color: #fde68a; }
 .pm-corpus-chip.corpus-api      { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.pm-corpus-chip.corpus-db       { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 
 .pm-corpus-tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
 }
 .pm-corpus-tabs button {
@@ -2323,6 +2324,113 @@ body {
 .pm-corpus-tabs button span:first-child {
   font-size: 18px;
   line-height: 1;
+}
+
+/* ── Snapshot block (per-card history) ─────────────────────── */
+.pm-snap-block {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+.pm-snap-toggle {
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.pm-snap-toggle:hover { color: var(--text); }
+.pm-snap-current-label {
+  font-weight: 500;
+  color: var(--text-faint);
+}
+.pm-snap-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pm-snap-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.pm-snap-item.status-indexing { border-left-color: #3b82f6; }
+.pm-snap-item.status-ready    { border-left-color: #16a34a; }
+.pm-snap-item.status-failed   { border-left-color: #dc2626; }
+.pm-snap-item.current {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+}
+.pm-snap-main { flex: 1; min-width: 0; }
+.pm-snap-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.pm-snap-current-pill {
+  font-family: inherit;
+  background: var(--accent);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.pm-snap-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-size: 11.5px;
+}
+.pm-snap-status.status-ready    { color: #166534; }
+.pm-snap-status.status-indexing { color: #1e40af; }
+.pm-snap-status.status-failed   { color: #991b1b; }
+.pm-snap-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.pm-snap-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 5px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pm-snap-btn:hover {
+  background: var(--bg-sidebar);
+  color: var(--text);
+}
+.pm-snap-btn.danger:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
 }
 
 .pm-card-source {

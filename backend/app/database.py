@@ -66,6 +66,73 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_projects_corpus_type "
                     "ON projects(corpus_type)"
                 )
+            if pexisting and "current_snapshot_id" not in pexisting:
+                # Snapshot/versioning support added later. The FK column
+                # is nullable so existing rows survive; a small backfill
+                # below creates a Snapshot row per existing ready
+                # project so retrieval keeps working without re-index.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN current_snapshot_id "
+                    "VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_projects_current_snapshot_id "
+                    "ON projects(current_snapshot_id)"
+                )
+                # Make sure the snapshots table exists before backfilling.
+                await conn.exec_driver_sql(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_snapshots (
+                        id            VARCHAR(36) PRIMARY KEY,
+                        project_id    VARCHAR(36) NOT NULL,
+                        label         VARCHAR(120) DEFAULT '',
+                        status        VARCHAR(20) DEFAULT 'pending',
+                        progress_done INTEGER DEFAULT 0,
+                        progress_total INTEGER DEFAULT 0,
+                        file_count    INTEGER DEFAULT 0,
+                        chunk_count   INTEGER DEFAULT 0,
+                        error         TEXT,
+                        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                # Backfill: every existing ready project gets one
+                # synthetic snapshot so future retrieval routes through
+                # the snapshot id instead of the project id.
+                await conn.exec_driver_sql(
+                    """
+                    INSERT INTO project_snapshots
+                        (id, project_id, label, status, progress_done,
+                         progress_total, file_count, chunk_count, error,
+                         created_at)
+                    SELECT
+                        lower(hex(randomblob(4))) || '-' ||
+                        lower(hex(randomblob(2))) || '-4' ||
+                        substr(lower(hex(randomblob(2))), 2) || '-' ||
+                        substr('89ab', abs(random()) % 4 + 1, 1) ||
+                        substr(lower(hex(randomblob(2))), 2) || '-' ||
+                        lower(hex(randomblob(6))),
+                        id, '초기 인덱스', status, progress_done,
+                        progress_total, file_count, chunk_count, error,
+                        created_at
+                    FROM projects
+                    WHERE id NOT IN (
+                        SELECT project_id FROM project_snapshots
+                    )
+                    """
+                )
+                # Point each project at its newly-created snapshot.
+                await conn.exec_driver_sql(
+                    """
+                    UPDATE projects
+                       SET current_snapshot_id = (
+                           SELECT id FROM project_snapshots s
+                           WHERE s.project_id = projects.id
+                           ORDER BY s.created_at DESC LIMIT 1
+                       )
+                     WHERE current_snapshot_id IS NULL
+                    """
+                )
             ucols = await conn.exec_driver_sql("PRAGMA table_info(users)")
             uexisting = {row[1] for row in ucols.fetchall()}
             if uexisting and "email_verified" not in uexisting:

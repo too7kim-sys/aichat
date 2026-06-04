@@ -58,7 +58,7 @@ class ChatRequest(BaseModel):
 
 # ── RAG / Projects ────────────────────────────────────────────────────
 
-CorpusType = Literal["code", "document", "legal", "api"]
+CorpusType = Literal["code", "document", "legal", "api", "db"]
 
 
 class ProjectCreate(BaseModel):
@@ -67,6 +67,21 @@ class ProjectCreate(BaseModel):
     source_ref: str = Field(min_length=1, max_length=500)
     ref: str | None = Field(default=None, max_length=120)  # git branch/tag
     corpus_type: CorpusType = "code"
+
+
+class SnapshotOut(BaseModel):
+    id: str
+    label: str
+    status: str
+    progress_done: int
+    progress_total: int
+    file_count: int
+    chunk_count: int
+    error: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class ProjectOut(BaseModel):
@@ -81,6 +96,8 @@ class ProjectOut(BaseModel):
     file_count: int
     chunk_count: int
     error: str | None
+    current_snapshot_id: str | None
+    snapshots: list[SnapshotOut] = []
     created_at: datetime
 
     class Config:

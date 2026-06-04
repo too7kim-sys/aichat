@@ -23,6 +23,11 @@ interface ProjectsState {
   }) => Promise<Project>;
   remove: (id: string) => Promise<{ freedBytes: number }>;
   reindex: (id: string) => Promise<void>;
+  activateSnapshot: (projectId: string, snapshotId: string) => Promise<void>;
+  deleteSnapshot: (
+    projectId: string,
+    snapshotId: string,
+  ) => Promise<{ freedBytes: number }>;
 }
 
 const Ctx = createContext<ProjectsState | null>(null);
@@ -104,9 +109,35 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const activateSnapshot = useCallback<ProjectsState["activateSnapshot"]>(
+    async (projectId, snapshotId) => {
+      await api.activateSnapshot(projectId, snapshotId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const deleteSnapshot = useCallback<ProjectsState["deleteSnapshot"]>(
+    async (projectId, snapshotId) => {
+      const res = await api.deleteSnapshot(projectId, snapshotId);
+      await refresh();
+      return { freedBytes: res?.freed_bytes ?? 0 };
+    },
+    [refresh],
+  );
+
   return (
     <Ctx.Provider
-      value={{ projects, storageBytes, refresh, create, remove, reindex }}
+      value={{
+        projects,
+        storageBytes,
+        refresh,
+        create,
+        remove,
+        reindex,
+        activateSnapshot,
+        deleteSnapshot,
+      }}
     >
       {children}
     </Ctx.Provider>

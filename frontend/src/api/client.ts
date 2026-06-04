@@ -151,7 +151,19 @@ export interface OllamaModelList {
   models: OllamaModel[];
 }
 
-export type CorpusType = "code" | "document" | "legal" | "api";
+export type CorpusType = "code" | "document" | "legal" | "api" | "db";
+
+export interface Snapshot {
+  id: string;
+  label: string;
+  status: "pending" | "indexing" | "ready" | "failed";
+  progress_done: number;
+  progress_total: number;
+  file_count: number;
+  chunk_count: number;
+  error: string | null;
+  created_at: string;
+}
 
 export interface Project {
   id: string;
@@ -165,6 +177,8 @@ export interface Project {
   file_count: number;
   chunk_count: number;
   error: string | null;
+  current_snapshot_id: string | null;
+  snapshots: Snapshot[];
   created_at: string;
 }
 
@@ -214,6 +228,16 @@ export const api = {
     json<{ freed_bytes: number }>(`/projects/${id}`, { method: "DELETE" }),
   projectStorage: () =>
     json<{ total_bytes: number; project_count: number }>("/projects/_storage"),
+  activateSnapshot: (projectId: string, snapshotId: string) =>
+    json<Project>(
+      `/projects/${projectId}/snapshots/${snapshotId}/activate`,
+      { method: "POST" },
+    ),
+  deleteSnapshot: (projectId: string, snapshotId: string) =>
+    json<{ freed_bytes: number }>(
+      `/projects/${projectId}/snapshots/${snapshotId}`,
+      { method: "DELETE" },
+    ),
 };
 
 export interface SearchSource {

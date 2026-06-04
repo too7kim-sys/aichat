@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from sqlalchemy import select
+
+from .. import models
 from ..config import settings
+from ..database import SessionLocal
 from .embed import EmbedError, embed_one
 from .vector import collection_name, get_client
 
@@ -59,9 +63,33 @@ def _merge_adjacent(hits: list[RetrievedChunk]) -> list[RetrievedChunk]:
     return merged
 
 
-async def retrieve(project_id: str, query: str) -> list[RetrievedChunk]:
-    """Top-K vector search against the project's collection."""
+async def _resolve_snapshot_id(project_id: str) -> str | None:
+    """Look up the project's current_snapshot_id. Returns None when the
+    project doesn't exist or hasn't been indexed yet."""
+    async with SessionLocal() as db:
+        proj = await db.scalar(
+            select(models.Project).where(models.Project.id == project_id)
+        )
+        if not proj:
+            return None
+        return proj.current_snapshot_id
+
+
+async def retrieve(
+    project_id: str,
+    query: str,
+    snapshot_id: str | None = None,
+) -> list[RetrievedChunk]:
+    """Top-K vector search against a project's CURRENT snapshot.
+
+    Pass snapshot_id explicitly to query a historical snapshot
+    instead — useful for comparison/audit. When neither the
+    snapshot id arg nor a current_snapshot_id is available, returns
+    an empty list (chat path skips retrieval cleanly)."""
     if not settings.rag_enabled:
+        return []
+    target_snapshot = snapshot_id or await _resolve_snapshot_id(project_id)
+    if not target_snapshot:
         return []
     try:
         qvec = await embed_one(query)
@@ -69,7 +97,7 @@ async def retrieve(project_id: str, query: str) -> list[RetrievedChunk]:
         log.warning("RAG retrieval: embedding failed (%s) — returning empty", exc)
         return []
     client = get_client()
-    cname = collection_name(project_id)
+    cname = collection_name(target_snapshot)
     try:
         results = client.search(
             collection_name=cname,
@@ -119,6 +147,14 @@ _TYPE_PROMPT_HEADER = {
         "`METHOD /path` 형식으로 인용하고, 청크에 없는 파라미터·응답을 "
         "지어내지 마세요. 예시 호출이 필요하면 청크에 명시된 파라미터만 "
         "사용해 작성하세요."
+    ),
+    "db": (
+        "[RETRIEVED DATABASE CONTEXT — DB 스키마]\n"
+        "검색된 청크는 데이터베이스 스키마(테이블/뷰/인덱스 등)입니다. "
+        "답변에는 `테이블명.컬럼명` 형식으로 인용하고, 청크에 없는 컬럼·"
+        "제약조건·관계를 지어내지 마세요. 쿼리 예시를 작성할 때는 청크에 "
+        "보이는 컬럼만 사용하세요. 컬럼 타입·NULL 가능 여부·기본값은 "
+        "청크 본문에서 확인 가능한 범위 안에서만 단정하세요."
     ),
 }
 
