@@ -1,6 +1,13 @@
+import { useState } from "react";
+import { useProjects } from "../state/ProjectsContext";
 import type { Session } from "../types";
+import { ProjectModal } from "./ProjectModal";
+
+export type Workspace = "chat" | "cowork" | "code";
 
 interface Props {
+  workspace: Workspace;
+  onWorkspaceChange: (w: Workspace) => void;
   sessions: Session[];
   activeId: string | null;
   onSelect: (id: string) => void;
@@ -34,31 +41,197 @@ function groupByDate(sessions: Session[]) {
   return { today, yesterday, lastWeek, earlier };
 }
 
+const TABS: { id: Workspace; label: string; icon: string }[] = [
+  { id: "chat", label: "Chat", icon: "💬" },
+  { id: "cowork", label: "Cowork", icon: "🤝" },
+  { id: "code", label: "Code", icon: "🧑‍💻" },
+];
+
 export function Sidebar({
+  workspace,
+  onWorkspaceChange,
   sessions,
   activeId,
   onSelect,
   onCreate,
   onDelete,
 }: Props) {
-  const groups = groupByDate(sessions);
-
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">Chat</div>
+      <nav className="workspace-tabs" role="tablist" aria-label="Workspace">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={workspace === t.id}
+            className={`workspace-tab${workspace === t.id ? " active" : ""}`}
+            onClick={() => onWorkspaceChange(t.id)}
+          >
+            <span className="workspace-tab-icon" aria-hidden>
+              {t.icon}
+            </span>
+            <span className="workspace-tab-label">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {workspace === "chat" && (
+        <ChatPane
+          sessions={sessions}
+          activeId={activeId}
+          onSelect={onSelect}
+          onCreate={onCreate}
+          onDelete={onDelete}
+        />
+      )}
+      {workspace === "cowork" && <CoworkPane />}
+      {workspace === "code" && <CodePane />}
+    </aside>
+  );
+}
+
+function ChatPane({
+  sessions,
+  activeId,
+  onSelect,
+  onCreate,
+  onDelete,
+}: {
+  sessions: Session[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onCreate: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const groups = groupByDate(sessions);
+  return (
+    <>
       <div className="sidebar-actions">
         <button className="primary" onClick={onCreate}>
           + 새 대화
         </button>
       </div>
-
       <div className="sidebar-sessions">
-        <SessionGroup label="오늘" sessions={groups.today} {...{ activeId, onSelect, onDelete }} />
-        <SessionGroup label="어제" sessions={groups.yesterday} {...{ activeId, onSelect, onDelete }} />
-        <SessionGroup label="지난 7일" sessions={groups.lastWeek} {...{ activeId, onSelect, onDelete }} />
-        <SessionGroup label="이전" sessions={groups.earlier} {...{ activeId, onSelect, onDelete }} />
+        <SessionGroup
+          label="오늘"
+          sessions={groups.today}
+          {...{ activeId, onSelect, onDelete }}
+        />
+        <SessionGroup
+          label="어제"
+          sessions={groups.yesterday}
+          {...{ activeId, onSelect, onDelete }}
+        />
+        <SessionGroup
+          label="지난 7일"
+          sessions={groups.lastWeek}
+          {...{ activeId, onSelect, onDelete }}
+        />
+        <SessionGroup
+          label="이전"
+          sessions={groups.earlier}
+          {...{ activeId, onSelect, onDelete }}
+        />
       </div>
-    </aside>
+    </>
+  );
+}
+
+function CoworkPane() {
+  const { projects, refresh } = useProjects();
+  const [modalOpen, setModalOpen] = useState(false);
+
+  function statusLabel(p: { status: string; progress_done: number; progress_total: number }): string {
+    switch (p.status) {
+      case "ready":
+        return "준비됨";
+      case "indexing": {
+        const pct = p.progress_total
+          ? Math.round((100 * p.progress_done) / p.progress_total)
+          : 0;
+        return `인덱싱 ${pct}%`;
+      }
+      case "pending":
+        return "대기";
+      case "failed":
+        return "실패";
+      default:
+        return p.status;
+    }
+  }
+
+  return (
+    <>
+      <div className="sidebar-actions">
+        <button className="primary" onClick={() => setModalOpen(true)}>
+          + 프로젝트 추가
+        </button>
+      </div>
+      <div className="sidebar-sessions">
+        <div className="session-section">RAG 프로젝트</div>
+        {projects.length === 0 ? (
+          <div className="sidebar-empty">
+            전자정부 같은 큰 코드베이스를 한 번 인덱싱해두면, 채팅에서 자연어로
+            검색·분석할 수 있어요.
+          </div>
+        ) : (
+          <ul className="proj-sidebar-list">
+            {projects.map((p) => (
+              <li
+                key={p.id}
+                className={`proj-sidebar-item status-${p.status}`}
+                onClick={() => setModalOpen(true)}
+              >
+                <div className="proj-sidebar-name">
+                  {p.source_type === "git" ? "🔗" : "📁"} {p.name}
+                </div>
+                <div className="proj-sidebar-meta">
+                  <span className={`proj-sidebar-status ${p.status}`}>
+                    {statusLabel(p)}
+                  </span>
+                  {p.status === "ready" && (
+                    <span className="proj-sidebar-counts">
+                      {p.file_count}f · {p.chunk_count}c
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <ProjectModal
+        open={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          refresh();
+        }}
+        selectedId={null}
+        onSelect={() => {}}
+        linkable={false}
+      />
+    </>
+  );
+}
+
+function CodePane() {
+  return (
+    <>
+      <div className="sidebar-actions">
+        <button className="primary" disabled>
+          🧑‍💻 코드 모드
+        </button>
+      </div>
+      <div className="sidebar-sessions">
+        <div className="session-section">Code workspace</div>
+        <div className="sidebar-empty">
+          현재 채팅에서 생성된 코드 블록은 우측 사이드 패널에서 편집·실행할 수
+          있습니다. 본격적인 IDE형 워크스페이스(파일 트리·다중 탭 편집)는 곧
+          추가됩니다.
+        </div>
+      </div>
+    </>
   );
 }
 

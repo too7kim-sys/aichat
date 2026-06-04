@@ -7,6 +7,13 @@ interface Props {
   onClose: () => void;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /**
+   * When true (default), each ready project shows an "이 채팅에 연결"
+   * button that wires it to the current chat session. Set false when
+   * opening from a context where no chat is active (e.g. the Cowork
+   * sidebar's project manager).
+   */
+  linkable?: boolean;
 }
 
 function statusBadge(p: Project): { label: string; cls: string } {
@@ -28,7 +35,13 @@ function statusBadge(p: Project): { label: string; cls: string } {
   }
 }
 
-export function ProjectModal({ open, onClose, selectedId, onSelect }: Props) {
+export function ProjectModal({
+  open,
+  onClose,
+  selectedId,
+  onSelect,
+  linkable = true,
+}: Props) {
   const { projects, create, remove, reindex, refresh } = useProjects();
   const [sourceType, setSourceType] = useState<"folder" | "git">("git");
   const [name, setName] = useState("");
@@ -197,7 +210,7 @@ export function ProjectModal({ open, onClose, selectedId, onSelect }: Props) {
                     </div>
                   </div>
                   <div className="proj-actions">
-                    {p.status === "ready" && (
+                    {linkable && p.status === "ready" && (
                       <button
                         type="button"
                         onClick={() => {

@@ -913,6 +913,97 @@ body {
   font-weight: 600;
 }
 
+/* === Workspace tabs (sidebar 상단, Claude 스타일) =================== */
+.workspace-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.workspace-tab:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+.workspace-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.workspace-tab-icon { font-size: 16px; line-height: 1; }
+.workspace-tab-label { letter-spacing: 0.02em; }
+
+/* Empty-state copy for Cowork / Code panes. */
+.sidebar-empty {
+  padding: 16px 18px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* Cowork sidebar — project rows. */
+.proj-sidebar-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 8px;
+}
+.proj-sidebar-item {
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.proj-sidebar-item:hover {
+  background: var(--bg);
+  border-color: var(--border-strong);
+}
+.proj-sidebar-item.status-indexing { border-left: 3px solid #3b82f6; }
+.proj-sidebar-item.status-ready    { border-left: 3px solid #16a34a; }
+.proj-sidebar-item.status-failed   { border-left: 3px solid #dc2626; }
+.proj-sidebar-item.status-pending  { border-left: 3px solid var(--text-faint); }
+.proj-sidebar-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proj-sidebar-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.proj-sidebar-status.ready    { color: #166534; }
+.proj-sidebar-status.indexing { color: #1e40af; }
+.proj-sidebar-status.failed   { color: #991b1b; }
+.proj-sidebar-counts {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-faint);
+}
+
 .code-header-actions { display: flex; gap: 6px; }
 
 /* ── Run output ───────────────────────────────────── */

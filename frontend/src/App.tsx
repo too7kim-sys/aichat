@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, auth as authApi } from "./api/client";
 import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type Workspace } from "./components/Sidebar";
 import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AuthForm } from "./auth/AuthForm";
@@ -141,6 +141,19 @@ function AppInner({
   const chatRef = useRef<ChatPanelHandle | null>(null);
   const artifacts = useArtifacts();
 
+  // Top-level workspace tab — Chat / Cowork / Code. Persisted across
+  // reloads so the user lands back where they left off.
+  const [workspace, _setWorkspace] = useState<Workspace>(() => {
+    const stored = localStorage.getItem("chat:workspace");
+    if (stored === "chat" || stored === "cowork" || stored === "code")
+      return stored;
+    return "chat";
+  });
+  function setWorkspace(w: Workspace) {
+    _setWorkspace(w);
+    localStorage.setItem("chat:workspace", w);
+  }
+
   async function refreshSessions() {
     const list = await api.listSessions();
     setSessions(list);
@@ -185,6 +198,8 @@ function AppInner({
   return (
     <div className="app">
       <Sidebar
+        workspace={workspace}
+        onWorkspaceChange={setWorkspace}
         sessions={sessions}
         activeId={activeId}
         onSelect={setActiveId}
