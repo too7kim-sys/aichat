@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { queueAttachment } from "../state/attachQueue";
 import { useProjects } from "../state/ProjectsContext";
 import { useWorkspaces } from "../state/WorkspacesContext";
 import type { Session } from "../types";
@@ -100,7 +101,9 @@ export function Sidebar({
         />
       )}
       {workspace === "cowork" && <CoworkPane activeSessionId={activeId} />}
-      {workspace === "code" && <CodePane />}
+      {workspace === "code" && (
+        <CodePane activeSessionId={activeId} onCreateSession={onCreate} />
+      )}
     </aside>
   );
 }
@@ -291,7 +294,13 @@ function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
   );
 }
 
-function CodePane() {
+function CodePane({
+  activeSessionId,
+  onCreateSession,
+}: {
+  activeSessionId: string | null;
+  onCreateSession: () => void;
+}) {
   const { workspaces, refresh, sync } = useWorkspaces();
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -364,11 +373,15 @@ function CodePane() {
           refresh();
         }}
         onAttachFile={(filename, text) => {
-          window.dispatchEvent(
-            new CustomEvent("chat:attach-file", {
-              detail: { filename, text },
-            }),
-          );
+          queueAttachment({ filename, text });
+          // When no chat is active, spin one up so the queued
+          // attachment has somewhere to land. The fresh ChatPanel's
+          // mount-effect drains the queue. App.tsx hands us the
+          // create-session callback that also flips activeId, which
+          // triggers the new ChatPanel to mount.
+          if (!activeSessionId) {
+            onCreateSession();
+          }
         }}
       />
     </>

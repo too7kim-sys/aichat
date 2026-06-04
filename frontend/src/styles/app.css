@@ -2653,12 +2653,14 @@ body {
   height: 86vh;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .cw-body {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 .cw-list {
   border-right: 1px solid var(--border);
@@ -2667,6 +2669,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 .cw-add-cta { padding: 10px 14px; font-size: 12.5px; }
 .cw-empty {
@@ -2749,6 +2752,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--bg);
 }
 .cw-main-empty {
@@ -2804,9 +2808,10 @@ body {
 
 .cw-split {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 .cw-tree {
   border-right: 1px solid var(--border);
@@ -2814,6 +2819,7 @@ body {
   background: var(--bg-card);
   padding: 6px 0;
   font-size: 12.5px;
+  min-width: 0;
 }
 .cw-tree-loading {
   padding: 14px;
@@ -2856,6 +2862,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--bg);
 }
 .cw-file-head {
@@ -2904,7 +2911,11 @@ body {
   line-height: 1.55;
   color: var(--text);
   flex: 1;
+  /* Long lines scroll horizontally inside the viewer instead of
+     forcing the grid column wider; min-width:0 on the parents lets
+     this actually take effect. */
   white-space: pre;
+  min-width: 0;
 }
 
 .pm-card-source {

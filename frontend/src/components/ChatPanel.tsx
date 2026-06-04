@@ -12,6 +12,7 @@ import {
 import { MessageBubble } from "./MessageBubble";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { useModels } from "../state/ModelContext";
+import { drainAttachments } from "../state/attachQueue";
 import { streamStore, useLiveStream } from "../state/streamStore";
 
 interface Props {
@@ -68,27 +69,33 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     return () => window.removeEventListener("chat:project-linked", onLinked);
   }, [sessionId]);
 
-  // The Code workspace modal dispatches "chat:attach-file" when the
-  // user clicks "채팅에 첨부" on a file in their cloned repo. We add
-  // it straight into this session's attachments list so it rides
-  // along on the next send.
+  // The Code workspace modal queues "attach this file" intents via
+  // attachQueue + a chat:attach-file CustomEvent. We drain the queue
+  // on every event AND on mount, so:
+  //   - if this panel is already mounted when the user clicks attach,
+  //     the event handler picks up the item; the queue is then empty.
+  //   - if no chat existed yet (queueAttachment + a new session being
+  //     created), the listener on the freshly mounted ChatPanel
+  //     runs the mount-time drain and catches the item that arrived
+  //     before it was listening.
   useEffect(() => {
-    function onAttach(e: Event) {
-      const ev = e as CustomEvent<{ filename: string; text: string }>;
-      if (!ev.detail) return;
-      const detail = ev.detail;
+    function ingest() {
+      const items = drainAttachments();
+      if (items.length === 0) return;
       setAttachments((prev) => [
         ...prev,
-        {
-          filename: detail.filename,
-          text: detail.text,
-          char_count: detail.text.length,
+        ...items.map((p) => ({
+          filename: p.filename,
+          text: p.text,
+          char_count: p.text.length,
           method: "workspace",
-        },
+        })),
       ]);
     }
-    window.addEventListener("chat:attach-file", onAttach);
-    return () => window.removeEventListener("chat:attach-file", onAttach);
+    // Drain anything that arrived before mount.
+    ingest();
+    window.addEventListener("chat:attach-file", ingest);
+    return () => window.removeEventListener("chat:attach-file", ingest);
   }, []);
 
   // Subscribe to the (possibly in-flight) stream for this session.
