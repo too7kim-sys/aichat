@@ -243,6 +243,50 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     await uploadFiles(Array.from(files));
   }
 
+  // Drag-over highlight + clipboard-paste / drag-drop image intake.
+  // The composer accepts any file the backend's /api/files/extract can
+  // chew (image, PDF, DOCX, plain text). On mobile, paste of a clipboard
+  // image (screenshot, copied photo) lands here too — Safari/Chrome ship
+  // images as File entries on the paste event.
+  const [dragOver, setDragOver] = useState(false);
+
+  async function handleClipboardPaste(
+    e: React.ClipboardEvent<HTMLTextAreaElement>,
+  ) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === "file") {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault(); // don't paste filename text into the textarea
+      await uploadFiles(files);
+    }
+  }
+
+  function onComposerDragOver(e: React.DragEvent) {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      setDragOver(true);
+    }
+  }
+  function onComposerDragLeave(e: React.DragEvent) {
+    // Only clear when leaving the wrap entirely — child enter/leave
+    // events fire constantly otherwise.
+    if (e.currentTarget === e.target) setDragOver(false);
+  }
+  async function onComposerDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = Array.from(e.dataTransfer?.files ?? []);
+    if (dropped.length > 0) await uploadFiles(dropped);
+  }
+
   function removeAttachment(idx: number) {
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   }
@@ -493,7 +537,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </button>
       )}
 
-      <div className="composer-wrap">
+      <div
+        className={`composer-wrap${dragOver ? " drag-over" : ""}`}
+        onDragOver={onComposerDragOver}
+        onDragLeave={onComposerDragLeave}
+        onDrop={onComposerDrop}
+      >
+        {dragOver && (
+          <div className="composer-drop-hint">📥 여기에 놓으세요</div>
+        )}
         <div className="composer">
           {(attachments.length > 0 || uploading) && (
             <div className="attachments">
@@ -565,8 +617,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           <textarea
             ref={textareaRef}
             value={prompt}
-            placeholder="무엇이든 물어보세요. 파일을 첨부해 요약을 요청할 수 있어요."
+            placeholder="무엇이든 물어보세요. 이미지를 붙여넣거나(Ctrl+V) 끌어다 놓아 분석·요약·번역도 가능합니다."
             onChange={(e) => setPrompt(e.target.value)}
+            onPaste={handleClipboardPaste}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

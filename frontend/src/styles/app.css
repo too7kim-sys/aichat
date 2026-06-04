@@ -284,6 +284,30 @@ body {
   padding: 0 24px 24px;
   background: var(--bg);
   flex-shrink: 0;
+  position: relative;
+}
+.composer-wrap.drag-over {
+  background: var(--accent-soft);
+}
+.composer-wrap.drag-over .composer {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* Overlay so the user sees a clear drop target on top of the textarea. */
+.composer-drop-hint {
+  position: absolute;
+  inset: 0 24px 24px;
+  background: var(--accent-soft);
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  z-index: 5;
+  pointer-events: none;
 }
 .composer {
   max-width: 760px;
