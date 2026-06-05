@@ -1,12 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" shape-rendering="crispEdges" role="img" aria-label="Chat 로고">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" shape-rendering="crispEdges" role="img" aria-label="Chat 로고">
   <title>Chat</title>
-  <!-- Two interlocked pixel-art L-frames on a 12×12 grid; bars are 2
-       units thick (~16%). Transparent background so the mark sits on
-       any surface without a boxed look. -->
-  <rect x="0" y="0" width="8" height="2" fill="#22A93A"/>
-  <rect x="0" y="0" width="2" height="8" fill="#22A93A"/>
-  <rect x="4" y="10" width="8" height="2" fill="#1E58B4"/>
-  <rect x="10" y="4" width="2" height="8" fill="#1E58B4"/>
-  <rect x="6" y="4" width="2" height="2" fill="#1B7A2C"/>
-  <rect x="4" y="6" width="2" height="2" fill="#1B7A2C"/>
+  <!-- Two interlocked pixel-art rings on an 18×18 grid. The chain-
+       link illusion is achieved purely through negative space — at
+       every crossing, only one of the two paths is drawn; the other
+       passes 'behind' as a 2-cell gap. No darker accents; the brand
+       uses exactly two colours. -->
+
+  <!-- Green ring (top-left). Top bar + left bar + a split mid-row
+       (cols 0-5 and 8-11) — the gap at cols 6-7 is where blue's
+       vertical connector passes 'in front'. -->
+  <rect x="0"  y="0"  width="12" height="3"  fill="#26A938"/>
+  <rect x="0"  y="0"  width="3"  height="12" fill="#26A938"/>
+  <rect x="0"  y="10" width="6"  height="2"  fill="#26A938"/>
+  <rect x="8"  y="10" width="4"  height="2"  fill="#26A938"/>
+
+  <!-- Blue ring (bottom-right). Right bar + bottom bar + a split
+       mid-column at cols 6-7 (upper and lower halves) — the gap at
+       rows 10-11 is where green's mid-row passes 'in front'. -->
+  <rect x="15" y="6"  width="3"  height="12" fill="#1E54A4"/>
+  <rect x="6"  y="15" width="12" height="3"  fill="#1E54A4"/>
+  <rect x="6"  y="6"  width="2"  height="4"  fill="#1E54A4"/>
+  <rect x="6"  y="12" width="2"  height="3"  fill="#1E54A4"/>
 </svg>
