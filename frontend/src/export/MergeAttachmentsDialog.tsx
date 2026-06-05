@@ -1,24 +1,66 @@
 import { useEffect, useMemo, useState } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { ExtractedFile } from "../api/client";
-import {
-  buildAttachmentsMarkdown,
-  buildHtmlDocument,
-  downloadBlob,
-  printAsPdf,
-  safeFileBasename,
-} from "./documentExport";
+import { api, type ExtractedFile } from "../api/client";
+
+/** Attachment as held in ChatPanel's state — extends the wire
+ *  ExtractedFile with an optional reference to the original browser
+ *  File so the merge endpoint can re-receive the binary. */
+export interface LocalAttachment extends ExtractedFile {
+  _file?: File;
+}
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  attachments: ExtractedFile[];
+  attachments: LocalAttachment[];
   defaultTitle: string;
 }
 
-type Format = "md" | "html" | "pdf";
+/** Format-preserving merge: same extension across all picked files,
+ *  original binary available. Phase 1 supports these five only. */
+const MERGEABLE_EXTS = new Set([".pdf", ".docx", ".xlsx", ".pptx", ".hwpx"]);
+
+const EXT_LABELS: Record<string, string> = {
+  ".pdf": "PDF",
+  ".docx": "Word (.docx)",
+  ".xlsx": "Excel (.xlsx)",
+  ".pptx": "PowerPoint (.pptx)",
+  ".hwpx": "한글 (.hwpx)",
+  ".hwp": "한글 (.hwp · 구버전)",
+};
+
+function extOf(filename: string): string {
+  const i = filename.lastIndexOf(".");
+  return i >= 0 ? filename.slice(i).toLowerCase() : "";
+}
+
+function labelFor(ext: string): string {
+  return EXT_LABELS[ext] || ext || "(확장자 없음)";
+}
+
+interface FileStatus {
+  ok: boolean;
+  reason?: string;
+}
+
+function classifyFile(
+  a: LocalAttachment,
+  commonExt: string,
+): FileStatus {
+  const e = extOf(a.filename);
+  if (!MERGEABLE_EXTS.has(e)) {
+    return { ok: false, reason: `${labelFor(e)} 형식은 병합 미지원 (Phase 1)` };
+  }
+  if (e !== commonExt) {
+    return { ok: false, reason: `다른 형식 (${labelFor(e)})` };
+  }
+  if (!a._file) {
+    return {
+      ok: false,
+      reason: "원본 파일이 없음 (텍스트로만 첨부됨)",
+    };
+  }
+  return { ok: true };
+}
 
 export function MergeAttachmentsDialog({
   open,
@@ -27,46 +69,66 @@ export function MergeAttachmentsDialog({
   defaultTitle,
 }: Props) {
   const [title, setTitle] = useState(defaultTitle);
-  const [includeMeta, setIncludeMeta] = useState(true);
-  const [embedImages, setEmbedImages] = useState(true);
-  // Per-file include flags so the user can drop one or two files
-  // from the merge without having to remove them from the composer
-  // (which would also drop them from the chat context).
+  const [withSeparators, setWithSeparators] = useState(true);
   const [included, setIncluded] = useState<Set<number>>(
-    new Set(attachments.map((_, i) => i)),
+    () => new Set(attachments.map((_, i) => i)),
   );
-  // The attachment list can change while the dialog is open (rare —
-  // usually the user closes the composer pane first — but if a
-  // pending upload finishes mid-flow we re-sync to include the new
-  // index by default rather than silently leaving it out).
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Re-sync default title when the parent's title changes (e.g.
+  // session rename).
+  useEffect(() => {
+    setTitle(defaultTitle);
+  }, [defaultTitle]);
+
+  // Re-sync the selection when attachments mutate: add new indices,
+  // drop indices past the new length.
   useEffect(() => {
     setIncluded((prev) => {
       const next = new Set<number>();
       for (let i = 0; i < attachments.length; i += 1) {
-        if (prev.size === 0 || prev.has(i)) next.add(i);
-      }
-      // If the previous selection was a strict subset, only add
-      // brand-new indices (everything past the previous max).
-      if (prev.size > 0 && prev.size < attachments.length) {
-        const prevMax = Math.max(...prev);
-        for (let i = prevMax + 1; i < attachments.length; i += 1) {
-          next.add(i);
-        }
+        if (prev.size === 0 || prev.has(i) || i >= prev.size) next.add(i);
       }
       return next;
     });
   }, [attachments.length]);
-  const [format, setFormat] = useState<Format>("md");
-  const [status, setStatus] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const chosen = useMemo(
-    () => attachments.filter((_, i) => included.has(i)),
-    [attachments, included],
+  // The "common extension" is whichever recognised format the
+  // majority of currently-selected files share. If nothing's
+  // recognised, we fall back to empty so the per-file status
+  // messages still make sense.
+  const commonExt = useMemo(() => {
+    const tally = new Map<string, number>();
+    attachments.forEach((a, i) => {
+      if (!included.has(i)) return;
+      const e = extOf(a.filename);
+      if (MERGEABLE_EXTS.has(e)) {
+        tally.set(e, (tally.get(e) || 0) + 1);
+      }
+    });
+    let best = "";
+    let bestN = 0;
+    for (const [e, n] of tally) {
+      if (n > bestN) {
+        best = e;
+        bestN = n;
+      }
+    }
+    return best;
+  }, [attachments, included]);
+
+  const classified = useMemo(
+    () => attachments.map((a) => classifyFile(a, commonExt)),
+    [attachments, commonExt],
   );
-  const totalChars = useMemo(
-    () => chosen.reduce((acc, a) => acc + a.char_count, 0),
-    [chosen],
+
+  const chosenIdx = useMemo(
+    () =>
+      attachments
+        .map((_, i) => i)
+        .filter((i) => included.has(i) && classified[i].ok),
+    [attachments, included, classified],
   );
 
   if (!open) return null;
@@ -80,21 +142,9 @@ export function MergeAttachmentsDialog({
     });
   }
 
-  function buildContent(): { md: string; htmlDoc: string } {
-    const md = buildAttachmentsMarkdown(chosen, {
-      title,
-      includeMeta,
-      embedImages,
-    });
-    const innerHtml = renderToStaticMarkup(
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>,
-    );
-    return { md, htmlDoc: buildHtmlDocument(innerHtml, title) };
-  }
-
-  async function exportNow() {
-    if (chosen.length === 0) {
-      setStatus("병합할 파일을 1개 이상 선택하세요.");
+  async function runMerge() {
+    if (chosenIdx.length < 2) {
+      setStatus("병합하려면 같은 형식의 원본 파일이 2개 이상 필요합니다.");
       return;
     }
     if (!title.trim()) {
@@ -104,35 +154,38 @@ export function MergeAttachmentsDialog({
     setBusy(true);
     setStatus(null);
     try {
-      const { md, htmlDoc } = buildContent();
-      const base = safeFileBasename(title);
-      if (format === "md") {
-        downloadBlob(md, `${base}.md`, "text/markdown");
-      } else if (format === "html") {
-        downloadBlob(htmlDoc, `${base}.html`, "text/html");
-      } else {
-        const ok = printAsPdf(htmlDoc);
-        if (!ok) {
-          setStatus(
-            "팝업이 차단되어 PDF 인쇄 창을 열 수 없습니다. 팝업 차단을 해제하거나 .html 형식으로 저장 후 인쇄하세요.",
-          );
-          setBusy(false);
-          return;
-        }
-      }
+      const files = chosenIdx.map((i) => attachments[i]._file as File);
+      const { blob, filename } = await api.mergeFiles({
+        files,
+        title: title.trim(),
+        withSeparators,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setStatus(
-        format === "pdf"
-          ? "새 창에서 인쇄 대화상자를 열었습니다. \"PDF로 저장\"을 선택하세요."
-          : `다운로드 완료 — ${base}.${format}`,
+        `다운로드 완료 — ${filename} (${Math.round(blob.size / 1024)} KB)`,
       );
     } catch (e) {
-      setStatus(
-        `병합 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      setStatus(`병합 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
   }
+
+  const tally = useMemo(() => {
+    const m = new Map<string, number>();
+    attachments.forEach((a) => {
+      const e = extOf(a.filename);
+      m.set(e, (m.get(e) || 0) + 1);
+    });
+    return m;
+  }, [attachments]);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -144,8 +197,8 @@ export function MergeAttachmentsDialog({
           <div className="pm-head-text">
             <h3>첨부 파일 병합</h3>
             <p>
-              {chosen.length}/{attachments.length}개 파일 ·
-              총 {totalChars.toLocaleString()}자를 하나의 문서로 합칩니다.
+              같은 형식의 파일을 원형 그대로 합쳐 하나의 문서로 만듭니다
+              (PDF · Word · Excel · PowerPoint · 한글 HWPX).
             </p>
           </div>
           <button
@@ -160,61 +213,66 @@ export function MergeAttachmentsDialog({
 
         <div className="export-body">
           <div className="pm-field">
-            <label>문서 제목</label>
+            <label>감지된 형식</label>
+            <div className="merge-format-tally">
+              {Array.from(tally.entries()).map(([e, n]) => (
+                <span key={e} className="merge-format-pill">
+                  {labelFor(e)} × {n}
+                </span>
+              ))}
+            </div>
+            {commonExt && (
+              <div className="pm-help">
+                → <strong>{labelFor(commonExt)}</strong> 형식으로 병합 가능
+                ({chosenIdx.length}개 파일)
+              </div>
+            )}
+            {!commonExt && (
+              <div className="pm-help warn">
+                병합 가능한 형식의 파일이 2개 이상 필요합니다. 다른 형식이
+                섞여 있으면 같은 형식끼리만 선택하세요.
+              </div>
+            )}
+          </div>
+
+          <div className="pm-field">
+            <label>병합 결과 파일명</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={200}
               disabled={busy}
+              placeholder="예: 회의자료 통합본"
             />
           </div>
 
           <div className="pm-field">
             <label>포함할 파일</label>
             <div className="merge-file-list">
-              {attachments.map((a, i) => (
-                <label key={i} className="merge-file-row">
-                  <input
-                    type="checkbox"
-                    checked={included.has(i)}
-                    onChange={() => toggleFile(i)}
-                    disabled={busy}
-                  />
-                  <span className="merge-file-name" title={a.filename}>
-                    {i + 1}. {a.filename}
-                  </span>
-                  <span className="merge-file-meta">
-                    {a.image_b64 ? "🖼" : "📄"} {a.method} ·{" "}
-                    {a.char_count.toLocaleString()}자
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="pm-field">
-            <label>형식</label>
-            <div className="export-format-tabs" role="tablist">
-              {(["md", "html", "pdf"] as const).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  role="tab"
-                  aria-selected={format === f}
-                  className={`export-format-tab${
-                    format === f ? " active" : ""
-                  }`}
-                  onClick={() => setFormat(f)}
-                  disabled={busy}
-                >
-                  {f === "md"
-                    ? "Markdown (.md)"
-                    : f === "html"
-                    ? "HTML (.html)"
-                    : "PDF (브라우저 인쇄)"}
-                </button>
-              ))}
+              {attachments.map((a, i) => {
+                const st = classified[i];
+                return (
+                  <label
+                    key={i}
+                    className={`merge-file-row${st.ok ? "" : " unmergeable"}`}
+                    title={st.reason || ""}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={included.has(i)}
+                      onChange={() => toggleFile(i)}
+                      disabled={busy || !st.ok}
+                    />
+                    <span className="merge-file-name" title={a.filename}>
+                      {i + 1}. {a.filename}
+                    </span>
+                    <span className="merge-file-meta">
+                      {st.ok ? labelFor(extOf(a.filename)) : st.reason}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -222,20 +280,16 @@ export function MergeAttachmentsDialog({
             <label className="export-checkbox">
               <input
                 type="checkbox"
-                checked={embedImages}
-                onChange={(e) => setEmbedImages(e.target.checked)}
+                checked={withSeparators}
+                onChange={(e) => setWithSeparators(e.target.checked)}
                 disabled={busy}
               />
-              <span>이미지 첨부를 문서에 인라인으로 삽입</span>
-            </label>
-            <label className="export-checkbox">
-              <input
-                type="checkbox"
-                checked={includeMeta}
-                onChange={(e) => setIncludeMeta(e.target.checked)}
-                disabled={busy}
-              />
-              <span>파일 메타(추출 방식·글자 수) 표시</span>
+              <span>
+                파일 경계에 구분 표지 삽입
+                <span className="pm-help inline">
+                  {" — PDF는 표지 페이지, Excel은 구분 시트, PowerPoint는 표지 슬라이드, Word/HWPX는 제목 단락"}
+                </span>
+              </span>
             </label>
           </div>
 
@@ -254,14 +308,12 @@ export function MergeAttachmentsDialog({
           <button
             type="button"
             className="pm-btn-primary"
-            onClick={exportNow}
-            disabled={busy || chosen.length === 0}
+            onClick={runMerge}
+            disabled={busy || chosenIdx.length < 2}
           >
             {busy
-              ? "처리 중…"
-              : format === "pdf"
-              ? "인쇄 창 열기"
-              : "병합 다운로드"}
+              ? "병합 중…"
+              : `${labelFor(commonExt) || "—"}로 병합 다운로드`}
           </button>
         </footer>
       </div>

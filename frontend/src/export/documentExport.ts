@@ -10,7 +10,6 @@
  */
 
 import type { Message } from "../types";
-import type { ExtractedFile } from "../api/client";
 
 // Alias kept for the rest of the module's signatures so a future
 // rename of the global Message type only needs one swap here.
@@ -130,85 +129,6 @@ export function buildMarkdown(
     parts.push("---");
     parts.push("");
   }
-  return parts.join("\n").replace(/\n{3,}/g, "\n\n");
-}
-
-// --- Attachment merge --------------------------------------------------
-//
-// The attachment-merge feature lets the user take everything they've
-// dropped into the composer (PDF / DOCX / text / code / images) and
-// roll it into a single document — useful for handing a curated bundle
-// off to a colleague or for keeping a snapshot of the source material
-// alongside the chat that consumed it.
-//
-// The merge re-uses the same Markdown → HTML → print pipeline as the
-// answer exporter; only the section-building logic differs.
-
-export interface AttachmentExportOptions {
-  title: string;
-  includeMeta: boolean;
-  /** Inline image-typed attachments as base64 data URLs so the
-   *  exported document is fully self-contained (the HTML/PDF still
-   *  shows the picture without a separate file or network). */
-  embedImages: boolean;
-}
-
-function guessImageMime(filename: string): string {
-  const n = filename.toLowerCase();
-  if (n.endsWith(".png")) return "image/png";
-  if (n.endsWith(".webp")) return "image/webp";
-  if (n.endsWith(".gif")) return "image/gif";
-  if (n.endsWith(".bmp")) return "image/bmp";
-  if (n.endsWith(".tif") || n.endsWith(".tiff")) return "image/tiff";
-  return "image/jpeg";
-}
-
-/** Build the merged-attachments Markdown. Order is preserved from
- *  the incoming list; images render inline as data URLs when
- *  embedImages is on so the resulting document carries the picture
- *  with it. */
-export function buildAttachmentsMarkdown(
-  attachments: ExtractedFile[],
-  options: AttachmentExportOptions,
-): string {
-  const parts: string[] = [];
-  parts.push(`# ${options.title || "병합 문서"}`);
-  parts.push("");
-  parts.push(
-    `> 첨부 ${attachments.length}개 병합 · 내보낸 시각: ${new Date().toLocaleString()}`,
-  );
-  parts.push("");
-  parts.push("---");
-  parts.push("");
-  attachments.forEach((a, i) => {
-    parts.push(`## ${i + 1}. ${a.filename}`);
-    parts.push("");
-    if (options.includeMeta) {
-      const bits: string[] = [];
-      bits.push(a.method);
-      bits.push(`${a.char_count.toLocaleString()}자`);
-      if (a.image_b64) bits.push("이미지");
-      parts.push(`<sub>${bits.join(" · ")}</sub>`);
-      parts.push("");
-    }
-    if (a.image_b64 && options.embedImages) {
-      const mime = guessImageMime(a.filename);
-      parts.push(
-        `![${a.filename}](data:${mime};base64,${a.image_b64})`,
-      );
-      parts.push("");
-    }
-    const body = (a.text || "").trim();
-    if (body) {
-      parts.push(body);
-      parts.push("");
-    } else if (!a.image_b64) {
-      parts.push("_(추출된 텍스트가 없습니다)_");
-      parts.push("");
-    }
-    parts.push("---");
-    parts.push("");
-  });
   return parts.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 

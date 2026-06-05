@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { api, type ExtractedFile } from "../api/client";
+import { api } from "../api/client";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
   IconCode,
@@ -12,7 +12,10 @@ import {
   IconX,
 } from "./Icon";
 import { ExportDocumentDialog } from "../export/ExportDocumentDialog";
-import { MergeAttachmentsDialog } from "../export/MergeAttachmentsDialog";
+import {
+  MergeAttachmentsDialog,
+  type LocalAttachment,
+} from "../export/MergeAttachmentsDialog";
 import { MessageBubble } from "./MessageBubble";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
@@ -41,7 +44,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [prompt, setPrompt] = useState("");
   const [activeProvider, setActiveProvider] = useState<string>("");
   const [webSearch, setWebSearch] = useState(false);
-  const [attachments, setAttachments] = useState<ExtractedFile[]>([]);
+  // _file holds the original browser File when we have it (direct
+  // upload path) so the merge endpoint can re-receive the binary.
+  // It's missing for attachments that came in pre-extracted via the
+  // attach-queue or paste — those can't be format-preserving merged.
+  // Never serialized: send() and the chat-stream payload always
+  // strip down to the ExtractedFile fields.
+  const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   // Workspace file tree panel — only meaningful for code-focused
@@ -297,7 +306,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     setUploading(true);
     setUploadProgress({ done: 0, total: files.length });
     const failures: string[] = [];
-    const additions: ExtractedFile[] = [];
+    const additions: LocalAttachment[] = [];
     let done = 0;
 
     // Pool of N workers pulling from the queue so a 50-file project
@@ -313,7 +322,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           const rel = (f as File & { webkitRelativePath?: string })
             .webkitRelativePath;
           if (rel) ext.filename = rel;
-          additions.push(ext);
+          // Stash the original File so the same bytes can be
+          // re-uploaded for format-preserving merge.
+          additions.push({ ...ext, _file: f });
         } catch (e) {
           failures.push(
             `${f.name}: ${e instanceof Error ? e.message : String(e)}`

@@ -537,6 +537,33 @@ body {
   font-size: 11px;
   white-space: nowrap;
 }
+.merge-file-row.unmergeable {
+  opacity: 0.55;
+}
+.merge-file-row.unmergeable .merge-file-meta {
+  color: #b45309;
+}
+.merge-format-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.merge-format-pill {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--text);
+}
+.pm-help.warn { color: #b45309; }
+.pm-help.inline {
+  display: inline;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
 .attachment-chips {
   display: flex;
   flex-wrap: wrap;

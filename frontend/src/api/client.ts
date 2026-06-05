@@ -81,6 +81,54 @@ async function uploadExtract(file: File): Promise<ExtractedFile> {
   return res.json();
 }
 
+/** POST a set of files to the merge endpoint. Returns the merged
+ *  blob + a server-suggested filename pulled from the
+ *  Content-Disposition header (falls back to a generic name when
+ *  the header isn't present or unparseable). */
+async function mergeFiles(opts: {
+  files: File[];
+  title: string;
+  withSeparators: boolean;
+}): Promise<{ blob: Blob; filename: string }> {
+  const fd = new FormData();
+  for (const f of opts.files) fd.append("files", f, f.name);
+  fd.append("title", opts.title);
+  fd.append("with_separators", opts.withSeparators ? "true" : "false");
+  const res = await fetch(`${BASE}/files/merge`, {
+    method: "POST",
+    body: fd,
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    let detail = body;
+    try {
+      detail = JSON.parse(body).detail ?? body;
+    } catch {
+      // not JSON
+    }
+    throw new Error(detail || `${res.status}`);
+  }
+  const disp = res.headers.get("Content-Disposition") || "";
+  let filename = "merged";
+  // Prefer RFC-5987 `filename*=UTF-8''<urlencoded>` form (what the
+  // backend sends for Korean titles) and fall back to a plain
+  // `filename="..."` for older clients.
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disp);
+  if (star) {
+    try {
+      filename = decodeURIComponent(star[1]);
+    } catch {
+      filename = star[1];
+    }
+  } else {
+    const plain = /filename="?([^";]+)"?/i.exec(disp);
+    if (plain) filename = plain[1];
+  }
+  const blob = await res.blob();
+  return { blob, filename };
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -251,6 +299,7 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
   extractFile: uploadExtract,
+  mergeFiles,
 
   // RAG / Projects
   listProjects: () => json<Project[]>("/projects"),
