@@ -15,6 +15,7 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [signupReason, setSignupReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Signup may complete in 'pending' state — the user can't log in
@@ -35,7 +36,12 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
       if (mode === "login") {
         await login(email.trim(), password);
       } else {
-        const res = await signup(email.trim(), password, name.trim());
+        const res = await signup(
+          email.trim(),
+          password,
+          name.trim(),
+          signupReason.trim(),
+        );
         if (res.status === "pending") {
           setPendingEmail(email.trim());
         }
@@ -70,6 +76,7 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
               setMode("login");
               setPassword("");
               setName("");
+              setSignupReason("");
             }}
           >
             로그인 화면으로
@@ -139,6 +146,22 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
             <PasswordStrength password={password} email={email} name={name} />
           )}
         </label>
+
+        {mode === "signup" && (
+          <label className="auth-field">
+            <span>가입 동기</span>
+            <textarea
+              value={signupReason}
+              onChange={(e) => setSignupReason(e.target.value)}
+              maxLength={1000}
+              rows={3}
+              placeholder="간단히 가입 목적을 적어주세요. 관리자가 검토 시 참고합니다."
+            />
+            <small className="auth-hint">
+              선택 사항 · 최대 1000자
+            </small>
+          </label>
+        )}
 
         {error && <div className="auth-error">{error}</div>}
 

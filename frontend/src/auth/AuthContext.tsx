@@ -23,6 +23,7 @@ interface AuthState {
     email: string,
     password: string,
     name: string,
+    signupReason?: string,
   ) => Promise<SignupResponse>;
   logout: () => void;
   refresh: () => Promise<void>;
@@ -78,8 +79,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *  the 'waiting for admin' screen instead of dropping the user into
    *  a logged-in state with a null token. */
   const signup = useCallback(
-    async (email: string, password: string, name: string) => {
-      const res = await auth.signup(email, password, name);
+    async (
+      email: string,
+      password: string,
+      name: string,
+      signupReason: string = "",
+    ) => {
+      const res = await auth.signup(email, password, name, signupReason);
       if (res.access_token && res.status === "approved") {
         setToken(res.access_token);
         setUserState(res.user);

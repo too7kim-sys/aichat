@@ -221,6 +221,11 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     name: str = Field(default="", max_length=80)
+    # Optional free-text reason the applicant gives — surfaces in
+    # the admin approval queue. Capped at 1000 chars so the UI
+    # textarea can't be used as a DoS vector against the listing
+    # endpoint.
+    signup_reason: str = Field(default="", max_length=1000)
 
 
 class LoginRequest(BaseModel):
@@ -237,6 +242,7 @@ class UserOut(BaseModel):
     role: Literal["user", "moderator", "admin"] = "user"
     approved_at: datetime | None = None
     rejection_reason: str | None = None
+    signup_reason: str | None = None
     created_at: datetime
 
     class Config:

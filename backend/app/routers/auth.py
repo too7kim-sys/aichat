@@ -74,6 +74,7 @@ async def signup(
         status="approved" if auto_approve else "pending",
         role="admin" if is_bootstrap_admin else "user",
         approved_at=datetime.now(timezone.utc) if auto_approve else None,
+        signup_reason=(payload.signup_reason or "").strip() or None,
     )
     db.add(user)
     await db.flush()  # populate user.id for the audit row

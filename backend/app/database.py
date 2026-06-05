@@ -282,6 +282,10 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "ALTER TABLE users ADD COLUMN rejection_reason TEXT"
                 )
+            if uexisting and "signup_reason" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN signup_reason TEXT"
+                )
             # ADMIN_EMAIL bootstrap — if the env names an account, make
             # sure it's promoted to admin + approved on every startup
             # so it can recover from accidental role demotion. No-op

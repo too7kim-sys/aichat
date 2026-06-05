@@ -1568,7 +1568,8 @@ body {
   color: var(--text-muted);
   font-weight: 600;
 }
-.auth-field input {
+.auth-field input,
+.auth-field textarea {
   font: inherit;
   font-size: 14px;
   font-weight: 400;
@@ -1577,9 +1578,11 @@ body {
   border-radius: 8px;
   background: var(--bg-input);
   color: var(--text);
+  resize: vertical;
   transition: border-color 0.12s, box-shadow 0.12s;
 }
-.auth-field input:focus {
+.auth-field input:focus,
+.auth-field textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
@@ -1847,6 +1850,29 @@ body {
   font-size: 11.5px;
   color: #b45309;
   margin-top: 2px;
+}
+.admin-user-motive {
+  font-size: 12px;
+  color: var(--text);
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: var(--bg-sidebar);
+  border-radius: 4px;
+  max-width: 420px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  line-height: 1.45;
+}
+.admin-user-motive-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
 }
 .admin-cell-muted { color: var(--text-muted); font-size: 12px; }
 

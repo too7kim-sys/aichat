@@ -282,9 +282,15 @@ export function AdminPage({ onBack }: Props) {
                 <td>
                   <div className="admin-user-name">{u.name || "(이름 없음)"}</div>
                   <div className="admin-user-email">{u.email}</div>
+                  {u.signup_reason && (
+                    <div className="admin-user-motive" title={u.signup_reason}>
+                      <span className="admin-user-motive-label">가입 동기</span>{" "}
+                      {u.signup_reason}
+                    </div>
+                  )}
                   {u.rejection_reason && (
                     <div className="admin-user-reason">
-                      사유: {u.rejection_reason}
+                      반려 사유: {u.rejection_reason}
                     </div>
                   )}
                 </td>

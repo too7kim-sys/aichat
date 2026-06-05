@@ -141,6 +141,7 @@ export interface AuthUser {
   role: UserRole;
   approved_at: string | null;
   rejection_reason: string | null;
+  signup_reason: string | null;
   created_at: string;
 }
 export interface AdminUser extends AuthUser {
@@ -173,10 +174,20 @@ export interface AuditEvent {
 }
 
 export const auth = {
-  signup: (email: string, password: string, name: string) =>
+  signup: (
+    email: string,
+    password: string,
+    name: string,
+    signupReason = "",
+  ) =>
     json<SignupResponse>("/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({
+        email,
+        password,
+        name,
+        signup_reason: signupReason,
+      }),
     }),
   login: (email: string, password: string) =>
     json<AuthResponse>("/auth/login", {

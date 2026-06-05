@@ -38,6 +38,12 @@ class User(Base):
     rejection_reason: Mapped[str | None] = mapped_column(
         Text, nullable=True,
     )
+    # Reason the user gave on the signup form — surfaces in the
+    # admin queue so reviewers know what the account is for. Nullable
+    # because existing accounts predate the field.
+    signup_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
