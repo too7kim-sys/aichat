@@ -4171,6 +4171,160 @@ body {
 }
 .wsc-diff-error { color: #dc2626; }
 
+/* === Document export — bubble checkbox + floating action bar + dialog */
+.bubble-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.bubble-select input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+.bubble-select:hover { background: var(--bg-sidebar); }
+.bubble-select.checked { background: var(--accent-soft); border-color: var(--accent); }
+.bubble-row.user-row { display: flex; align-items: center; gap: 6px; }
+.bubble.assistant { position: relative; }
+.bubble.assistant .bubble-select {
+  position: absolute;
+  left: -34px;
+  top: 8px;
+}
+.panel-toggle.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.export-action-bar {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  margin: 0 auto;
+  max-width: 1040px;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.06);
+}
+.export-action-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.export-action-clear {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.export-action-clear:hover:not(:disabled) {
+  background: var(--bg-sidebar);
+  color: var(--text);
+}
+.export-action-clear:disabled { opacity: 0.5; cursor: default; }
+.export-action-go {
+  background: #2563eb;
+  color: white;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.export-action-go:hover:not(:disabled) { background: #1d4ed8; }
+.export-action-go:disabled { opacity: 0.45; cursor: default; }
+
+.export-dialog {
+  width: min(640px, 95vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.export-body {
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+.export-format-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.export-format-tab {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.export-format-tab:hover:not(.active):not(:disabled) {
+  background: var(--bg-sidebar);
+  color: var(--text);
+}
+.export-format-tab.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+.export-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.export-checkbox input { width: 14px; height: 14px; }
+.export-status {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-sidebar);
+  color: var(--text);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.export-footer {
+  padding: 12px 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
 /* Mobile-only chrome — hidden on desktop, the @media block below
  * activates them. */
 .mobile-menu-btn {

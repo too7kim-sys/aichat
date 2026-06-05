@@ -11,6 +11,7 @@ import {
   IconSparkles,
   IconX,
 } from "./Icon";
+import { ExportDocumentDialog } from "../export/ExportDocumentDialog";
 import { MessageBubble } from "./MessageBubble";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
@@ -78,6 +79,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // `# file: <path>` patch, so the changes panel re-polls git status
   // without a full remount.
   const [changesRefreshKey, setChangesRefreshKey] = useState(0);
+  // Document export — when selectionMode is on, each message bubble
+  // renders a checkbox. The user picks the answers they want bundled
+  // into one document and clicks "문서로" to open the dialog.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [exportOpen, setExportOpen] = useState(false);
+  const toggleMessageSelection = (id: string) =>
+    setSelectedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedMessageIds(new Set());
+  }
   const [elapsedSec, setElapsedSec] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -543,6 +563,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
+          <button
+            type="button"
+            className={`panel-toggle${selectionMode ? " active" : ""}`}
+            onClick={() => {
+              if (selectionMode) exitSelectionMode();
+              else setSelectionMode(true);
+            }}
+            title={
+              selectionMode
+                ? "선택 모드 종료"
+                : "메시지를 골라 한 문서로 내보내기"
+            }
+          >
+            📄 {selectionMode ? "선택 종료" : "문서 만들기"}
+          </button>
           {session.workspace_id && (
             <button
               type="button"
@@ -619,6 +654,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   provider={m.provider}
                   content={m.content}
                   artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
+                  selectionMode={selectionMode}
+                  selected={selectedMessageIds.has(m.id)}
+                  onToggleSelect={() => toggleMessageSelection(m.id)}
                 />
               );
             });
@@ -666,6 +704,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
       </div>
+      {selectionMode && (
+        <div className="export-action-bar">
+          <span className="export-action-count">
+            {selectedMessageIds.size}개 선택됨
+          </span>
+          <button
+            type="button"
+            className="export-action-clear"
+            onClick={() => setSelectedMessageIds(new Set())}
+            disabled={selectedMessageIds.size === 0}
+          >
+            선택 해제
+          </button>
+          <button
+            type="button"
+            className="export-action-go"
+            onClick={() => setExportOpen(true)}
+            disabled={selectedMessageIds.size === 0}
+          >
+            📄 문서로 만들기
+          </button>
+        </div>
+      )}
       {showJumpToLatest && (
         <button
           type="button"
@@ -852,6 +913,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       </div>
       </ChatWorkspaceProvider>
 
+      <ExportDocumentDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        messages={session.messages}
+        selectedIds={selectedMessageIds}
+        defaultTitle={session.title}
+      />
     </div>
   );
 });

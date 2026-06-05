@@ -7,6 +7,12 @@ interface Props {
   content: string;
   streaming?: boolean;
   artifactTitlePrefix?: string;
+  /** When set, the bubble shows a select checkbox so the user can
+   *  pick it for the "export to document" flow. The parent owns the
+   *  selection state — the bubble just toggles the bound flag. */
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -51,10 +57,28 @@ export function MessageBubble({
   content,
   streaming,
   artifactTitlePrefix,
+  selectionMode,
+  selected,
+  onToggleSelect,
 }: Props) {
+  const selectCheckbox = selectionMode ? (
+    <label
+      className={`bubble-select${selected ? " checked" : ""}`}
+      onClick={(e) => e.stopPropagation()}
+      title={selected ? "선택 해제" : "문서 포함 대상으로 선택"}
+    >
+      <input
+        type="checkbox"
+        checked={!!selected}
+        onChange={() => onToggleSelect?.()}
+      />
+    </label>
+  ) : null;
+
   if (role === "user") {
     return (
       <div className="bubble-row user-row">
+        {selectCheckbox}
         <div className="bubble user">
           {content}
           {streaming && <span className="cursor">▍</span>}
@@ -65,6 +89,7 @@ export function MessageBubble({
   }
   return (
     <div className="bubble assistant">
+      {selectCheckbox}
       <div className="avatar">A</div>
       <div className="body">
         {provider && <div className="bubble-header">{provider}</div>}
