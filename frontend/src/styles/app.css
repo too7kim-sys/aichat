@@ -657,6 +657,26 @@ body {
 }
 .attachment-remove:hover { color: var(--danger); }
 .attachment-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+.attachment-action {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 4px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.attachment-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.attachment-action:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .attach-btn {
   padding: 6px 12px;
