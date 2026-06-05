@@ -19,6 +19,10 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    // The button goes disabled while busy, but Enter inside an input
+    // can still fire onSubmit in some browsers — guard against the
+    // race so a double-tap doesn't send two login requests.
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -73,7 +77,13 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete={mode === "login" ? "current-password" : "new-password"}
-            minLength={8}
+            // Only enforce minLength on signup. For login we MUST NOT
+            // pre-validate length client-side: any legacy account
+            // whose password happens to be <8 chars would otherwise
+            // be silently blocked by the browser's built-in form
+            // validation (small tooltip, no error in our own error
+            // surface) — the user just sees "Enter doesn't work".
+            minLength={mode === "signup" ? 8 : undefined}
             required
           />
           {mode === "signup" && (
@@ -88,14 +98,21 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
 
         {error && <div className="auth-error">{error}</div>}
 
-        <button type="submit" className="auth-submit" disabled={busy}>
-          {busy
-            ? mode === "login"
-              ? "로그인 중..."
-              : "가입 중..."
-            : mode === "login"
-            ? "로그인"
-            : "회원가입"}
+        <button
+          type="submit"
+          className={`auth-submit${busy ? " busy" : ""}`}
+          disabled={busy}
+        >
+          {busy && <span className="auth-submit-spinner" aria-hidden />}
+          <span>
+            {busy
+              ? mode === "login"
+                ? "로그인 중..."
+                : "가입 중..."
+              : mode === "login"
+              ? "로그인"
+              : "회원가입"}
+          </span>
         </button>
 
         {mode === "login" && onForgot && (
