@@ -23,6 +23,9 @@ import { ProjectModal } from "./ProjectModal";
 export type Workspace = "chat" | "cowork" | "code";
 
 interface Props {
+  /** Extra className applied to the root <aside> — used by the parent
+   *  to toggle "open" state for the mobile drawer overlay. */
+  className?: string;
   workspace: Workspace;
   onWorkspaceChange: (w: Workspace) => void;
   sessions: Session[];
@@ -68,6 +71,7 @@ const TABS: { id: Workspace; label: string; icon: ReactNode }[] = [
 ];
 
 export function Sidebar({
+  className = "",
   workspace,
   onWorkspaceChange,
   sessions,
@@ -78,7 +82,7 @@ export function Sidebar({
   onStartChatFromWorkspace,
 }: Props) {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${className ? " " + className : ""}`}>
       <nav className="workspace-tabs" role="tablist" aria-label="Workspace">
         {TABS.map((t) => (
           <button

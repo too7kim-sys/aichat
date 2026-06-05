@@ -215,20 +215,51 @@ function AppInner({
     }
   }
 
+  // Mobile sidebar drawer state. On wide screens the sidebar is
+  // always visible regardless of this flag; on narrow viewports the
+  // CSS @media rule turns it into a slide-in overlay that respects
+  // .sidebar.open.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="app">
       <Sidebar
+        className={sidebarOpen ? "open" : ""}
         workspace={workspace}
         onWorkspaceChange={setWorkspace}
         sessions={sessions}
         activeId={activeId}
-        onSelect={setActiveId}
-        onCreate={handleCreate}
+        onSelect={(id) => {
+          setActiveId(id);
+          setSidebarOpen(false);
+        }}
+        onCreate={() => {
+          handleCreate();
+          setSidebarOpen(false);
+        }}
         onDelete={handleDelete}
         onStartChatFromWorkspace={handleCreateFromWorkspace}
       />
+      {/* Mobile-only backdrop to dismiss the sidebar drawer. CSS hides
+          it above 900px so it has no effect on desktop. */}
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="사이드바 닫기"
+          className="mobile-drawer-backdrop"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       <main className="main">
         <div className="app-header-strip">
+          <button
+            type="button"
+            className="mobile-menu-btn"
+            aria-label="메뉴 열기"
+            onClick={() => setSidebarOpen(true)}
+          >
+            ☰
+          </button>
           <VerifyBanner />
           {verifyFlash && (
             <div className="verify-flash">

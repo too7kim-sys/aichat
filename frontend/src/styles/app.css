@@ -1635,12 +1635,19 @@ body {
 /* ── User menu (header strip on main) ─────────────── */
 .app-header-strip {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
   padding: 8px 16px 0;
   flex-shrink: 0;
   position: relative;
   z-index: 5;
 }
+/* Hamburger sits on the left edge of the header strip. Visible only
+ * on mobile via the @media rule; pushed off the row to the left here
+ * so the rest of the strip (banners, user menu) keeps its right-
+ * aligned layout. */
+.app-header-strip .mobile-menu-btn { margin-right: auto; }
 .user-menu { position: relative; }
 .user-menu-trigger {
   width: 32px;
@@ -4163,4 +4170,120 @@ body {
   text-align: center;
 }
 .wsc-diff-error { color: #dc2626; }
+
+/* Mobile-only chrome — hidden on desktop, the @media block below
+ * activates them. */
+.mobile-menu-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--text);
+}
+.mobile-drawer-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 55;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* === Mobile / narrow viewport overrides =============================
+ * Below ~900px the chat tree side panel (280px) + the artifact / code
+ * side panel (480px) push everything sideways. Turn both into full-
+ * screen overlays so the chat content stays usable and the user can
+ * dismiss the overlay with a close button.
+ *
+ * The main sidebar (260px) also overlays the chat as a left drawer so
+ * the chat column actually gets the full width when those overlays are
+ * closed. */
+@media (max-width: 900px) {
+  /* Show hamburger + mobile drawer backdrop on narrow screens only. */
+  .mobile-menu-btn { display: inline-flex; align-items: center; }
+  .mobile-drawer-backdrop { display: block; }
+
+  /* Composer + messages padding is too tight on phones — drop side
+     padding so text doesn't smash against the rounded corners. */
+  .chat-header-inner,
+  .messages-inner,
+  .composer-wrap {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .composer-wrap { padding-bottom: 14px; }
+
+  /* Sidebar slides in from the left over the chat instead of taking
+     up a fixed column. Toggled by an existing hamburger / brand area
+     - if there's no toggle yet, swipe-from-edge or tapping the brand
+     reveals it. */
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: 84vw;
+    max-width: 320px;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.18);
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  /* The chat tree side panel that lives inside the chat body becomes
+     a full-screen drawer on the right when the user toggles it open.
+     The close-X already exists inside chat-tree-side. */
+  .chat-tree-side {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 55;
+    width: 90vw;
+    max-width: 380px;
+    border-right: none;
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 18px rgba(0, 0, 0, 0.18);
+  }
+
+  /* Artifact (code side) panel: same drawer pattern, full-height,
+     opens over the chat instead of squeezing it. */
+  .artifact-panel {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 50;
+    width: 96vw;
+    max-width: 520px;
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 18px rgba(0, 0, 0, 0.18);
+  }
+
+  /* Mobile modals: drop the 95vw cap to 100vw and round only the top
+     corners so the user feels the modal as a sheet. */
+  .modal,
+  .cw-modal {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+  }
+  .modal-backdrop { padding: 0; }
+
+  /* CodeWorkspaceModal browse view: the 280px list + content grid
+     becomes a single column on phones. Tapping a workspace replaces
+     the list with the detail (the workspace_id state already exists). */
+  .cw-body { grid-template-columns: 1fr; }
+
+  /* ProjectModal master-detail grid same treatment. */
+  .pm-body-browse { grid-template-columns: 1fr; }
+  .pm-side { border-right: none; border-bottom: 1px solid var(--border); }
+  .pm-side-list { max-height: 38vh; }
+
+  /* Header buttons can wrap on phones without breaking the line. */
+  .chat-header-right { flex-wrap: wrap; justify-content: flex-end; }
+}
+
 
