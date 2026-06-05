@@ -359,6 +359,37 @@ function WorkspaceView({
 
 // ── Add workspace form ────────────────────────────────────────────────
 
+interface Constraints {
+  allowed_hosts: string[];
+  local_roots: string[];
+  max_files: number;
+  max_size_mb: number;
+  clone_depth: number;
+  bundle_max_files: number;
+  bundle_max_total_bytes: number;
+  bundle_max_per_file_bytes: number;
+}
+
+function fmtMB(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function tryParseHost(url: string): string | null {
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+function isUnderRoot(path: string, root: string): boolean {
+  const a = path.replace(/[\\/]+$/, "");
+  const b = root.replace(/[\\/]+$/, "");
+  return a === b || a.startsWith(b + "/") || a.startsWith(b + "\\");
+}
+
 function AddWorkspaceForm({
   onCancel,
   onSubmit,
@@ -383,6 +414,55 @@ function AddWorkspaceForm({
   const [localPath, setLocalPath] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live server-side constraints — populated on mount so the form
+  // can show the user what's allowed AND preflight-check input
+  // against the allow-lists before the request hits the server.
+  const [constraints, setConstraints] = useState<Constraints | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .workspaceConstraints()
+      .then((c) => {
+        if (!cancelled) setConstraints(c);
+      })
+      .catch(() => {
+        /* ignore — form still works, the server will validate */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Preflight: does this input violate one of the known constraints?
+  // Returns a user-facing message or null if it looks fine. Server
+  // validation is still authoritative — this is just an early signal
+  // so the user can fix it without round-tripping.
+  function preflight(): string | null {
+    if (!constraints) return null;
+    if (sourceType === "git") {
+      const host = tryParseHost(gitUrl.trim());
+      if (!host) return "유효한 http(s) URL이 아닙니다";
+      if (
+        constraints.allowed_hosts.length > 0 &&
+        !constraints.allowed_hosts.includes(host)
+      ) {
+        return `호스트 '${host}'는 허용 목록에 없습니다. 허용: ${constraints.allowed_hosts.join(", ")}`;
+      }
+    } else {
+      const p = localPath.trim();
+      if (constraints.local_roots.length === 0) {
+        return "로컬 폴더 소스가 비활성화되어 있습니다 (관리자에게 WORKSPACE_LOCAL_ROOTS 설정을 요청하세요)";
+      }
+      if (!p.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(p)) {
+        return "절대 경로를 입력하세요";
+      }
+      const ok = constraints.local_roots.some((r) => isUnderRoot(p, r));
+      if (!ok) {
+        return `허용된 루트 안의 경로가 아닙니다. 허용 루트: ${constraints.local_roots.join(", ")}`;
+      }
+    }
+    return null;
+  }
 
   async function submit() {
     setError(null);
@@ -400,6 +480,11 @@ function AddWorkspaceForm({
         setError("폴더 경로를 입력하세요");
         return;
       }
+    }
+    const pre = preflight();
+    if (pre) {
+      setError(pre);
+      return;
     }
     setSubmitting(true);
     try {
@@ -456,6 +541,77 @@ function AddWorkspaceForm({
           <IconFolder size={13} /> 로컬 폴더
         </button>
       </div>
+
+      {constraints && (
+        <details className="cw-constraints" open>
+          <summary>
+            <IconAlertTriangle size={12} /> 제약 사항 (서버 설정)
+          </summary>
+          <ul className="cw-constraints-list">
+            {sourceType === "git" ? (
+              <>
+                <li>
+                  <span className="cw-c-key">허용 호스트</span>
+                  <span className="cw-c-val">
+                    {constraints.allowed_hosts.length === 0
+                      ? "모든 호스트 (제한 없음)"
+                      : constraints.allowed_hosts.join(", ")}
+                  </span>
+                </li>
+                <li>
+                  <span className="cw-c-key">클론 깊이</span>
+                  <span className="cw-c-val">
+                    --depth {constraints.clone_depth}
+                  </span>
+                </li>
+                <li>
+                  <span className="cw-c-key">스킴</span>
+                  <span className="cw-c-val">http(s)만 지원 (ssh:// 불가)</span>
+                </li>
+              </>
+            ) : (
+              <>
+                <li>
+                  <span className="cw-c-key">허용 루트</span>
+                  <span className="cw-c-val">
+                    {constraints.local_roots.length === 0 ? (
+                      <span className="cw-c-warn">
+                        비활성 — WORKSPACE_LOCAL_ROOTS 미설정
+                      </span>
+                    ) : (
+                      constraints.local_roots.join(", ")
+                    )}
+                  </span>
+                </li>
+                <li>
+                  <span className="cw-c-key">경로 형식</span>
+                  <span className="cw-c-val">절대경로만 (심볼릭 링크는 resolve 후 검증)</span>
+                </li>
+              </>
+            )}
+            <li>
+              <span className="cw-c-key">트리 한도</span>
+              <span className="cw-c-val">
+                최대 {constraints.max_files.toLocaleString()}개 파일 /{" "}
+                {constraints.max_size_mb} MB
+              </span>
+            </li>
+            <li>
+              <span className="cw-c-key">채팅 자동첨부</span>
+              <span className="cw-c-val">
+                최대 {constraints.bundle_max_files}개 파일 / 총{" "}
+                {fmtMB(constraints.bundle_max_total_bytes)} / 파일당{" "}
+                {fmtMB(constraints.bundle_max_per_file_bytes)}
+                <br />
+                <small>
+                  ※ 이 한도 안이면 매 턴 트리의 모든 파일이 자동 전달됩니다.
+                  초과 시 트리에서 클릭해 추가하세요.
+                </small>
+              </span>
+            </li>
+          </ul>
+        </details>
+      )}
 
       <div className="pm-field">
         <label>이름</label>

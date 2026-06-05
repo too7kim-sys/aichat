@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models, schemas
 from ..auth import get_current_user
+from ..config import settings
 from pathlib import Path
 
 from ..code.workspace import (
@@ -127,6 +128,34 @@ def _schedule(coro) -> None:
 
 
 # ── Routes ────────────────────────────────────────────────────────────
+
+# IMPORTANT: literal routes (no path parameter) must be declared
+# BEFORE the dynamic `/{workspace_id}/...` ones below. FastAPI
+# matches in registration order; otherwise `_constraints` would be
+# captured as workspace_id="_constraints" and 404.
+
+@router.get("/_constraints")
+async def workspace_constraints(
+    user: models.User = Depends(get_current_user),
+):
+    """Return the live caps + allow-lists so the create form can
+    show the user what's possible BEFORE they submit, and preflight
+    obvious violations (host not allowed / path not under any
+    configured root)."""
+    from ..code import workspace as ws_module
+    return {
+        "allowed_hosts": settings.workspace_allowed_host_list,
+        "local_roots": settings.workspace_local_root_list,
+        # ── tree walk caps (file browser side) ──
+        "max_files": settings.workspace_max_files,
+        "max_size_mb": settings.workspace_max_size_mb,
+        "clone_depth": settings.workspace_clone_depth,
+        # ── chat-auto-attach caps (collect_workspace_files) ──
+        "bundle_max_files": ws_module._BULK_MAX_FILES,
+        "bundle_max_total_bytes": ws_module._BULK_MAX_TOTAL_BYTES,
+        "bundle_max_per_file_bytes": ws_module._BULK_MAX_BYTES_PER_FILE,
+    }
+
 
 @router.get("/workspaces", response_model=list[schemas.WorkspaceOut])
 async def list_workspaces(

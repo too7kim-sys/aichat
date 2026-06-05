@@ -291,6 +291,17 @@ export const api = {
     }),
 
   // Code workspaces
+  workspaceConstraints: () =>
+    json<{
+      allowed_hosts: string[];
+      local_roots: string[];
+      max_files: number;
+      max_size_mb: number;
+      clone_depth: number;
+      bundle_max_files: number;
+      bundle_max_total_bytes: number;
+      bundle_max_per_file_bytes: number;
+    }>("/code/_constraints"),
   listWorkspaces: () => json<Workspace[]>("/code/workspaces"),
   createWorkspace: (payload: {
     name: string;

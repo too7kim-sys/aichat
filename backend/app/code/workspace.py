@@ -363,17 +363,15 @@ def format_workspace_tree_text(root: Path, max_lines: int = _TREE_LINE_CAP) -> s
 
 # ── Bulk collect — for "click workspace → start chat" ────────────────
 
-# Caps tuned for code review: a typical Java/Python/TS service has
-# dozens of source files plus a long tail of config. The previous
-# "smallest first" sort kept controllers + services + DAOs OUT of
-# the bundle in favour of pom.xml, .properties, and empty POJOs,
-# which meant the model never saw the actual business logic — and
-# vulnerability questions came back as generic examples. We now
-# walk source code FIRST and only fall back to scripts / templates /
-# config when there's still room.
-_BULK_MAX_FILES = 80
-_BULK_MAX_BYTES_PER_FILE = 200 * 1024
-_BULK_MAX_TOTAL_BYTES = int(2.5 * 1024 * 1024)
+# Caps tuned for "include the whole project when it fits, fall back
+# to a tier-ranked slice when it doesn't". Bumped from the original
+# 80 / 200KB / 2.5MB so most real services land under the cap and
+# the LLM sees every file the user can click in the tree — no more
+# "this controller exists in the tree but its body wasn't attached".
+# The tier-rank logic kicks in only on huge monorepos.
+_BULK_MAX_FILES = 300
+_BULK_MAX_BYTES_PER_FILE = 300 * 1024
+_BULK_MAX_TOTAL_BYTES = 8 * 1024 * 1024
 
 # Higher tier wins. The match is "first tier whose set contains the
 # extension". Anything outside every tier still inside _TEXT_EXTS is
