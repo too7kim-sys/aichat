@@ -12,6 +12,7 @@ import {
   IconX,
 } from "./Icon";
 import { ExportDocumentDialog } from "../export/ExportDocumentDialog";
+import { MergeAttachmentsDialog } from "../export/MergeAttachmentsDialog";
 import { MessageBubble } from "./MessageBubble";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
@@ -87,6 +88,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     new Set(),
   );
   const [exportOpen, setExportOpen] = useState(false);
+  const [mergeAttachOpen, setMergeAttachOpen] = useState(false);
   const toggleMessageSelection = (id: string) =>
     setSelectedMessageIds((prev) => {
       const next = new Set(prev);
@@ -764,6 +766,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   </span>
                   <button
                     type="button"
+                    className="attachments-merge"
+                    onClick={() => setMergeAttachOpen(true)}
+                    disabled={streaming || attachments.length < 1}
+                    title="첨부 파일들을 하나의 문서로 합쳐서 다운로드"
+                  >
+                    🔗 병합 문서
+                  </button>
+                  <button
+                    type="button"
                     className="attachments-clear"
                     onClick={() => setAttachments([])}
                     disabled={streaming}
@@ -919,6 +930,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         messages={session.messages}
         selectedIds={selectedMessageIds}
         defaultTitle={session.title}
+      />
+      <MergeAttachmentsDialog
+        open={mergeAttachOpen}
+        onClose={() => setMergeAttachOpen(false)}
+        attachments={attachments}
+        defaultTitle={`${session.title} — 첨부 병합`}
       />
     </div>
   );
