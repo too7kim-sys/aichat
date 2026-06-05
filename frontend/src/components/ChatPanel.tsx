@@ -528,63 +528,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     });
   }
 
-  /** Analyze a single attached file with the active LLM.
-   *
-   *  The button appears on each attachment chip; clicking it picks
-   *  ONE file (not the whole attachment list), prepends a templated
-   *  prompt that says what we want the model to do, and dispatches a
-   *  normal chat turn. The result streams into the conversation just
-   *  like any other answer — user can ask follow-ups, copy, export
-   *  via the document-export flow.
-   *
-   *  We deliberately do not clear the other attachments here: the
-   *  user might want to run "요약" on file A, then "오타" on file B,
-   *  without re-uploading. Web search is also force-disabled — the
-   *  model should stay focused on the file's own content, not pull
-   *  in unrelated search results. */
-  function analyzeAttachment(
-    idx: number,
-    mode: "summary" | "typos",
-  ) {
-    if (streaming || uploading || !activeProvider) return;
-    const a = attachments[idx];
-    if (!a) return;
-    const filename = a.filename;
-    const prompts: Record<typeof mode, string> = {
-      summary:
-        `📋 첨부한 \`${filename}\` 파일을 한국어로 요약해주세요.\n\n` +
-        "**요청 형식**\n" +
-        "1. **한 줄 개요** — 이 문서가 무엇인지 한 문장으로\n" +
-        "2. **핵심 포인트** — 가장 중요한 사항 5개 이내, 불릿 형식\n" +
-        "3. **결론** — 문서가 전달하려는 핵심 메시지 또는 권고\n\n" +
-        "표나 숫자가 있으면 그대로 보존해주세요.",
-      typos:
-        `🔍 첨부한 \`${filename}\` 파일에서 오타·맞춤법·띄어쓰기·` +
-        "어색한 표현·문법 오류를 찾아 정리해주세요.\n\n" +
-        "**출력 형식 (마크다운 표)**\n" +
-        "| 위치(앞뒤 짧은 인용) | 원문 | 제안 수정 | 사유 |\n" +
-        "|---|---|---|---|\n\n" +
-        "- 표는 가장 시급한 항목부터 위에서 아래로 정렬\n" +
-        "- 단순 스타일 차이는 제외 (실제 오류만)\n" +
-        "- 오류가 하나도 없으면 \"검토 결과: 문제 없음\"이라고만 답해주세요",
-    };
-    const text = prompts[mode];
-    streamStore.start({
-      sessionId,
-      prompt: text,
-      provider: activeProvider,
-      model: model || undefined,
-      webSearch: false,
-      attachments: [
-        {
-          filename: a.filename,
-          text: a.text,
-          image_b64: a.image_b64 ?? null,
-        },
-      ],
-      projectId: linkedProjectId,
-    });
-  }
 
   function formatElapsed(s: number): string {
     const m = Math.floor(s / 60);
@@ -883,24 +826,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                       </span>
                       <button
                         type="button"
-                        className="attachment-action"
-                        onClick={() => analyzeAttachment(i, "summary")}
-                        disabled={streaming || uploading || !activeProvider}
-                        title="이 파일을 LLM으로 요약"
-                      >
-                        📋 요약
-                      </button>
-                      <button
-                        type="button"
-                        className="attachment-action"
-                        onClick={() => analyzeAttachment(i, "typos")}
-                        disabled={streaming || uploading || !activeProvider}
-                        title="이 파일에서 오타·맞춤법·표현 오류 찾기"
-                      >
-                        🔍 오타
-                      </button>
-                      <button
-                        type="button"
                         className="attachment-remove"
                         onClick={() => removeAttachment(i)}
                         disabled={streaming}
@@ -940,7 +865,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           <textarea
             ref={textareaRef}
             value={prompt}
-            placeholder="무엇이든 물어보세요. 이미지를 붙여넣거나(Ctrl+V) 끌어다 놓아 분석·요약·번역도 가능합니다."
+            placeholder={
+              attachments.length > 0
+                ? "예) 이 파일 요약해줘 · 오타 찾아줘 · 핵심만 알려줘 · 표로 정리해줘"
+                : "무엇이든 물어보세요. 이미지를 붙여넣거나(Ctrl+V) 끌어다 놓아 분석·요약·번역도 가능합니다."
+            }
             onChange={(e) => setPrompt(e.target.value)}
             onPaste={handleClipboardPaste}
             onKeyDown={(e) => {
