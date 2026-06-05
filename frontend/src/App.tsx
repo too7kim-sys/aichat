@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, auth as authApi } from "./api/client";
+import { BrandLogo } from "./components/BrandLogo";
 import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
-import { IconChat } from "./components/Icon";
 import { Sidebar, type Workspace } from "./components/Sidebar";
 import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
@@ -94,7 +94,7 @@ function AuthGate() {
       <div className="auth-shell">
         <div className="auth-card">
           <h1 className="auth-brand">
-            <IconChat size={32} aria-label="Chat 로고" />
+            <BrandLogo size={32} aria-label="Chat 로고" />
             <span>Chat</span>
           </h1>
           <h2 className="auth-title">인증 실패</h2>
