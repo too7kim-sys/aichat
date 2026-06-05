@@ -320,6 +320,47 @@ def walk_tree(root: Path) -> tuple[list[dict], int, int]:
     return tree, file_count, total_size
 
 
+# ── Tree text rendering — fed to the LLM as a structural anchor ──────
+
+_TREE_LINE_CAP = 600
+_TREE_DIR_CHILD_CAP = 40
+
+
+def format_workspace_tree_text(root: Path, max_lines: int = _TREE_LINE_CAP) -> str:
+    """Render the workspace tree as plain ASCII so the LLM can answer
+    structure / architecture questions directly instead of guessing.
+
+    Each line is one entry, indented by depth. Directories end with
+    `/`. The output is capped at `max_lines` and `_TREE_DIR_CHILD_CAP`
+    entries per directory to keep huge mono-repos manageable — when
+    truncated, the rendering appends `(... N more)` so the model sees
+    the elision instead of believing the directory is small."""
+    tree, _file_count, _total = walk_tree(root)
+    lines: list[str] = []
+    truncated = False
+
+    def render(items: list[dict], depth: int) -> None:
+        nonlocal truncated
+        for i, item in enumerate(items):
+            if i >= _TREE_DIR_CHILD_CAP:
+                lines.append("  " * depth + f"... ({len(items) - i} more)")
+                truncated = True
+                break
+            if len(lines) >= max_lines:
+                truncated = True
+                return
+            name = item["name"] + ("/" if item["kind"] == "dir" else "")
+            lines.append("  " * depth + name)
+            if item["kind"] == "dir" and item.get("children"):
+                render(item["children"], depth + 1)
+
+    render(tree, 0)
+    body = "\n".join(lines)
+    if truncated:
+        body += "\n\n[tree truncated — ask for `_WORKSPACE_TREE.txt` deeper if you need it]"
+    return body or "(empty workspace)"
+
+
 # ── Bulk collect — for "click workspace → start chat" ────────────────
 
 # Caps tuned for code review: a typical Java/Python/TS service has

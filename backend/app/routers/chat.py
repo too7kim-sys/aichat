@@ -120,35 +120,47 @@ _CODE_FOCUSED_SYSTEM = ChatMessage(
         "[코드 작업 모드 — 첨부 코드 직접 분석 강제]\n"
         "이 대화는 코드 작업에 특화되어 있습니다. 시스템 메시지의 "
         "[ATTACHED FILES] 블록에는 매 턴 워크스페이스 파일이 자동으로 "
-        "포함됩니다 — 우선순위: 소스코드 > 스크립트 > 마크업 > 설정.\n\n"
-        "[절대 규칙 — 어기지 마세요]\n"
-        "1. 취약점/리뷰/버그/리팩토 요청에 답할 때는 첨부된 파일을 "
-        "   한 줄씩 직접 읽고 분석하세요. \"이런 취약점이 있을 수 있어요\" "
-        "   \"일반적으로 ~합니다\" \"예시는 다음과 같습니다\" 같은 "
-        "   GENERIC 예시 응답은 절대 금지입니다.\n"
-        "2. 발견한 모든 사항은 다음 형식으로만 인용 가능:\n"
-        "       `path/to/file.ext:line_number — <발견 내용>`\n"
-        "   path:line 인용이 불가능하면 발견 사항으로 보고하지 마세요.\n"
-        "3. 인용 뒤에는 첨부에서 실제로 본 코드 블록을 ```언어 …``` 로 "
-        "   증거로 함께 제시하세요. 임의로 코드를 지어내면 안 됩니다.\n"
-        "4. 응답을 다음 구조로 작성하세요:\n"
-        "       ## 분석한 파일 (path 목록)\n"
-        "       ## 발견된 문제 (각각 path:line + 코드 증거)\n"
-        "       ## 수정 제안 (필요 시 `# file: <경로>` 마커로 전체 파일)\n"
-        "5. 첨부 파일 중에 보고 싶은 파일이 없다면 응답 도입에 \"첨부된 N개 "
-        "   파일에는 <범주> 관련 코드가 보이지 않습니다. 다음 경로의 파일을 "
-        "   보여주세요: …\"라고 명시적으로 요청하세요. 일반 예시로 도망가지 "
-        "   마세요.\n"
-        "6. 첨부 파일 중 검토 대상 카테고리에 해당하는 코드가 정말로 없으면 "
-        "   \"이번 첨부에서는 <범주> 관련 코드를 찾지 못했습니다\"라고 "
-        "   짧게 답하고 끝내세요. 빈 발견 대신 만들어내지 마세요.\n"
-        "7. 코드 수정 제안 시 `# file: <원본 경로>` 마커 + 전체 파일 내용 "
-        "   (UI가 💾 다운로드 버튼을 자동으로 답니다).\n"
-        "8. 빌드·테스트 명령은 프로젝트의 실제 스택(pom.xml / build.gradle / "
+        "포함됩니다. 첫 첨부는 항상 `_WORKSPACE_TREE.txt` (실제 디렉터리 "
+        "구조)이고, 그 뒤로 소스코드 > 스크립트 > 마크업 > 설정 순으로 "
+        "내용 파일들이 따라옵니다.\n\n"
+        "[질문 유형별 행동 — 어기지 마세요]\n"
+        "■ 구조/아키텍처/모듈 구성/디렉터리 설명 요청\n"
+        "   → 반드시 `_WORKSPACE_TREE.txt`의 실제 경로를 인용해 답하세요.\n"
+        "     \"보통 Spring 프로젝트는 controller/service/repository ...\" "
+        "     같은 일반론 예시는 금지. 트리에 보이는 실제 폴더·파일명만 "
+        "     사용. 응답 구조:\n"
+        "         ## 최상위 구성 (트리에서 본 폴더 + 한 줄 설명)\n"
+        "         ## 진입점 (파일 경로 + 역할)\n"
+        "         ## 빌드/설정 (pom.xml / package.json 등 실제 파일)\n"
+        "■ 취약점/리뷰/버그/리팩토/특정 기능 분석 요청\n"
+        "   → 첨부 파일을 한 줄씩 직접 읽고 분석. \"이런 취약점이 있을 수 "
+        "     있어요\" \"일반적으로 ~합니다\" \"예시는 다음과 같습니다\" "
+        "     같은 GENERIC 예시 응답 금지. 응답 구조:\n"
+        "         ## 분석한 파일 (path 목록)\n"
+        "         ## 발견된 문제 (각각 path:line + 코드 증거)\n"
+        "         ## 수정 제안 (필요 시 `# file: <경로>` 마커로 전체 파일)\n"
+        "■ \"어디서 ~를 처리하나요\" / \"~ 흐름을 설명해줘\" 류 탐색 요청\n"
+        "   → 먼저 트리에서 후보 경로를 찾고, 첨부 파일 본문에서 호출 흐름을 "
+        "     역추적해 path:line으로 인용하세요.\n\n"
+        "[공통 절대 규칙]\n"
+        "1. 모든 인용은 `path/to/file.ext:line_number — <설명>` 형식. "
+        "   path:line 인용이 불가능하면 단정하지 말고 \"트리에는 X가 있지만 "
+        "   본문 첨부는 누락\"이라고 명시.\n"
+        "2. 코드 증거를 보여줄 때는 첨부에서 실제로 본 라인만 ```언어 …``` "
+        "   블록으로 인용. 임의 코드 지어내기 금지.\n"
+        "3. 첨부에 필요한 파일이 없으면 응답 도입에 \"첨부된 N개 파일에는 "
+        "   <범주> 관련 코드가 보이지 않습니다. 다음 경로의 파일을 보여주세요: "
+        "   …\"라고 명시적으로 요청. 일반 예시로 도망가지 마세요.\n"
+        "4. 첨부에 진짜 해당 카테고리 코드가 없으면 \"이번 첨부에서는 "
+        "   <범주> 관련 코드를 찾지 못했습니다\"라고 짧게 답하고 끝내세요. "
+        "   빈 발견을 만들어내지 마세요.\n"
+        "5. 코드 수정 제안 시 `# file: <원본 경로>` 마커 + 전체 파일 내용 "
+        "   (UI가 💾 다운로드 + 📥 워크스페이스에 적용 버튼을 답니다).\n"
+        "6. 빌드·테스트 명령은 프로젝트의 실제 스택(pom.xml / build.gradle / "
         "   package.json / Cargo.toml 등)에서 확인된 것만.\n"
-        "9. 이전 턴 파일은 다시 첨부됐다고 가정하고 맥락 이어가기 — "
+        "7. 이전 턴 파일은 다시 첨부됐다고 가정하고 맥락 이어가기 — "
         "   \"파일을 보여주세요\" 반복 금지.\n"
-        "10. 의심 시 답변 끝에 `(확인 필요)` + 검증 요청 명시."
+        "8. 의심 시 답변 끝에 `(확인 필요)` + 검증 요청 명시."
     ),
 )
 
@@ -614,21 +626,45 @@ async def chat_single(
         except Exception:  # noqa: BLE001
             ws = None
         if ws and ws.status == "ready":
+            from pathlib import Path as _PathForWs
+
             from ..code.workspace import (
                 collect_workspace_files,
-                workspace_path_for,
+                format_workspace_tree_text,
             )
-            root = workspace_path_for(user.id, ws.id)
+            root = _PathForWs(ws.local_path)
             bundle = await asyncio.get_running_loop().run_in_executor(
                 None, collect_workspace_files, root
             )
+            # Always inject the directory tree FIRST so structure /
+            # architecture questions don't have to fish through file
+            # contents to figure out what the project looks like. The
+            # tree is small, cheap, and the only thing that lets the
+            # model answer "이 프로젝트의 모듈 구성을 설명해줘" with
+            # actual paths instead of generic examples.
+            tree_text = await asyncio.get_running_loop().run_in_executor(
+                None, format_workspace_tree_text, root
+            )
+            tree_manifest = (
+                f"# {ws.name} — 디렉터리 구조 (소스 트리)\n"
+                f"이 트리는 워크스페이스의 실제 폴더 구조입니다. "
+                f"\"프로젝트 구조 설명\" / \"아키텍처\" / \"어떤 모듈이 있나\" "
+                f"같은 질문에는 이 파일을 1차 자료로 사용하세요.\n\n"
+                f"```\n{tree_text}\n```"
+            )
             auto_workspace_attachments = [
+                schemas.AttachmentIn(
+                    filename=f"{ws.name}/_WORKSPACE_TREE.txt",
+                    text=tree_manifest,
+                ),
+            ]
+            auto_workspace_attachments.extend(
                 schemas.AttachmentIn(
                     filename=f"{ws.name}/{f['path']}",
                     text=f["text"],
                 )
                 for f in bundle["files"]
-            ]
+            )
             if bundle["truncated"]:
                 manifest = (
                     f"# {ws.name} — workspace manifest\n"
