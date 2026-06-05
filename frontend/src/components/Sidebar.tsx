@@ -452,6 +452,16 @@ function CodePane({
   );
 }
 
+function sessionEmoji(s: Session): string {
+  // Pick a glyph based on the session's role: code-focused chats
+  // get a laptop, workspace-bound (non-code) get a folder, and
+  // everything else falls back to a speech bubble. Cheap visual cue
+  // for scanning the list — much easier than reading titles.
+  if (s.code_focused) return "💻";
+  if (s.workspace_id) return "📁";
+  return "💬";
+}
+
 function SessionGroup({
   label,
   sessions,
@@ -476,6 +486,12 @@ function SessionGroup({
             className={s.id === activeId ? "active" : ""}
             onClick={() => onSelect(s.id)}
           >
+            <span
+              className="session-emoji"
+              aria-hidden="true"
+            >
+              {sessionEmoji(s)}
+            </span>
             <span className="session-title">{s.title}</span>
             <button
               className="delete-btn"

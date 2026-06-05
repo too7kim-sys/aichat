@@ -107,6 +107,15 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.session-emoji {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+  /* keep the emoji visually centered against the title baseline */
+  display: inline-block;
+}
 .session-mode {
   font-size: 10px;
   padding: 1px 6px;
@@ -207,6 +216,51 @@ body {
   flex-direction: column;
   gap: 28px;
 }
+
+/* Empty-chat greeting — Claude-style centered welcome */
+.empty-greeting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 16px 24px;
+  gap: 8px;
+}
+.empty-greeting-headline {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.25;
+}
+.empty-greeting-sub {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+.empty-greeting-suggestions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 640px;
+}
+.empty-greeting-suggestions li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.empty-greeting-emoji { font-size: 14px; line-height: 1; }
 
 .turn {
   display: flex;

@@ -1,5 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
   IconCode,
@@ -40,6 +41,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   { sessionId, providers, onTitleSync },
   ref
 ) {
+  const { user } = useAuth();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [prompt, setPrompt] = useState("");
   const [activeProvider, setActiveProvider] = useState<string>("");
@@ -657,6 +659,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         <div className="chat-main">
       <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
         <div className="messages-inner">
+          {session.messages.length === 0 && !streaming && (
+            <EmptyGreeting userName={user?.name ?? null} />
+          )}
           {(() => {
             let turn = 0;
             return session.messages.map((m) => {
@@ -956,6 +961,51 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     </div>
   );
 });
+
+/** Centered greeting shown in an empty chat (no messages yet) —
+ *  picks a Korean time-of-day greeting and addresses the user by
+ *  name when we have one. Mirrors the way Claude opens a fresh
+ *  conversation. */
+function EmptyGreeting({ userName }: { userName: string | null }) {
+  // Resolve everything in a single useMemo so the greeting picks one
+  // suggestion at mount and doesn't shuffle on re-render.
+  const { headline, sub, suggestions } = useMemo(() => {
+    const h = new Date().getHours();
+    const timeGreeting =
+      h < 5 ? "늦은 밤이네요" :
+      h < 12 ? "좋은 아침이에요" :
+      h < 18 ? "좋은 오후예요" :
+      "좋은 저녁이에요";
+    const first = (userName || "").split(/[\s@]/)[0];
+    const headline = first
+      ? `${timeGreeting}, ${first}님`
+      : `${timeGreeting}`;
+    const sub = "오늘은 무엇을 도와드릴까요?";
+    const suggestions = [
+      { emoji: "📋", text: "긴 문서를 요약하기" },
+      { emoji: "🔍", text: "오타·맞춤법 검사" },
+      { emoji: "🌐", text: "웹 검색으로 최신 정보 찾기" },
+      { emoji: "💻", text: "코드 작성 / 리뷰" },
+      { emoji: "🌏", text: "번역하기" },
+    ];
+    return { headline, sub, suggestions };
+  }, [userName]);
+
+  return (
+    <div className="empty-greeting">
+      <div className="empty-greeting-headline">{headline}</div>
+      <div className="empty-greeting-sub">{sub}</div>
+      <ul className="empty-greeting-suggestions">
+        {suggestions.map((s) => (
+          <li key={s.text}>
+            <span className="empty-greeting-emoji">{s.emoji}</span>
+            <span>{s.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function SourcesBox({
   sources,
