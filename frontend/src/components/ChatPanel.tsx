@@ -652,10 +652,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             )
           )}
           {liveSources && (
-            <SourcesBox sources={liveSources} warning={liveSearchWarning} />
+            <SourcesBox
+              sources={liveSources}
+              warning={liveSearchWarning}
+              streaming={streaming}
+            />
           )}
           {liveStream?.ragChunks && liveStream.ragChunks.length > 0 && (
-            <RagChunksBox chunks={liveStream.ragChunks} />
+            <RagChunksBox
+              chunks={liveStream.ragChunks}
+              streaming={streaming}
+            />
           )}
         </div>
       </div>
@@ -852,10 +859,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 function SourcesBox({
   sources,
   warning,
+  streaming,
 }: {
   sources: import("../api/client").SearchSource[];
   warning?: string | null;
+  // While the stream is live the box stays fully expanded — the user
+  // is watching the answer build. Once `streaming=false` (done) we
+  // collapse it into a small "📎 출처 N개" chip so it stops eating
+  // the bottom of the chat. The user can click to peek if needed.
+  streaming?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(true);
+  // Auto-collapse as soon as streaming ends. Re-expand if a new live
+  // stream begins (the count below will jump on the next answer's
+  // first sources event).
+  useEffect(() => {
+    if (streaming) setExpanded(true);
+    else setExpanded(false);
+  }, [streaming]);
+
   if (sources.length === 0) {
     return (
       <div className="sources">
@@ -865,12 +887,35 @@ function SourcesBox({
       </div>
     );
   }
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        className="sources-chip"
+        onClick={() => setExpanded(true)}
+        title="검색 출처 펼치기"
+      >
+        📎 출처 {sources.length}개
+        {warning ? " · ⚠" : ""}
+      </button>
+    );
+  }
   const shop = sources.filter((s) => s.kind === "shop");
   const news = sources.filter((s) => s.kind === "news");
   const web = sources.filter((s) => !s.kind || s.kind === "web");
   return (
     <div className="sources">
-      <strong>검색 출처</strong>
+      <div className="sources-head">
+        <strong>검색 출처</strong>
+        <button
+          type="button"
+          className="sources-collapse"
+          onClick={() => setExpanded(false)}
+          title="접기"
+        >
+          접기
+        </button>
+      </div>
       {warning && <div className="sources-warning">⚠ {warning}</div>}
       {shop.length > 0 && (
         <>
@@ -936,10 +981,47 @@ function SourcesBox({
   );
 }
 
-function RagChunksBox({ chunks }: { chunks: import("../api/client").RagChunk[] }) {
+function RagChunksBox({
+  chunks,
+  streaming,
+}: {
+  chunks: import("../api/client").RagChunk[];
+  // Same collapse-after-streaming behaviour as SourcesBox so the
+  // chunk list doesn't keep dominating the bottom of the chat once
+  // the answer is finished.
+  streaming?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  useEffect(() => {
+    if (streaming) setExpanded(true);
+    else setExpanded(false);
+  }, [streaming]);
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        className="rag-chip"
+        onClick={() => setExpanded(true)}
+        title="검색된 코드 청크 펼치기"
+      >
+        📚 코드 청크 {chunks.length}개
+      </button>
+    );
+  }
   return (
     <div className="rag-box">
-      <strong>📚 검색된 코드 청크 ({chunks.length})</strong>
+      <div className="rag-head">
+        <strong>📚 검색된 코드 청크 ({chunks.length})</strong>
+        <button
+          type="button"
+          className="rag-collapse"
+          onClick={() => setExpanded(false)}
+          title="접기"
+        >
+          접기
+        </button>
+      </div>
       <ol className="rag-list">
         {chunks.map((c, i) => (
           <li key={i}>

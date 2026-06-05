@@ -65,6 +65,12 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
   // .git). We hide the commit/push controls in that case so the user
   // doesn't try to commit and get an error.
   const [isGit, setIsGit] = useState<boolean>(true);
+  // Collapse the panel when there's nothing to commit so the chat
+  // bottom doesn't carry a permanent "변경된 파일이 없습니다." block
+  // unrelated to the active question. The header (with refresh + the
+  // dirty-count badge) stays so the user can still trigger a re-scan
+  // or expand it manually.
+  const [collapsed, setCollapsed] = useState(false);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
@@ -97,6 +103,16 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
   useEffect(() => {
     refresh();
   }, [refresh, refreshKey]);
+
+  // Auto-collapse whenever we re-poll and find no changes / not a
+  // git repo. Auto-expand when changes appear (so the user can see
+  // and act on them immediately). The user can still toggle by
+  // clicking the header chevron.
+  useEffect(() => {
+    if (!isGit) setCollapsed(true);
+    else if (entries.length === 0) setCollapsed(true);
+    else setCollapsed(false);
+  }, [isGit, entries.length]);
 
   function toggleAll() {
     setSelected((prev) =>
@@ -184,14 +200,22 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
   }
 
   return (
-    <section className="wsc-panel">
+    <section className={`wsc-panel${collapsed ? " collapsed" : ""}`}>
       <header className="wsc-head">
-        <span className="wsc-title">
+        <button
+          type="button"
+          className="wsc-title wsc-title-toggle"
+          onClick={() => setCollapsed((v) => !v)}
+          title={collapsed ? "변경사항 펼치기" : "변경사항 접기"}
+        >
+          <span className="wsc-chevron" aria-hidden>
+            {collapsed ? "▸" : "▾"}
+          </span>
           <IconGitBranch size={13} /> 변경사항
           {entries.length > 0 && (
             <span className="wsc-count">{entries.length}</span>
           )}
-        </span>
+        </button>
         <button
           type="button"
           className="wsc-refresh"
@@ -203,13 +227,13 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
         </button>
       </header>
 
-      {error && (
+      {!collapsed && error && (
         <div className="wsc-error">
           <IconAlertTriangle size={12} /> {error}
         </div>
       )}
 
-      {!isGit && !loading && !error && (
+      {!collapsed && !isGit && !loading && !error && (
         <div className="wsc-empty">
           이 폴더는 git 저장소가 아닙니다.
           <br />
@@ -217,11 +241,11 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
         </div>
       )}
 
-      {isGit && entries.length === 0 && !loading && !error && (
+      {!collapsed && isGit && entries.length === 0 && !loading && !error && (
         <div className="wsc-empty">변경된 파일이 없습니다.</div>
       )}
 
-      {entries.length > 0 && (
+      {!collapsed && entries.length > 0 && (
         <>
           <div className="wsc-toolbar">
             <label className="wsc-select-all">
@@ -307,7 +331,7 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
         </>
       )}
 
-      {status && (
+      {!collapsed && status && (
         <div className={`wsc-status ${statusKind === "err" ? "err" : "ok"}`}>
           {status}
         </div>

@@ -268,6 +268,39 @@ body {
 @keyframes blink { 50% { opacity: 0; } }
 
 /* ── Sources box ─────────────────────────────────── */
+.sources-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.sources-collapse {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.sources-collapse:hover { background: var(--bg-card); color: var(--text); }
+.sources-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 3px 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin: 0 auto;
+  align-self: flex-start;
+}
+.sources-chip:hover { background: var(--bg-card); color: var(--text); }
+
 .sources {
   max-width: 1040px;
   margin: 0 auto;
@@ -3719,6 +3752,39 @@ body {
 }
 
 /* === Retrieved RAG chunks (out-of-band in chat) ==================== */
+.rag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.rag-collapse {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.rag-collapse:hover { background: var(--bg-card); color: var(--text); }
+.rag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 3px 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin: 0 auto;
+  align-self: flex-start;
+}
+.rag-chip:hover { background: var(--bg-card); color: var(--text); }
+
 .rag-box {
   background: var(--accent-soft);
   border: 1px solid var(--border);
@@ -3790,6 +3856,33 @@ body {
   max-height: 50%;
   min-height: 110px;
   overflow: hidden;
+}
+/* When there's nothing to commit (or the folder isn't a git
+ * working tree) the panel shrinks to just the header so it doesn't
+ * carry a permanent block of irrelevant info at the bottom. */
+.wsc-panel.collapsed {
+  min-height: 0;
+  max-height: none;
+}
+.wsc-panel.collapsed .wsc-head { border-bottom: none; }
+.wsc-title-toggle {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.wsc-chevron {
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.12s ease;
 }
 .wsc-head {
   display: flex;
