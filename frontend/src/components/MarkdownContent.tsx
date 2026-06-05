@@ -212,6 +212,78 @@ function extractText(node: ReactNode): string {
   return "";
 }
 
+// Code blocks > this many lines start collapsed by default. Short
+// snippets stay inline so common 2-3 line examples don't require a
+// click to read.
+const _CODE_COLLAPSE_THRESHOLD_LINES = 6;
+
+function CollapsibleCode({
+  text,
+  lang,
+  lineCount,
+  file,
+  onOpenInPanel,
+  preProps,
+  children,
+}: {
+  text: string;
+  lang: string;
+  lineCount: number;
+  file: { path: string; body: string } | null;
+  onOpenInPanel: (code: string, lang: string) => void;
+  preProps: Record<string, unknown>;
+  children: ReactNode;
+}) {
+  // `# file: <path>` patches are ALWAYS collapsed regardless of size
+  // (they're typically whole-file rewrites the user wants to review
+  // intentionally, not read line by line in chat). Plain snippets
+  // collapse when they're tall enough to dominate the bubble.
+  const startCollapsed = !!file || lineCount > _CODE_COLLAPSE_THRESHOLD_LINES;
+  const [open, setOpen] = useState(!startCollapsed);
+  return (
+    <div
+      className={`code-block${file ? " has-file" : ""}${open ? " open" : " closed"}`}
+    >
+      <div className="code-header">
+        <button
+          type="button"
+          className="code-toggle"
+          onClick={() => setOpen((v) => !v)}
+          title={open ? "코드 숨기기" : "코드 펼치기"}
+          aria-expanded={open}
+        >
+          <span className="code-toggle-chevron" aria-hidden>
+            {open ? "▾" : "▸"}
+          </span>
+          <span className="code-lang">{lang || "text"}</span>
+          {file && (
+            <span className="code-file-path" title={file.path}>
+              📄 {file.path}
+            </span>
+          )}
+          {lineCount > 0 && (
+            <span className="code-line-count">{lineCount}줄</span>
+          )}
+        </button>
+        <div className="code-header-actions">
+          {file && <FileApply path={file.path} body={file.body} />}
+          {file && <FileDownload path={file.path} body={file.body} />}
+          <button
+            type="button"
+            className="code-copy"
+            onClick={() => onOpenInPanel(text, lang)}
+            title="우측 사이드 패널의 에디터에서 열기"
+          >
+            사이드에서 열기
+          </button>
+          <CodeCopy text={text} />
+        </div>
+      </div>
+      {open && <pre {...preProps}>{children}</pre>}
+    </div>
+  );
+}
+
 export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
   const artifacts = useArtifacts();
 
@@ -254,31 +326,18 @@ export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
             const m = /language-([\w+-]+)/.exec(cls);
             if (m) lang = m[1];
             const file = detectFileMarker(text);
+            const lineCount = text ? text.split("\n").length : 0;
             return (
-              <div className={`code-block${file ? " has-file" : ""}`}>
-                <div className="code-header">
-                  <span className="code-lang">{lang || "text"}</span>
-                  {file && (
-                    <span className="code-file-path" title={file.path}>
-                      📄 {file.path}
-                    </span>
-                  )}
-                  <div className="code-header-actions">
-                    {file && <FileApply path={file.path} body={file.body} />}
-                    {file && <FileDownload path={file.path} body={file.body} />}
-                    <button
-                      type="button"
-                      className="code-copy"
-                      onClick={() => openInPanel(text, lang)}
-                      title="우측 사이드 패널의 에디터에서 열기"
-                    >
-                      사이드에서 열기
-                    </button>
-                    <CodeCopy text={text} />
-                  </div>
-                </div>
-                <pre {...rest}>{children}</pre>
-              </div>
+              <CollapsibleCode
+                text={text}
+                lang={lang}
+                lineCount={lineCount}
+                file={file}
+                onOpenInPanel={openInPanel}
+                preProps={rest}
+              >
+                {children}
+              </CollapsibleCode>
             );
           },
         }}
