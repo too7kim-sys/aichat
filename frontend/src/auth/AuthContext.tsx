@@ -12,13 +12,18 @@ import {
   getToken,
   setToken,
   type AuthUser,
+  type SignupResponse,
 } from "../api/client";
 
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string) => Promise<void>;
+  signup: (
+    email: string,
+    password: string,
+    name: string,
+  ) => Promise<SignupResponse>;
   logout: () => void;
   refresh: () => Promise<void>;
   setUser: (u: AuthUser) => void;
@@ -68,11 +73,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserState(res.user);
   }, []);
 
+  /** Signup returns pending|approved. When pending, no token comes
+   *  back — we return the response so the caller (AuthForm) can show
+   *  the 'waiting for admin' screen instead of dropping the user into
+   *  a logged-in state with a null token. */
   const signup = useCallback(
     async (email: string, password: string, name: string) => {
       const res = await auth.signup(email, password, name);
-      setToken(res.access_token);
-      setUserState(res.user);
+      if (res.access_token && res.status === "approved") {
+        setToken(res.access_token);
+        setUserState(res.user);
+      }
+      return res;
     },
     []
   );

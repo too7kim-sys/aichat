@@ -136,6 +136,15 @@ class Settings(BaseSettings):
     verify_token_hours: int = 24
     reset_token_hours: int = 1
 
+    # Signup approval gating. When `require_approval` is on (default),
+    # new signups land as 'pending' and can't log in until a moderator
+    # or admin flips them. `admin_email`, if set, is promoted to
+    # admin+approved automatically at startup and on its first signup
+    # — gives the closed-network operator a guaranteed way back into
+    # the admin dashboard without poking the DB.
+    require_approval: bool = True
+    admin_email: str = ""
+
     cors_origins: str = "http://localhost:5173"
 
     # Sliding window: only the most recent N messages (user + assistant)

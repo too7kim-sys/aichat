@@ -1642,6 +1642,223 @@ body {
 .auth-switch button:hover { text-decoration: underline; }
 
 /* ── MyPage ───────────────────────────────────────── */
+/* --- Admin dashboard (사용자 관리) ----------------------------------- */
+.admin-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  padding: 32px 24px 80px;
+  max-width: 1080px;
+  margin: 0 auto;
+  color: var(--text);
+}
+.admin-header h1 { margin: 4px 0 4px; font-size: 22px; font-weight: 700; }
+.admin-header p { margin: 0 0 16px; color: var(--text-muted); font-size: 13px; }
+.admin-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.admin-back:hover { background: var(--bg-card); color: var(--text); }
+
+.admin-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 16px;
+  flex-wrap: wrap;
+}
+.admin-tabs { display: flex; gap: 4px; }
+.admin-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.admin-tab:hover { background: var(--bg-card); color: var(--text); }
+.admin-tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.admin-tab-count {
+  background: var(--accent);
+  color: white;
+  border-radius: 999px;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  line-height: 1.4;
+}
+.admin-search {
+  flex: 1;
+  min-width: 180px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+}
+.admin-refresh {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--text);
+}
+.admin-refresh:hover:not(:disabled) { background: var(--bg-sidebar); }
+
+.admin-error {
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: #b91c1c;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.admin-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  vertical-align: middle;
+}
+.admin-table thead th {
+  background: var(--bg-sidebar);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.admin-table tbody tr:last-child td { border-bottom: none; }
+.admin-table tbody tr.busy { opacity: 0.55; }
+.admin-user-name { font-weight: 600; color: var(--text); }
+.admin-user-email { font-size: 11.5px; color: var(--text-muted); }
+.admin-user-reason {
+  font-size: 11.5px;
+  color: #b45309;
+  margin-top: 2px;
+}
+.admin-cell-muted { color: var(--text-muted); font-size: 12px; }
+
+.admin-status {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+}
+.admin-status-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+.admin-status-approved {
+  background: #dcfce7;
+  color: #166534;
+}
+.admin-status-rejected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.admin-role-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 7px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.admin-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.admin-actions-col { white-space: nowrap; }
+.admin-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+}
+.admin-btn:hover:not(:disabled) { background: var(--bg-sidebar); }
+.admin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.admin-btn-primary {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: white;
+}
+.admin-btn-primary:hover:not(:disabled) { background: #15803d; }
+.admin-btn-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: white;
+}
+.admin-btn-danger:hover:not(:disabled) { background: #b91c1c; }
+.admin-reject-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.admin-reject-row input {
+  width: 180px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.user-menu-badge {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: 8px;
+}
+
 .mypage-shell {
   min-height: 100vh;
   background: var(--bg);

@@ -7,6 +7,7 @@ import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AuthForm } from "./auth/AuthForm";
 import { ForgotPasswordForm } from "./auth/ForgotPasswordForm";
+import { AdminPage } from "./admin/AdminPage";
 import { MyPage } from "./auth/MyPage";
 import { ResetPasswordForm } from "./auth/ResetPasswordForm";
 import { UserMenu } from "./auth/UserMenu";
@@ -40,7 +41,7 @@ export default function App() {
 
 function AuthGate() {
   const { user, loading, refresh } = useAuth();
-  const [view, setView] = useState<"chat" | "mypage">("chat");
+  const [view, setView] = useState<"chat" | "mypage" | "admin">("chat");
   const [authView, setAuthView] = useState<"login" | "forgot">("login");
   const [urlState, setUrlState] = useState<{
     kind: "reset" | "verify-pending" | "verify-done" | "verify-error" | null;
@@ -122,9 +123,12 @@ function AuthGate() {
     return <AuthForm onForgot={() => setAuthView("forgot")} />;
   }
   if (view === "mypage") return <MyPage onBack={() => setView("chat")} />;
+  if (view === "admin")
+    return <AdminPage onBack={() => setView("chat")} />;
   return (
     <AppInner
       onOpenMyPage={() => setView("mypage")}
+      onOpenAdmin={() => setView("admin")}
       verifyFlash={
         urlState.kind === "verify-done" ? urlState.message ?? "" : null
       }
@@ -135,10 +139,12 @@ function AuthGate() {
 
 function AppInner({
   onOpenMyPage,
+  onOpenAdmin,
   verifyFlash,
   onDismissFlash,
 }: {
   onOpenMyPage: () => void;
+  onOpenAdmin: () => void;
   verifyFlash: string | null;
   onDismissFlash: () => void;
 }) {
@@ -271,7 +277,7 @@ function AppInner({
               <button onClick={onDismissFlash}>닫기</button>
             </div>
           )}
-          <UserMenu onOpenMyPage={onOpenMyPage} />
+          <UserMenu onOpenMyPage={onOpenMyPage} onOpenAdmin={onOpenAdmin} />
         </div>
         {activeId ? (
           <ChatPanel

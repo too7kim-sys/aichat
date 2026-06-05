@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime, timezone
+
 from .. import audit, models, schemas, tokens
 from ..auth import (
     create_access_token,
@@ -12,14 +14,18 @@ from ..auth import (
 )
 from ..config import settings
 from ..database import get_db
-from ..email import send_reset_email, send_verify_email
+from ..email import (
+    send_reset_email,
+    send_signup_pending_email,
+    send_verify_email,
+)
 from ..security import validate_password
 from ._rate_limit import enforce_rate_limit
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-@router.post("/signup", response_model=schemas.AuthResponse, status_code=201)
+@router.post("/signup", response_model=schemas.SignupResponse, status_code=201)
 async def signup(
     payload: schemas.SignupRequest,
     request: Request,
@@ -47,10 +53,22 @@ async def signup(
         await db.commit()
         raise HTTPException(409, "이미 가입된 이메일입니다")
 
+    # ADMIN_EMAIL gets a free pass: auto-approved + admin role. This
+    # is the bootstrap path so the operator can always reach the
+    # admin dashboard on a fresh deployment.
+    is_bootstrap_admin = bool(
+        settings.admin_email
+        and email == settings.admin_email.lower()
+    )
+    auto_approve = is_bootstrap_admin or not settings.require_approval
+
     user = models.User(
         email=email,
         password_hash=hash_password(payload.password),
         name=payload.name.strip(),
+        status="approved" if auto_approve else "pending",
+        role="admin" if is_bootstrap_admin else "user",
+        approved_at=datetime.now(timezone.utc) if auto_approve else None,
     )
     db.add(user)
     await db.flush()  # populate user.id for the audit row
@@ -60,14 +78,31 @@ async def signup(
     )
     await db.commit()
     await db.refresh(user)
+
+    # Always send the verification mail (it's orthogonal to approval).
     try:
         await send_verify_email(user.email, user.name, verify_raw)
     except Exception:
-        # Send failure shouldn't block signup; the user can request a
-        # resend from the verification banner.
         pass
-    access, expires = create_access_token(user.id)
-    return schemas.AuthResponse(user=user, access_token=access, expires_at=expires)
+
+    if auto_approve:
+        # Old behaviour: issue a token, user is in.
+        access, expires = create_access_token(user.id)
+        return schemas.SignupResponse(
+            user=user,
+            access_token=access,
+            expires_at=expires,
+            status="approved",
+        )
+
+    # New pending-approval path. No access token — the frontend shows
+    # a 'waiting for approval' screen and the user has to come back
+    # after admin action. Best-effort heads-up email.
+    try:
+        await send_signup_pending_email(user.email, user.name)
+    except Exception:
+        pass
+    return schemas.SignupResponse(user=user, status="pending")
 
 
 @router.post("/login", response_model=schemas.AuthResponse)
@@ -95,6 +130,33 @@ async def login(
         )
         await db.commit()
         raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다")
+
+    # Approval gate — credentials are correct, but the account isn't
+    # cleared yet. We deliberately tell the user the truth (pending /
+    # rejected) here rather than hiding behind a generic 401: the
+    # credentials check already succeeded, so there's no enumeration
+    # win in being vague, and the user needs to know what to do next.
+    if user.status == "pending":
+        await audit.record(
+            db, request, audit.LOGIN_FAIL,
+            user_id=user.id, detail="pending approval",
+        )
+        await db.commit()
+        raise HTTPException(
+            403, "계정이 관리자 승인 대기 중입니다. 승인 후 로그인할 수 있습니다.",
+        )
+    if user.status == "rejected":
+        reason = (user.rejection_reason or "").strip()
+        await audit.record(
+            db, request, audit.LOGIN_FAIL,
+            user_id=user.id, detail="rejected",
+        )
+        await db.commit()
+        raise HTTPException(
+            403,
+            "가입 신청이 반려된 계정입니다."
+            + (f" 사유: {reason}" if reason else ""),
+        )
 
     await audit.record(db, request, audit.LOGIN_OK, user_id=user.id)
     await db.commit()
@@ -203,6 +265,14 @@ async def confirm_password_reset(
     await audit.record(db, request, "password_reset_complete", user_id=user.id)
     await db.commit()
     await db.refresh(user)
+    if user.status != "approved":
+        # Reset succeeded but the account is still gated — let the
+        # user know rather than silently failing the implicit login.
+        raise HTTPException(
+            403,
+            "비밀번호는 변경되었지만 계정이 아직 활성 상태가 아닙니다. "
+            "관리자 승인 후 로그인해 주세요.",
+        )
     access, expires = create_access_token(user.id)
     return schemas.AuthResponse(user=user, access_token=access, expires_at=expires)
 

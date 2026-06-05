@@ -17,6 +17,11 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Signup may complete in 'pending' state — the user can't log in
+  // until an admin approves. We swap the form for a clear waiting
+  // screen rather than dropping back to the form with a blank state
+  // that hides what just happened.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -30,13 +35,48 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
       if (mode === "login") {
         await login(email.trim(), password);
       } else {
-        await signup(email.trim(), password, name.trim());
+        const res = await signup(email.trim(), password, name.trim());
+        if (res.status === "pending") {
+          setPendingEmail(email.trim());
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^\d+\s/, "") : "오류");
     } finally {
       setBusy(false);
     }
+  }
+
+  if (pendingEmail) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <h1 className="auth-brand">
+            <BrandLogo size={32} aria-label="Chat 로고" />
+            <span>Chat</span>
+          </h1>
+          <h2 className="auth-title">승인 대기 중</h2>
+          <p className="auth-note">
+            <strong>{pendingEmail}</strong> 계정이 생성되었습니다. 관리자
+            승인이 완료되면 가입하신 이메일로 안내 메일이 발송됩니다.
+            <br />
+            잠시 후 다시 로그인해 주세요.
+          </p>
+          <button
+            type="button"
+            className="auth-submit"
+            onClick={() => {
+              setPendingEmail(null);
+              setMode("login");
+              setPassword("");
+              setName("");
+            }}
+          >
+            로그인 화면으로
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

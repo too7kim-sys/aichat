@@ -86,3 +86,48 @@ async def send_reset_email(to: str, name: str, token: str) -> None:
         f"계정은 그대로 유지됩니다.\n"
     )
     await send_email(to=to, subject="[Chat] 비밀번호 재설정", body_text=body)
+
+
+# Signup-approval lifecycle notifications. These are best-effort —
+# the auth router swallows send failures so a flaky SMTP doesn't
+# block the approval/rejection action itself.
+
+async def send_signup_pending_email(to: str, name: str) -> None:
+    body = (
+        f"안녕하세요 {name or to.split('@', 1)[0]}님,\n\n"
+        f"Chat 가입 신청이 접수되었습니다. 관리자 승인 후 로그인하실 수 "
+        f"있습니다. 승인이 완료되면 별도로 안내 메일을 보내드립니다.\n\n"
+        f"가입해 주셔서 감사합니다.\n"
+    )
+    await send_email(
+        to=to, subject="[Chat] 가입 신청 접수 — 승인 대기", body_text=body,
+    )
+
+
+async def send_account_approved_email(to: str, name: str) -> None:
+    base = settings.app_base_url.rstrip("/")
+    body = (
+        f"안녕하세요 {name or to.split('@', 1)[0]}님,\n\n"
+        f"Chat 가입이 승인되었습니다. 이제 로그인하실 수 있습니다.\n\n"
+        f"{base}/\n\n"
+        f"이용해 주셔서 감사합니다.\n"
+    )
+    await send_email(
+        to=to, subject="[Chat] 가입 승인 완료", body_text=body,
+    )
+
+
+async def send_account_rejected_email(
+    to: str, name: str, reason: str | None,
+) -> None:
+    reason_block = (
+        f"\n사유: {reason.strip()}\n" if reason and reason.strip() else ""
+    )
+    body = (
+        f"안녕하세요 {name or to.split('@', 1)[0]}님,\n\n"
+        f"Chat 가입 신청이 반려되었습니다.{reason_block}\n"
+        f"문의 사항이 있으시면 관리자에게 연락해 주세요.\n"
+    )
+    await send_email(
+        to=to, subject="[Chat] 가입 신청 반려", body_text=body,
+    )

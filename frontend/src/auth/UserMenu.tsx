@@ -3,9 +3,10 @@ import { useAuth } from "./AuthContext";
 
 interface Props {
   onOpenMyPage: () => void;
+  onOpenAdmin?: () => void;
 }
 
-export function UserMenu({ onOpenMyPage }: Props) {
+export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -47,6 +48,20 @@ export function UserMenu({ onOpenMyPage }: Props) {
           >
             마이페이지
           </button>
+          {onOpenAdmin && (user.role === "admin" || user.role === "moderator") && (
+            <button
+              className="user-menu-item"
+              onClick={() => {
+                setOpen(false);
+                onOpenAdmin();
+              }}
+            >
+              사용자 관리
+              {user.role === "admin" && (
+                <span className="user-menu-badge">관리자</span>
+              )}
+            </button>
+          )}
           <button
             className="user-menu-item"
             onClick={() => {

@@ -245,6 +245,58 @@ async def init_db() -> None:
                     "ALTER TABLE users ADD COLUMN email_verified BOOLEAN "
                     "NOT NULL DEFAULT 1"
                 )
+            # Approval gating columns — added in the signup-approval
+            # rollout. Default 'approved' for any existing row so the
+            # transition doesn't lock out current users. Brand-new
+            # signups land as 'pending' (default in the ORM model).
+            if uexisting and "status" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN status VARCHAR(20) "
+                    "NOT NULL DEFAULT 'approved'"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_users_status "
+                    "ON users(status)"
+                )
+            if uexisting and "role" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN role VARCHAR(20) "
+                    "NOT NULL DEFAULT 'user'"
+                )
+            if uexisting and "approved_at" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN approved_at DATETIME"
+                )
+                # Backfill the approval timestamp for grandfathered
+                # users so the admin dashboard can show 'when' instead
+                # of NULL.
+                await conn.exec_driver_sql(
+                    "UPDATE users SET approved_at = created_at "
+                    "WHERE approved_at IS NULL AND status = 'approved'"
+                )
+            if uexisting and "approved_by_id" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN approved_by_id VARCHAR(36)"
+                )
+            if uexisting and "rejection_reason" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN rejection_reason TEXT"
+                )
+            # ADMIN_EMAIL bootstrap — if the env names an account, make
+            # sure it's promoted to admin + approved on every startup
+            # so it can recover from accidental role demotion. No-op
+            # when the account doesn't exist yet (will get promoted on
+            # its first signup via the auth router hook).
+            from .config import settings as _settings
+            if _settings.admin_email:
+                await conn.exec_driver_sql(
+                    "UPDATE users "
+                    "SET role = 'admin', "
+                    "    status = 'approved', "
+                    "    approved_at = COALESCE(approved_at, created_at) "
+                    "WHERE LOWER(email) = LOWER(?)",
+                    (_settings.admin_email,),
+                )
         # Quiet the unused-import + text linters in environments where
         # neither branch above runs.
         _ = text

@@ -129,18 +129,38 @@ async function mergeFiles(opts: {
   return { blob, filename };
 }
 
+export type UserStatus = "pending" | "approved" | "rejected";
+export type UserRole = "user" | "moderator" | "admin";
+
 export interface AuthUser {
   id: string;
   email: string;
   name: string;
   email_verified: boolean;
+  status: UserStatus;
+  role: UserRole;
+  approved_at: string | null;
+  rejection_reason: string | null;
   created_at: string;
+}
+export interface AdminUser extends AuthUser {
+  approved_by_id: string | null;
+  updated_at: string;
 }
 export interface AuthResponse {
   user: AuthUser;
   access_token: string;
   token_type: string;
   expires_at: string;
+}
+/** Signup may complete without an access token when the account
+ *  lands in pending state — the caller must branch on `status`. */
+export interface SignupResponse {
+  user: AuthUser;
+  access_token: string | null;
+  token_type: string;
+  expires_at: string | null;
+  status: "pending" | "approved";
 }
 
 export interface AuditEvent {
@@ -154,7 +174,7 @@ export interface AuditEvent {
 
 export const auth = {
   signup: (email: string, password: string, name: string) =>
-    json<AuthResponse>("/auth/signup", {
+    json<SignupResponse>("/auth/signup", {
       method: "POST",
       body: JSON.stringify({ email, password, name }),
     }),
@@ -190,6 +210,30 @@ export const auth = {
     json<AuthResponse>("/auth/password-reset/confirm", {
       method: "POST",
       body: JSON.stringify({ token, new_password }),
+    }),
+};
+
+export const admin = {
+  listUsers: (opts?: { status?: string; role?: string; q?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set("status", opts.status);
+    if (opts?.role) params.set("role", opts.role);
+    if (opts?.q) params.set("q", opts.q);
+    const qs = params.toString();
+    return json<AdminUser[]>(`/admin/users${qs ? "?" + qs : ""}`);
+  },
+  pendingCount: () => json<{ count: number }>("/admin/pending-count"),
+  approve: (userId: string) =>
+    json<AdminUser>(`/admin/users/${userId}/approve`, { method: "POST" }),
+  reject: (userId: string, reason: string) =>
+    json<AdminUser>(`/admin/users/${userId}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  setRole: (userId: string, role: UserRole) =>
+    json<AdminUser>(`/admin/users/${userId}/role`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
     }),
 };
 

@@ -19,6 +19,25 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(80), default="")
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Approval gating — pending users can't log in until a moderator
+    # or admin flips them to "approved" (or "rejected", a terminal
+    # state). Existing accounts at migration time are auto-marked
+    # "approved" so nobody gets locked out by the rollout.
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", index=True,
+    )
+    role: Mapped[str] = mapped_column(String(20), default="user")
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+    approved_by_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

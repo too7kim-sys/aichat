@@ -233,10 +233,41 @@ class UserOut(BaseModel):
     email: EmailStr
     name: str
     email_verified: bool
+    status: Literal["pending", "approved", "rejected"] = "pending"
+    role: Literal["user", "moderator", "admin"] = "user"
+    approved_at: datetime | None = None
+    rejection_reason: str | None = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+# Admin-facing variant — same fields plus the approver's id, so the
+# dashboard can show 'approved by ___' without an extra round trip.
+class AdminUserOut(UserOut):
+    approved_by_id: str | None = None
+    updated_at: datetime
+
+
+class RoleUpdateRequest(BaseModel):
+    role: Literal["user", "moderator", "admin"]
+
+
+class RejectRequest(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
+class SignupResponse(BaseModel):
+    """Returned from /signup — either a real login (when approval is
+    disabled or the user is auto-approved as the bootstrap admin) or
+    a 'pending' acknowledgement that does NOT carry an access token.
+    The frontend branches on whether access_token is None."""
+    user: UserOut
+    access_token: str | None = None
+    token_type: str = "bearer"
+    expires_at: datetime | None = None
+    status: Literal["pending", "approved"] = "pending"
 
 
 class VerifyRequest(BaseModel):
