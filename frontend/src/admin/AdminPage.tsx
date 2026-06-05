@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   admin,
   type AdminUser,
+  type AppSettings,
   type UserRole,
   type UserStatus,
 } from "../api/client";
@@ -45,6 +46,12 @@ export function AdminPage({ onBack }: Props) {
   // completes.
   const [rejectFor, setRejectFor] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // Runtime app-policy snapshot (currently just the auto-approval
+  // toggle). Loaded once on mount; admins can flip the switch and
+  // the change is persisted server-side. Moderators see it but the
+  // checkbox is disabled (admin-only mutation).
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -70,7 +77,44 @@ export function AdminPage({ onBack }: Props) {
     refresh();
   }, [refresh]);
 
+  // Load the app-policy snapshot once on mount. We deliberately
+  // keep this off the user-list refresh cycle — flipping it from
+  // the dashboard updates state locally without re-fetching the
+  // whole user table.
+  useEffect(() => {
+    admin
+      .getSettings()
+      .then(setAppSettings)
+      .catch(() => {
+        /* swallow — non-fatal; toggle just won't render. */
+      });
+  }, []);
+
   const isAdmin = me?.role === "admin";
+
+  async function toggleAutoApprove(next: boolean) {
+    if (!appSettings) return;
+    setSettingsBusy(true);
+    setError(null);
+    // Optimistic — flip the UI immediately, roll back on failure.
+    const prev = appSettings;
+    setAppSettings({ ...appSettings, auto_approve_signups: next });
+    try {
+      const updated = await admin.updateSettings({
+        auto_approve_signups: next,
+      });
+      setAppSettings(updated);
+    } catch (e) {
+      setAppSettings(prev);
+      setError(
+        e instanceof Error
+          ? e.message.replace(/^\d+\s/, "")
+          : "설정을 저장할 수 없습니다",
+      );
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
 
   async function withBusy(id: string, fn: () => Promise<void>) {
     setBusyId(id);
@@ -138,6 +182,45 @@ export function AdminPage({ onBack }: Props) {
         <h1>사용자 관리</h1>
         <p>가입 신청을 검토하고 권한을 부여합니다.</p>
       </header>
+
+      {appSettings && (
+        <div className="admin-policy">
+          <div className="admin-policy-text">
+            <div className="admin-policy-title">
+              자동 승인
+              <span
+                className={
+                  "admin-policy-badge " +
+                  (appSettings.auto_approve_signups
+                    ? "admin-policy-badge-on"
+                    : "admin-policy-badge-off")
+                }
+              >
+                {appSettings.auto_approve_signups ? "켜짐" : "꺼짐"}
+              </span>
+            </div>
+            <div className="admin-policy-sub">
+              {appSettings.auto_approve_signups
+                ? "새로 가입한 사용자가 즉시 활성화됩니다. (관리자 검토 불필요)"
+                : "새 가입자는 ‘승인 대기’ 상태로 들어옵니다. 위 목록에서 승인하세요."}
+            </div>
+          </div>
+          <label
+            className={
+              "admin-policy-switch" + (isAdmin ? "" : " disabled")
+            }
+            title={isAdmin ? undefined : "관리자(admin)만 변경할 수 있습니다"}
+          >
+            <input
+              type="checkbox"
+              checked={appSettings.auto_approve_signups}
+              onChange={(e) => toggleAutoApprove(e.target.checked)}
+              disabled={!isAdmin || settingsBusy}
+            />
+            <span className="admin-policy-slider" />
+          </label>
+        </div>
+      )}
 
       <div className="admin-controls">
         <div className="admin-tabs" role="tablist">

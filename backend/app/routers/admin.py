@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import audit, models, schemas
+from .. import app_settings, audit, models, schemas
 from ..auth import get_current_user, require_admin, require_staff
 from ..database import get_db
 from ..email import send_account_approved_email, send_account_rejected_email
@@ -212,6 +212,55 @@ async def pending_count(
         )
     ).scalars().unique().all()
     return {"count": len(n)}
+
+
+@router.get("/settings", response_model=schemas.AppSettingsOut)
+async def get_settings(
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Current runtime settings — readable by staff so moderators
+    can see the active policy even though only admins can flip it."""
+    return schemas.AppSettingsOut(
+        auto_approve_signups=await app_settings.get_bool(
+            db, app_settings.KEY_AUTO_APPROVE_SIGNUPS,
+        ),
+    )
+
+
+@router.put("/settings", response_model=schemas.AppSettingsOut)
+async def update_settings(
+    payload: schemas.AppSettingsUpdate,
+    request: Request,
+    actor: models.User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Flip runtime app settings. Admin-only — moderators can act on
+    the approval queue but shouldn't unilaterally change the policy
+    that creates the queue in the first place."""
+    if payload.auto_approve_signups is not None:
+        old = await app_settings.get_bool(
+            db, app_settings.KEY_AUTO_APPROVE_SIGNUPS,
+        )
+        new = payload.auto_approve_signups
+        if old != new:
+            await app_settings.set_bool(
+                db,
+                app_settings.KEY_AUTO_APPROVE_SIGNUPS,
+                new,
+                actor_id=actor.id,
+            )
+            await audit.record(
+                db, request, "settings_changed",
+                user_id=actor.id,
+                detail=f"auto_approve_signups: {old}→{new}",
+            )
+    await db.commit()
+    return schemas.AppSettingsOut(
+        auto_approve_signups=await app_settings.get_bool(
+            db, app_settings.KEY_AUTO_APPROVE_SIGNUPS,
+        ),
+    )
 
 
 # Suppress an unused-import lint when the file is imported for its

@@ -136,13 +136,15 @@ class Settings(BaseSettings):
     verify_token_hours: int = 24
     reset_token_hours: int = 1
 
-    # Signup approval gating. When `require_approval` is on (default),
-    # new signups land as 'pending' and can't log in until a moderator
-    # or admin flips them. `admin_email`, if set, is promoted to
-    # admin+approved automatically at startup and on its first signup
-    # — gives the closed-network operator a guaranteed way back into
-    # the admin dashboard without poking the DB.
-    require_approval: bool = True
+    # Signup approval policy. `require_approval` here is only an
+    # *initial* seed value — once the app boots, the source of truth
+    # lives in the app_settings table (key: auto_approve_signups) so
+    # admins can flip it at runtime from the dashboard.
+    #
+    # Default False = auto-approval ON (anyone who signs up is
+    # immediately active). Set REQUIRE_APPROVAL=true in the env to
+    # seed a fresh install into manual-approval mode instead.
+    require_approval: bool = False
     admin_email: str = ""
 
     cors_origins: str = "http://localhost:5173"

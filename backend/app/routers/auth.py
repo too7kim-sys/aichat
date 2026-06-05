@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datetime import datetime, timezone
 
-from .. import audit, models, schemas, tokens
+from .. import app_settings, audit, models, schemas, tokens
 from ..auth import (
     create_access_token,
     dummy_verify,
@@ -60,7 +60,12 @@ async def signup(
         settings.admin_email
         and email == settings.admin_email.lower()
     )
-    auto_approve = is_bootstrap_admin or not settings.require_approval
+    # Live setting wins over the env var seed — admins toggle this
+    # from the dashboard at runtime.
+    auto_approve_setting = await app_settings.get_bool(
+        db, app_settings.KEY_AUTO_APPROVE_SIGNUPS
+    )
+    auto_approve = is_bootstrap_admin or auto_approve_setting
 
     user = models.User(
         email=email,

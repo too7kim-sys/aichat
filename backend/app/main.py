@@ -33,6 +33,12 @@ async def lifespan(app: FastAPI):
             "and put it in backend/.env before exposing this service."
         )
     await init_db()
+    # Seed runtime settings from env-var defaults (one-time on a
+    # fresh install). After this the DB is the source of truth.
+    from . import app_settings
+    from .database import SessionLocal
+    async with SessionLocal() as _s:
+        await app_settings.seed_defaults(_s)
 
     # Start the RAG scheduler if qdrant-client is installed. Guarded
     # behind the same import block as the projects router so the app

@@ -51,6 +51,25 @@ class User(Base):
     )
 
 
+class AppSetting(Base):
+    """Tiny key/value store for runtime-toggleable app settings — the
+    admin dashboard reads/writes through here so operators can flip
+    behavior without a restart. Stays string-typed at rest;
+    consumers parse on read."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(256))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(),
+    )
+    updated_by_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
 class EmailToken(Base):
     """Short-lived single-use token for email verification or password reset.
 

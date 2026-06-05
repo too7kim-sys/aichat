@@ -213,7 +213,17 @@ export const auth = {
     }),
 };
 
+export interface AppSettings {
+  auto_approve_signups: boolean;
+}
+
 export const admin = {
+  getSettings: () => json<AppSettings>("/admin/settings"),
+  updateSettings: (patch: Partial<AppSettings>) =>
+    json<AppSettings>("/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
   listUsers: (opts?: { status?: string; role?: string; q?: string }) => {
     const params = new URLSearchParams();
     if (opts?.status) params.set("status", opts.status);

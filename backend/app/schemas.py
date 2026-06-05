@@ -258,6 +258,19 @@ class RejectRequest(BaseModel):
     reason: str = Field(default="", max_length=500)
 
 
+class AppSettingsOut(BaseModel):
+    """Snapshot of the runtime-toggleable app settings the admin
+    dashboard reads/writes."""
+    auto_approve_signups: bool
+
+
+class AppSettingsUpdate(BaseModel):
+    """Partial update — only fields provided are touched. Lets the
+    UI PUT just the field it cares about without round-tripping
+    everything."""
+    auto_approve_signups: bool | None = None
+
+
 class SignupResponse(BaseModel):
     """Returned from /signup — either a real login (when approval is
     disabled or the user is auto-approved as the bootstrap admin) or
