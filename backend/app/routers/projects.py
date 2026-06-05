@@ -121,6 +121,33 @@ async def create_project(
     return await _project_with_snapshots(db, project.id, user.id)
 
 
+# IMPORTANT: literal routes (anything that doesn't start with a path
+# parameter) must be declared BEFORE the `/{project_id}` catch-all
+# below. FastAPI matches in registration order, so a `_storage`
+# request would otherwise be captured as `project_id="_storage"`
+# and return a 404 from the project lookup.
+
+@router.get("/_storage")
+async def storage_overview(
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Return total disk usage of the RAG vector store (sums across
+    every collection, the user's own as well as anyone else's on the
+    same backend) so the UI can show a live "사용 중인 저장공간"
+    figure. Per-user breakdown would need walking each user's
+    Project rows, which we skip until we actually need it."""
+    project_count = await db.scalar(
+        select(func.count(models.Project.id)).where(
+            models.Project.user_id == user.id,
+        )
+    )
+    return {
+        "total_bytes": storage_usage_bytes(),
+        "project_count": project_count or 0,
+    }
+
+
 @router.get("/{project_id}", response_model=schemas.ProjectOut)
 async def get_project(
     project_id: str,
@@ -259,27 +286,6 @@ async def delete_project(
     await db.delete(project)
     await db.commit()
     return {"freed_bytes": freed_total}
-
-
-@router.get("/_storage")
-async def storage_overview(
-    db: AsyncSession = Depends(get_db),
-    user: models.User = Depends(get_current_user),
-):
-    """Return total disk usage of the RAG vector store (sums across
-    every collection, the user's own as well as anyone else's on the
-    same backend) so the UI can show a live "사용 중인 저장공간"
-    figure. Per-user breakdown would need walking each user's
-    Project rows, which we skip until we actually need it."""
-    project_count = await db.scalar(
-        select(func.count(models.Project.id)).where(
-            models.Project.user_id == user.id,
-        )
-    )
-    return {
-        "total_bytes": storage_usage_bytes(),
-        "project_count": project_count or 0,
-    }
 
 
 @router.get("/{project_id}/search")
