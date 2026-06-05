@@ -543,9 +543,10 @@ function AddWorkspaceForm({
       </div>
 
       {constraints && (
-        <details className="cw-constraints" open>
+        <details className="cw-constraints">
           <summary>
-            <IconAlertTriangle size={12} /> 제약 사항 (서버 설정)
+            <IconAlertTriangle size={12} />
+            <span>제약 사항 보기 (서버 설정)</span>
           </summary>
           <ul className="cw-constraints-list">
             {sourceType === "git" ? (
