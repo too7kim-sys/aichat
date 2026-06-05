@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "./AuthContext";
+import { IconChat } from "../components/Icon";
 import { PasswordStrength } from "./PasswordStrength";
 
 interface Props {
@@ -41,7 +42,10 @@ export function AuthForm({ initialMode = "login", onForgot }: Props) {
   return (
     <div className="auth-shell">
       <form className="auth-card" onSubmit={submit}>
-        <h1 className="auth-brand">Chat</h1>
+        <h1 className="auth-brand">
+          <IconChat size={32} aria-label="Chat 로고" />
+          <span>Chat</span>
+        </h1>
         <h2 className="auth-title">
           {mode === "login" ? "로그인" : "회원가입"}
         </h2>

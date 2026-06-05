@@ -24,10 +24,31 @@ function base(size = 16): SVGProps<SVGSVGElement> {
 }
 
 // ── Workspace navigation ─────────────────────────────────────────────
-export function IconChat({ size, ...rest }: IconProps) {
+// IconChat is the app's brand mark — two interlocked pixel-art square
+// rings (green + blue) signaling "chat / connection". Used both as the
+// nav tab icon and inside the auth screen brand block; favicon points
+// at the same vector via /public/logo.svg.
+export function IconChat({ size = 16, ...rest }: IconProps) {
   return (
-    <svg {...base(size)} {...rest}>
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 12 12"
+      shapeRendering="crispEdges"
+      role="img"
+      aria-hidden={rest["aria-label"] ? undefined : true}
+      {...rest}
+    >
+      {/* Green L-frame, top-left — 4-unit thick bars (33% of grid). */}
+      <rect x="0" y="0" width="8" height="4" fill="#22A93A" />
+      <rect x="0" y="0" width="4" height="8" fill="#22A93A" />
+      {/* Blue L-frame, bottom-right — mirrored. */}
+      <rect x="4" y="8" width="8" height="4" fill="#1E58B4" />
+      <rect x="8" y="4" width="4" height="8" fill="#1E58B4" />
+      {/* Dark-green hooks at the crossing — the two "back-piece"
+          fragments that make the rings look interlocked. */}
+      <rect x="6" y="4" width="2" height="2" fill="#1B7A2C" />
+      <rect x="4" y="6" width="2" height="2" fill="#1B7A2C" />
     </svg>
   );
 }

@@ -1494,6 +1494,10 @@ body {
   letter-spacing: -0.02em;
   text-align: center;
   color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 .auth-title {
   margin: 0 0 8px;
