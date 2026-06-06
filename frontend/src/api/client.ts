@@ -138,6 +138,18 @@ export interface AttachmentSummary {
   size: number;
 }
 
+/** Single hit from the global chat search endpoint. The snippet is
+ *  a short window of the message body centred on the first match —
+ *  ready to render with the query highlighted client-side. */
+export interface MessageSearchResult {
+  message_id: string;
+  session_id: string;
+  session_title: string;
+  role: "user" | "assistant";
+  snippet: string;
+  created_at: string;
+}
+
 export type UserStatus = "pending" | "approved" | "rejected" | "suspended";
 export type UserRole = "user" | "moderator" | "admin";
 
@@ -384,6 +396,15 @@ export const api = {
     }),
   extractFile: uploadExtract,
   mergeFiles,
+  /** Global chat search — scans every message the caller owns
+   *  (across all sessions) for a substring match and returns short
+   *  snippets centred on the first hit. Matches both message content
+   *  and the attachment summary column so filename lookups work too.
+   *  Queries shorter than 2 characters return an empty list. */
+  searchMessages: (q: string, limit = 50) => {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    return json<MessageSearchResult[]>(`/search/messages?${params.toString()}`);
+  },
   /** Persist a two-message record of a `/병합` exchange so the chat
    *  surface shows what happened — the user's slash command and an
    *  assistant-style "병합 완료" confirmation with the merged

@@ -27,6 +27,14 @@ interface Props {
   sessionId: string;
   providers: ProviderInfo[];
   onTitleSync?: () => void;
+  /** When non-null, ChatPanel scrolls the matching message into view
+   *  and briefly highlights it — used by the global search dialog
+   *  after the parent flipped activeId. Cleared via onScrollHandled
+   *  once the effect ran so a re-render doesn't re-trigger. */
+  scrollToMessageId?: string | null;
+  onScrollHandled?: () => void;
+  /** Open the global chat search modal. Owned by App. */
+  onOpenSearch?: () => void;
 }
 
 export interface ChatPanelHandle {
@@ -150,7 +158,14 @@ function parseMergeCommand(raw: string): { matched: boolean; title?: string } {
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
-  { sessionId, providers, onTitleSync },
+  {
+    sessionId,
+    providers,
+    onTitleSync,
+    scrollToMessageId,
+    onScrollHandled,
+    onOpenSearch,
+  },
   ref
 ) {
   const { user } = useAuth();
@@ -412,6 +427,44 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     // animations and stutter.
     el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
   }, [session, liveAssistant, liveSources]);
+
+  // Search-result scroll target — the global SearchDialog hands us a
+  // message id after navigating, and we scroll that bubble into view
+  // with a brief flash highlight. We wait for the session payload to
+  // contain the message before acting; on a cross-session jump the
+  // bubble doesn't exist yet on the first effect run.
+  useEffect(() => {
+    if (!scrollToMessageId) return;
+    if (!session) return;
+    const present = session.messages.some((m) => m.id === scrollToMessageId);
+    if (!present) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    // Two RAFs so the bubble has actually been painted before we
+    // measure its position. Without this the scrollIntoView lands
+    // near the top of the chat instead of on the target.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const node = root.querySelector<HTMLElement>(
+          `[data-message-id="${scrollToMessageId}"]`,
+        );
+        if (!node) {
+          onScrollHandled?.();
+          return;
+        }
+        node.scrollIntoView({ behavior: "smooth", block: "center" });
+        node.classList.add("search-flash");
+        // Disable auto-stick-to-bottom for this turn so incoming
+        // streams don't yank the highlighted message out of view.
+        stickToBottomRef.current = false;
+        setShowJumpToLatest(true);
+        window.setTimeout(() => {
+          node.classList.remove("search-flash");
+        }, 1800);
+        onScrollHandled?.();
+      });
+    });
+  }, [scrollToMessageId, session, onScrollHandled]);
 
   // On session change, snap back to the bottom (new conversation starts
   // pinned) so the latest message is visible.
@@ -809,6 +862,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
+          {onOpenSearch && (
+            <button
+              type="button"
+              className="panel-toggle"
+              onClick={onOpenSearch}
+              title="모든 채팅에서 검색 (Ctrl+K)"
+            >
+              🔍 검색
+            </button>
+          )}
           <button
             type="button"
             className={`panel-toggle${selectionMode ? " active" : ""}`}
@@ -899,6 +962,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               return (
                 <MessageBubble
                   key={m.id}
+                  messageId={m.id}
                   role={m.role}
                   provider={m.provider}
                   content={m.content}

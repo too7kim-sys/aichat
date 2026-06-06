@@ -19,6 +19,10 @@ interface Props {
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
+  /** Persisted message id — surfaced as a data-message-id attribute
+   *  on the bubble root so the global search dialog can scroll the
+   *  matching bubble into view after navigating. */
+  messageId?: string;
 }
 
 /** Tiny icon + label helpers — duplicated from ChatPanel.tsx's
@@ -86,6 +90,7 @@ export function MessageBubble({
   selectionMode,
   selected,
   onToggleSelect,
+  messageId,
 }: Props) {
   const selectCheckbox = selectionMode ? (
     <label
@@ -104,7 +109,10 @@ export function MessageBubble({
   if (role === "user") {
     const showAttachments = attachments && attachments.length > 0;
     return (
-      <div className="bubble-row user-row">
+      <div
+        className="bubble-row user-row"
+        data-message-id={messageId || undefined}
+      >
         {selectCheckbox}
         <div className="bubble user">
           {showAttachments && (
@@ -130,7 +138,7 @@ export function MessageBubble({
   }
   const showAssistantAttachments = attachments && attachments.length > 0;
   return (
-    <div className="bubble assistant">
+    <div className="bubble assistant" data-message-id={messageId || undefined}>
       {selectCheckbox}
       <div className="avatar">A</div>
       <div className="body">
