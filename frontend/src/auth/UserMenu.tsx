@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { IconUsers } from "../components/Icon";
 import { useAuth } from "./AuthContext";
 
 interface Props {
@@ -56,7 +57,8 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
                 onOpenAdmin();
               }}
             >
-              사용자 관리
+              <IconUsers size={14} />
+              <span>권한 관리</span>
               {user.role === "admin" && (
                 <span className="user-menu-badge">관리자</span>
               )}

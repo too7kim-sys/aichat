@@ -2393,7 +2393,9 @@ body {
 .user-menu-name { font-weight: 600; font-size: 13px; color: var(--text); }
 .user-menu-email { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .user-menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -2405,7 +2407,12 @@ body {
   cursor: pointer;
   border-radius: 6px;
 }
+.user-menu-item > svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
 .user-menu-item:hover { background: var(--bg-sidebar); }
+.user-menu-item:hover > svg { color: var(--text); }
 
 /* ── Password strength meter + audit list ─────────── */
 .pw-strength {

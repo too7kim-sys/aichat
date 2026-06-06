@@ -221,8 +221,8 @@ export function AdminPage({ onBack }: Props) {
         <button className="admin-back" onClick={onBack}>
           ← 뒤로
         </button>
-        <h1>사용자 관리</h1>
-        <p>가입 신청을 검토하고 권한을 부여합니다.</p>
+        <h1>권한 관리</h1>
+        <p>사용자의 권한을 부여·회수하고 가입 신청을 검토합니다.</p>
       </header>
 
       {appSettings && (

@@ -662,8 +662,8 @@ async def log_merge(
     )
     kb = (max(payload.result_size, 0) + 1023) // 1024
     summary_text = (
-        f"✅ 병합 완료 — {payload.result_filename} "
-        f"({len(payload.source_filenames)}개 파일 합침, {kb:,} KB)"
+        f"병합 완료 · {payload.result_filename} "
+        f"({len(payload.source_filenames)}개 파일, {kb:,} KB)"
     )
 
     user_msg = models.Message(

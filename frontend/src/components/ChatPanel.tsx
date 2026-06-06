@@ -5,7 +5,9 @@ import type { ProviderInfo, SessionDetail } from "../types";
 import {
   IconCode,
   IconDownload,
+  IconFileText,
   IconFolder,
+  IconImage,
   IconPaperclip,
   IconSearch,
   IconSend,
@@ -97,28 +99,6 @@ function attachmentTypeLabel(filename: string, isImage: boolean): string {
     env: "환경 변수",
   };
   return map[ext] || (ext ? ext.toUpperCase() : "파일");
-}
-
-/** Icon prefix for non-image attachments. Image chips show the
- *  thumbnail instead. Stays inside the existing emoji vocabulary the
- *  rest of the composer uses (📎 / 🔗). */
-function attachmentIcon(filename: string): string {
-  const lower = filename.toLowerCase();
-  const ext = lower.slice(lower.lastIndexOf(".") + 1);
-  if (["pdf"].includes(ext)) return "📕";
-  if (["docx", "doc"].includes(ext)) return "📘";
-  if (["xlsx", "xls", "csv", "tsv"].includes(ext)) return "📗";
-  if (["pptx", "ppt"].includes(ext)) return "📙";
-  if (["hwpx", "hwp"].includes(ext)) return "📜";
-  if (
-    [
-      "py", "js", "ts", "tsx", "jsx", "java", "kt", "rs", "go",
-      "c", "cpp", "h", "hpp", "cs", "rb", "php", "sh", "sql",
-      "css", "scss", "html", "htm", "xml", "json", "yaml", "yml",
-      "toml", "ini", "cfg", "env",
-    ].includes(ext)
-  ) return "📄";
-  return "📄";
 }
 
 /** Drop the leading workspace/project prefix from a path so the chip
@@ -779,7 +759,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       document.body.removeChild(a);
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setMergeStatus(
-        `✅ 다운로드 완료 — ${filename} (${Math.round(blob.size / 1024)} KB, ${majority.length}개 합침)`,
+        `다운로드 완료 · ${filename} (${Math.round(blob.size / 1024)} KB, ${majority.length}개 합침)`,
       );
       setPrompt("");
       // Persist a chat record of the merge — user's slash command
@@ -869,7 +849,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               onClick={onOpenSearch}
               title="모든 채팅에서 검색 (Ctrl+K)"
             >
-              🔍 검색
+              <IconSearch size={13} /> 검색
             </button>
           )}
           <button
@@ -1126,7 +1106,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                         />
                       ) : (
                         <span className="attachment-icon" aria-hidden="true">
-                          {attachmentIcon(a.filename)}
+                          <IconFileText size={18} />
                         </span>
                       )}
                       <span className="attachment-info">

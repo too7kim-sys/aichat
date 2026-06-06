@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AttachmentSummary } from "../api/client";
 import { BubbleContent } from "./BubbleContent";
+import { IconFileText, IconImage } from "./Icon";
 
 interface Props {
   role: "user" | "assistant";
@@ -23,20 +24,6 @@ interface Props {
    *  on the bubble root so the global search dialog can scroll the
    *  matching bubble into view after navigating. */
   messageId?: string;
-}
-
-/** Tiny icon + label helpers — duplicated from ChatPanel.tsx's
- *  attachment-chip renderer on purpose so the bubble doesn't pull
- *  in the entire ChatPanel module. Kept short. */
-function bubbleAttachmentIcon(filename: string, kind: string): string {
-  if (kind === "image") return "🖼️";
-  const ext = filename.toLowerCase().split(".").pop() || "";
-  if (ext === "pdf") return "📕";
-  if (["docx", "doc"].includes(ext)) return "📘";
-  if (["xlsx", "xls", "csv", "tsv"].includes(ext)) return "📗";
-  if (["pptx", "ppt"].includes(ext)) return "📙";
-  if (["hwpx", "hwp"].includes(ext)) return "📜";
-  return "📄";
 }
 
 function bubbleAttachmentBasename(filename: string): string {
@@ -120,7 +107,11 @@ export function MessageBubble({
               {attachments!.map((a, i) => (
                 <span key={i} className="bubble-attachment" title={a.filename}>
                   <span className="bubble-attachment-icon" aria-hidden="true">
-                    {bubbleAttachmentIcon(a.filename, a.kind)}
+                    {a.kind === "image" ? (
+                      <IconImage size={13} />
+                    ) : (
+                      <IconFileText size={13} />
+                    )}
                   </span>
                   <span className="bubble-attachment-name">
                     {bubbleAttachmentBasename(a.filename)}
@@ -154,7 +145,11 @@ export function MessageBubble({
               {attachments!.map((a, i) => (
                 <span key={i} className="bubble-attachment" title={a.filename}>
                   <span className="bubble-attachment-icon" aria-hidden="true">
-                    {bubbleAttachmentIcon(a.filename, a.kind)}
+                    {a.kind === "image" ? (
+                      <IconImage size={13} />
+                    ) : (
+                      <IconFileText size={13} />
+                    )}
                   </span>
                   <span className="bubble-attachment-name">
                     {bubbleAttachmentBasename(a.filename)}
