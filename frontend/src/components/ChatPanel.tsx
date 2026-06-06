@@ -905,7 +905,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           {onCloseChat && (
             <button
               type="button"
-              className="panel-toggle chat-close-btn"
+              className="chat-close-btn"
               onClick={onCloseChat}
               title="채팅 닫기"
               aria-label="채팅 닫기"

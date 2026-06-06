@@ -1364,7 +1364,12 @@ body {
 /* Slides over the left edge so an auto-generated HTML document opens
  * next to the sidebar instead of squeezing the chat from the right.
  * Fixed-positioned overlay on all viewports — the drawer pattern
- * keeps the chat width stable as artifacts come and go. */
+ * keeps the chat width stable as artifacts come and go.
+ *
+ * z-index 200 sits above the verify banner / search bar / sidebar
+ * drawer so a tap on the panel's close button or content always wins
+ * the hit-test, even when those upper-strip elements overlap on
+ * narrow mobile viewports. */
 .artifact-panel {
   position: fixed;
   top: 0;
@@ -1377,7 +1382,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  z-index: 60;
+  z-index: 200;
 }
 .artifact-header {
   display: flex;
@@ -1598,7 +1603,8 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chat-tree-close {
+.chat-tree-close,
+.chat-close-btn {
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -1609,8 +1615,12 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Sit a hair to the left so the X reads as belonging to the panel
+     (close-the-thing) rather than to the row of toggle buttons. */
+  margin-left: 4px;
 }
-.chat-tree-close:hover { background: var(--bg-card); color: var(--text); }
+.chat-tree-close:hover,
+.chat-close-btn:hover { background: var(--bg-card); color: var(--text); }
 .chat-tree-hint {
   font-size: 11px;
   color: var(--text-faint);
@@ -5243,11 +5253,13 @@ body {
   }
 
   /* Artifact panel on mobile — same drawer pattern from the left
-     edge, just narrower and full-height. */
+     edge, just narrower and full-height. z-index 200 inherited from
+     the base rule, deliberately above the mobile sidebar (60), the
+     drawer backdrop (55) and the verify banner so taps on the panel
+     are never blocked by those upper-strip elements. */
   .artifact-panel {
     position: fixed;
     inset: 0 auto 0 0;
-    z-index: 60;
     width: 96vw;
     max-width: 520px;
     border-right: 1px solid var(--border);
