@@ -8,6 +8,9 @@ venv/
 # Env / secrets
 .env
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 
 # Node
 node_modules/
