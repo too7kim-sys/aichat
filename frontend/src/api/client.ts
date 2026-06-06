@@ -155,7 +155,21 @@ export interface MessageSearchResult {
 }
 
 export type UserStatus = "pending" | "approved" | "rejected" | "suspended";
-export type UserRole = "user" | "moderator" | "admin";
+/** Role is now a free-form code looked up against the `roles` table.
+ *  The three built-ins still exist (admin/moderator/user) and most
+ *  call sites still work with them, but the type intentionally
+ *  widens to `string` so custom codes round-trip cleanly. */
+export type UserRole = string;
+export type BuiltinRole = "user" | "moderator" | "admin";
+
+export interface Role {
+  code: string;
+  name: string;
+  description: string | null;
+  base_role: BuiltinRole;
+  is_system: boolean;
+  created_at: string;
+}
 
 export interface AuthUser {
   id: string;
@@ -291,6 +305,33 @@ export const admin = {
     }),
   unsuspend: (userId: string) =>
     json<AdminUser>(`/admin/users/${userId}/unsuspend`, { method: "POST" }),
+  listRoles: () => json<Role[]>("/admin/roles"),
+  createRole: (payload: {
+    code: string;
+    name: string;
+    description: string;
+    base_role: BuiltinRole;
+  }) =>
+    json<Role>("/admin/roles", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateRole: (
+    code: string,
+    payload: {
+      name?: string;
+      description?: string;
+      base_role?: BuiltinRole;
+    },
+  ) =>
+    json<Role>(`/admin/roles/${encodeURIComponent(code)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteRole: (code: string) =>
+    json<void>(`/admin/roles/${encodeURIComponent(code)}`, {
+      method: "DELETE",
+    }),
 };
 
 export interface OllamaModel {

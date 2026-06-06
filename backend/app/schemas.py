@@ -270,7 +270,10 @@ class UserOut(BaseModel):
     name: str
     email_verified: bool
     status: Literal["pending", "approved", "rejected", "suspended"] = "pending"
-    role: Literal["user", "moderator", "admin"] = "user"
+    # Free-form role code now that operators can define custom roles
+    # in the dashboard. The built-in tier comes from a roles-table
+    # join (see auth.require_role); the wire format is just the code.
+    role: str = "user"
     approved_at: datetime | None = None
     rejection_reason: str | None = None
     suspension_reason: str | None = None
@@ -291,7 +294,9 @@ class AdminUserOut(UserOut):
 
 
 class RoleUpdateRequest(BaseModel):
-    role: Literal["user", "moderator", "admin"]
+    # Free-form code so an admin can assign any role defined in the
+    # roles table — server-side validation rejects unknown codes.
+    role: str = Field(min_length=1, max_length=40)
 
 
 class RejectRequest(BaseModel):
@@ -300,6 +305,35 @@ class RejectRequest(BaseModel):
 
 class SuspendRequest(BaseModel):
     reason: str = Field(default="", max_length=500)
+
+
+class RoleOut(BaseModel):
+    code: str
+    name: str
+    description: str | None = None
+    base_role: Literal["admin", "moderator", "user"]
+    is_system: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RoleCreateRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=40, pattern=r"^[a-z][a-z0-9_-]*$")
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=500)
+    base_role: Literal["admin", "moderator", "user"]
+
+
+class RoleUpdateBody(BaseModel):
+    # Only the display label and description are mutable. The code is
+    # an identity column (changing it would orphan every user.role that
+    # references it) and base_role is locked for system rows so the
+    # built-in tier semantics stay intact.
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=500)
+    base_role: Literal["admin", "moderator", "user"] | None = None
 
 
 class MergeLogRequest(BaseModel):

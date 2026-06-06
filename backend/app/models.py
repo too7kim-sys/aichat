@@ -74,6 +74,37 @@ class User(Base):
     )
 
 
+class Role(Base):
+    """Role definition — both built-in (admin/moderator/user) and
+    operator-defined custom codes live in this single table. The
+    `base_role` column maps any custom code to one of the three
+    built-in permission tiers so `require_role()` keeps its simple
+    semantics: a user with role 'editor' (base_role='moderator')
+    passes every check that 'moderator' passes.
+
+    Built-in rows are seeded at startup with `is_system=True` and
+    cannot be deleted from the admin UI; their display name and
+    description are still editable so operators can re-label them
+    in Korean / domain-specific terms."""
+    __tablename__ = "roles"
+
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # One of "admin" | "moderator" | "user" — the effective permission
+    # tier for require_role() purposes.
+    base_role: Mapped[str] = mapped_column(String(20))
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    created_by_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
 class AppSetting(Base):
     """Tiny key/value store for runtime-toggleable app settings — the
     admin dashboard reads/writes through here so operators can flip

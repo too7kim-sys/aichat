@@ -301,6 +301,27 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "ALTER TABLE users ADD COLUMN suspension_reason TEXT"
                 )
+            # Seed the three built-in roles so the new "역할 관리" UI
+            # has the defaults to render even on a fresh install. The
+            # rows are flagged is_system=1 — admins can rename them in
+            # the dashboard but can't delete them or change their
+            # base_role, which would break permission semantics.
+            await conn.exec_driver_sql(
+                """
+                INSERT OR IGNORE INTO roles
+                    (code, name, description, base_role, is_system)
+                VALUES
+                    ('admin', '관리자',
+                     '시스템 전체 권한 — 역할 변경, 사용자 정지, 정책 토글',
+                     'admin', 1),
+                    ('moderator', '운영자',
+                     '가입 신청 승인/거부, 일반 사용자 정지',
+                     'moderator', 1),
+                    ('user', '일반',
+                     '기본 사용자 — 채팅 사용',
+                     'user', 1)
+                """
+            )
             # Per-message attachment summary — JSON list of
             # {filename, kind, size} that the chat bubble renders as
             # compact chips above the user message. Nullable so

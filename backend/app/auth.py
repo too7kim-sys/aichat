@@ -94,15 +94,34 @@ def require_role(*roles: str):
         admin_only = require_role('admin')
         @router.get(...)
         async def x(user = Depends(admin_only)): ...
+
+    Resolution: a custom role's effective permission tier comes from
+    its `base_role` column in the `roles` table. So a user with role
+    'editor' (base_role='moderator') passes require_role('moderator')
+    just like a built-in moderator would. The exact role string also
+    passes if it appears in `roles` literally — covers callers that
+    name a custom code directly.
     """
     allowed = set(roles)
 
     async def _check(
         user: models.User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
     ) -> models.User:
-        if user.role not in allowed:
+        if user.role in allowed:
+            return user
+        # Built-in roles match themselves; only custom codes need a
+        # base_role lookup to determine effective tier.
+        if user.role in {"admin", "moderator", "user"}:
             raise HTTPException(403, "권한이 없습니다")
-        return user
+        role = (
+            await db.execute(
+                select(models.Role).where(models.Role.code == user.role)
+            )
+        ).scalar_one_or_none()
+        if role is not None and role.base_role in allowed:
+            return user
+        raise HTTPException(403, "권한이 없습니다")
 
     return _check
 
