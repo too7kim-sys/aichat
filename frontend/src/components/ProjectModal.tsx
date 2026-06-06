@@ -146,6 +146,9 @@ interface Props {
    *  지식베이스" toggle + role-grant checkboxes, and project cards
    *  show the role-access editor. */
   adminMode?: boolean;
+  /** When true, render inline (no modal backdrop / close button) so
+   *  the panel sits inside the admin shell like the roles table. */
+  embedded?: boolean;
 }
 
 function fmtBytes(n: number): string {
@@ -163,6 +166,7 @@ export function ProjectModal({
   linkedProjectId = null,
   onLinkChange,
   adminMode = false,
+  embedded = false,
 }: Props) {
   const { projects, storageBytes, create, remove, reindex, refresh } =
     useProjects();
@@ -184,12 +188,14 @@ export function ProjectModal({
   useEffect(() => {
     if (!open) return;
     refresh();
+    // Embedded panel has no backdrop to dismiss — don't hijack ESC.
+    if (embedded) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose, refresh]);
+  }, [open, onClose, refresh, embedded]);
 
   // Auto-open the add form when the list is empty so the empty state
   // doubles as the onboarding CTA.
@@ -219,33 +225,21 @@ export function ProjectModal({
   if (!open) return null;
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal projects-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="pm-head">
-          <div className="pm-head-text">
-            <h3>RAG 프로젝트</h3>
-            <p>대용량 코드베이스를 한 번 인덱싱해 자연어로 검색·분석하세요.</p>
-          </div>
-          <div className="pm-head-right">
-            {storageBytes > 0 && (
-              <div className="pm-storage" title="벡터 인덱스가 차지하는 디스크 용량">
-                <IconDownload size={12} /> {fmtBytes(storageBytes)}
-              </div>
-            )}
-            <button
-              type="button"
-              className="modal-close"
-              onClick={onClose}
-              aria-label="닫기"
-            >
-              <IconX size={18} />
-            </button>
-          </div>
-        </header>
+  // Embedded mode (admin "지식베이스" panel) drops the modal backdrop
+  // + header chrome and renders the body inline inside the admin
+  // shell — same pattern as the roles panel. Standalone mode keeps
+  // the full modal for the sidebar entry point.
+  const body = (
+    <>
+      {embedded && (
+        <div className="pm-embedded-head">
+          {storageBytes > 0 && (
+            <div className="pm-storage" title="벡터 인덱스가 차지하는 디스크 용량">
+              <IconDownload size={12} /> {fmtBytes(storageBytes)}
+            </div>
+          )}
+        </div>
+      )}
 
         {addOpen ? (
           // ── Add-only view ──
@@ -365,6 +359,41 @@ export function ProjectModal({
             </main>
           </div>
         )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="pm-embedded">{body}</div>;
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal projects-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="pm-head">
+          <div className="pm-head-text">
+            <h3>RAG 프로젝트</h3>
+            <p>대용량 코드베이스를 한 번 인덱싱해 자연어로 검색·분석하세요.</p>
+          </div>
+          <div className="pm-head-right">
+            {storageBytes > 0 && (
+              <div className="pm-storage" title="벡터 인덱스가 차지하는 디스크 용량">
+                <IconDownload size={12} /> {fmtBytes(storageBytes)}
+              </div>
+            )}
+            <button
+              type="button"
+              className="modal-close"
+              onClick={onClose}
+              aria-label="닫기"
+            >
+              <IconX size={18} />
+            </button>
+          </div>
+        </header>
+        {body}
       </div>
     </div>
   );

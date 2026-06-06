@@ -1,26 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { queueAttachment } from "../state/attachQueue";
-import { useProjects } from "../state/ProjectsContext";
 import { useWorkspaces } from "../state/WorkspacesContext";
 import type { Session } from "../types";
 import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
 import {
   IconChat,
   IconCode,
-  IconDatabase,
   IconFileText,
   IconFolder,
   IconGitBranch,
-  IconGlobe,
   IconPlus,
   IconRefresh,
-  IconSend,
-  IconUsers,
-  IconX,
 } from "./Icon";
-import { ProjectModal } from "./ProjectModal";
 
-export type Workspace = "chat" | "cowork" | "code";
+export type Workspace = "chat" | "code";
 
 interface Props {
   /** Extra className applied to the root <aside> — used by the parent
@@ -64,9 +57,11 @@ function groupByDate(sessions: Session[]) {
   return { today, yesterday, lastWeek, earlier };
 }
 
+// Cowork (RAG project management) was folded into the admin
+// "지식베이스" panel — knowledge bases are now admin-managed + role-
+// mapped and auto-used in chat, so the standalone Cowork tab is gone.
 const TABS: { id: Workspace; label: string; icon: ReactNode }[] = [
   { id: "chat", label: "Chat", icon: <IconChat size={18} /> },
-  { id: "cowork", label: "Cowork", icon: <IconUsers size={18} /> },
   { id: "code", label: "Code", icon: <IconCode size={18} /> },
 ];
 
@@ -110,7 +105,6 @@ export function Sidebar({
           onDelete={onDelete}
         />
       )}
-      {workspace === "cowork" && <CoworkPane activeSessionId={activeId} />}
       {workspace === "code" && (
         <CodePane
           activeSessionId={activeId}
@@ -169,145 +163,6 @@ function ChatPane({
   );
 }
 
-function CoworkPane({ activeSessionId }: { activeSessionId: string | null }) {
-  const { projects, refresh, remove } = useProjects();
-  const [modalOpen, setModalOpen] = useState(false);
-  // Hydrate the current linked project for the active session so the
-  // modal can show ✓ on the correct card. Stay in sync with custom
-  // events fired by the modal so the badge updates without remount.
-  const linkKey = activeSessionId
-    ? `chat:session:${activeSessionId}:project`
-    : null;
-  const [linkedProjectId, setLinkedProjectId] = useState<string | null>(
-    () => (linkKey ? localStorage.getItem(linkKey) : null),
-  );
-  useEffect(() => {
-    setLinkedProjectId(linkKey ? localStorage.getItem(linkKey) : null);
-  }, [linkKey]);
-
-  function applyLink(projectId: string | null) {
-    if (!activeSessionId || !linkKey) return;
-    setLinkedProjectId(projectId);
-    if (projectId) localStorage.setItem(linkKey, projectId);
-    else localStorage.removeItem(linkKey);
-    window.dispatchEvent(
-      new CustomEvent("chat:project-linked", {
-        detail: { sessionId: activeSessionId, projectId },
-      }),
-    );
-  }
-
-  function statusLabel(p: { status: string; progress_done: number; progress_total: number }): string {
-    switch (p.status) {
-      case "ready":
-        return "준비됨";
-      case "indexing": {
-        const pct = p.progress_total
-          ? Math.round((100 * p.progress_done) / p.progress_total)
-          : 0;
-        return `인덱싱 ${pct}%`;
-      }
-      case "pending":
-        return "대기";
-      case "failed":
-        return "실패";
-      default:
-        return p.status;
-    }
-  }
-
-  return (
-    <>
-      <div className="sidebar-actions">
-        <button className="primary" onClick={() => setModalOpen(true)}>
-          + 프로젝트 추가
-        </button>
-      </div>
-      <div className="sidebar-sessions">
-        <div className="session-section">RAG 프로젝트</div>
-        {projects.length === 0 ? (
-          <div className="sidebar-empty">
-            문서(PDF·DOCX·MD), OpenAPI, DB 스키마를 한 번 인덱싱해두면 채팅에서
-            자연어로 검색할 수 있어요. 코드 분석은 사이드바의 <b>Code 탭</b>을
-            사용하세요.
-          </div>
-        ) : (
-          <ul className="proj-sidebar-list">
-            {projects.map((p) => (
-              <li
-                key={p.id}
-                className={`proj-sidebar-item status-${p.status}`}
-                onClick={() => setModalOpen(true)}
-              >
-                <div className="proj-sidebar-row">
-                  <div className="proj-sidebar-name">
-                    <span className="proj-sidebar-name-icon" aria-hidden>
-                      {p.source_type === "git" ? (
-                        <IconGitBranch size={14} />
-                      ) : p.source_type === "url" ||
-                        p.source_type === "sftp" ? (
-                        <IconGlobe size={14} />
-                      ) : p.source_type === "connection" ? (
-                        <IconDatabase size={14} />
-                      ) : (
-                        <IconFolder size={14} />
-                      )}
-                    </span>
-                    {p.name}
-                  </div>
-                  <button
-                    type="button"
-                    className="proj-sidebar-del"
-                    aria-label="삭제"
-                    title="삭제"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (
-                        !window.confirm(
-                          `"${p.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
-                        )
-                      )
-                        return;
-                      try {
-                        await remove(p.id);
-                      } catch (err) {
-                        window.alert(
-                          `삭제 실패: ${err instanceof Error ? err.message : String(err)}`,
-                        );
-                      }
-                    }}
-                  >
-                    <IconX size={14} />
-                  </button>
-                </div>
-                <div className="proj-sidebar-meta">
-                  <span className={`proj-sidebar-status ${p.status}`}>
-                    {statusLabel(p)}
-                  </span>
-                  {p.status === "ready" && (
-                    <span className="proj-sidebar-counts">
-                      {p.file_count}f · {p.chunk_count}c
-                    </span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <ProjectModal
-        open={modalOpen}
-        onClose={() => {
-          setModalOpen(false);
-          refresh();
-        }}
-        linkSessionId={activeSessionId}
-        linkedProjectId={linkedProjectId}
-        onLinkChange={applyLink}
-      />
-    </>
-  );
-}
 
 function CodePane({
   activeSessionId,

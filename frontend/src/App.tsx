@@ -188,12 +188,12 @@ function AppInner({
     setActiveId(null);
   }
 
-  // Top-level workspace tab — Chat / Cowork / Code. Persisted across
-  // reloads so the user lands back where they left off.
+  // Top-level workspace tab — Chat / Code. Persisted across reloads so
+  // the user lands back where they left off. (Legacy "cowork" value
+  // from before RAG moved to the admin panel falls back to chat.)
   const [workspace, _setWorkspace] = useState<Workspace>(() => {
     const stored = localStorage.getItem("chat:workspace");
-    if (stored === "chat" || stored === "cowork" || stored === "code")
-      return stored;
+    if (stored === "chat" || stored === "code") return stored;
     return "chat";
   });
   function setWorkspace(w: Workspace) {

@@ -999,7 +999,6 @@ function RolesPanel({
  *  and map them to roles. Users with a granted role then get the
  *  base auto-searched in chat without any per-session linking. */
 function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
-  const [open, setOpen] = useState(true);
   return (
     <div className="admin-knowledge">
       <div className="admin-roles-head">
@@ -1008,18 +1007,12 @@ function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
           <p>
             공유 지식베이스를 만들고 역할에 매핑하면, 권한이 있는 사용자는
             채팅에 연결하지 않아도 질문과 관련될 때 자동으로 검색해
-            활용합니다. {isAdmin ? "" : "(생성·역할 매핑은 관리자만 가능)"}
+            활용합니다.{isAdmin ? "" : " (생성·역할 매핑은 관리자만 가능)"}
           </p>
         </div>
-        <button
-          type="button"
-          className="admin-btn admin-btn-primary"
-          onClick={() => setOpen(true)}
-        >
-          지식베이스 관리 열기
-        </button>
       </div>
-      <ProjectModal open={open} onClose={() => setOpen(false)} adminMode />
+      {/* Rendered inline (embedded) like the roles table — no modal. */}
+      <ProjectModal open onClose={() => undefined} adminMode embedded />
     </div>
   );
 }

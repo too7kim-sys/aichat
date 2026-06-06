@@ -4895,6 +4895,26 @@ body {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/* Embedded ProjectModal (admin 지식베이스 panel) — strips the modal
+ * chrome and lets the body flow inside the admin shell like the
+ * roles table. The inner browse/add views keep their own layout. */
+.pm-embedded {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.pm-embedded-head {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px 0;
+}
+.pm-embedded .pm-body-browse {
+  /* Cap the inline panel height so a long project list scrolls
+     internally instead of stretching the whole admin page. */
+  max-height: 60vh;
+}
+
 /* Shared knowledge-base toggle + role grants (admin add form) */
 .pm-share-field {
   border-top: 1px dashed var(--border);
