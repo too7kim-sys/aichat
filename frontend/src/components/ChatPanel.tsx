@@ -17,7 +17,6 @@ import {
   IconSparkles,
   IconX,
 } from "./Icon";
-import { ExportDocumentDialog } from "../export/ExportDocumentDialog";
 import type { LocalAttachment } from "../export/MergeAttachmentsDialog";
 import { MessageBubble } from "./MessageBubble";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
@@ -116,6 +115,34 @@ function attachmentBasename(filename: string): string {
   return slash >= 0 ? filename.slice(slash + 1) : filename;
 }
 
+/** Extract `<title>` text from an HTML document — used to name the
+ *  artifact tab + download filename when the model returned a full
+ *  HTML document. Falls back to null when the title is missing or
+ *  empty after trim, so the caller can supply a default. */
+function extractHtmlTitle(html: string): string | null {
+  const m = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
+  if (!m) return null;
+  const t = m[1].replace(/\s+/g, " ").trim();
+  return t || null;
+}
+
+/** Pull every ```html``` fenced code block whose body looks like a
+ *  complete HTML document (carries a doctype or a <html> tag).
+ *  Anything else is treated as a snippet and skipped — auto-opening
+ *  every <div> the model echoes back would be noisy. */
+function extractHtmlDocBlocks(content: string): string[] {
+  const out: string[] = [];
+  const re = /```html\s*\n([\s\S]*?)\n?```/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const body = m[1];
+    if (/<!doctype\s+html/i.test(body) || /<html[\s>]/i.test(body)) {
+      out.push(body);
+    }
+  }
+  return out;
+}
+
 /** Parse a merge slash-command from the composer prompt.
  *
  * Accepted forms (case-insensitive on the keywords):
@@ -204,30 +231,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // `# file: <path>` patch, so the changes panel re-polls git status
   // without a full remount.
   const [changesRefreshKey, setChangesRefreshKey] = useState(0);
-  // Document export — when selectionMode is on, each message bubble
-  // renders a checkbox. The user picks the answers they want bundled
-  // into one document and clicks "문서로" to open the dialog.
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(
-    new Set(),
-  );
-  const [exportOpen, setExportOpen] = useState(false);
   // Inline status for the `/병합` slash-command path — short banner
   // above the composer reporting merge progress / success / failure.
   // The legacy modal entry point was removed; the slash command is
   // now the only way to invoke merge from the chat surface.
   const [mergeStatus, setMergeStatus] = useState<string | null>(null);
-  const toggleMessageSelection = (id: string) =>
-    setSelectedMessageIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  function exitSelectionMode() {
-    setSelectionMode(false);
-    setSelectedMessageIds(new Set());
-  }
   const [elapsedSec, setElapsedSec] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -310,6 +318,31 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       ]);
     },
   }));
+
+  // HTML-document auto-open — when an assistant turn completes with a
+  // ```html``` code block that looks like a full self-contained doc,
+  // push it to the artifact panel so the user gets the rendered
+  // preview + download for free. Tracks last-handled message id so
+  // navigating back into the session doesn't re-trigger the open.
+  const lastHtmlAutoOpenedRef = useRef<string | null>(null);
+  const prevStreamingRef = useRef(streaming);
+  useEffect(() => {
+    const justFinished = prevStreamingRef.current && !streaming;
+    prevStreamingRef.current = streaming;
+    if (!justFinished) return;
+    const msgs = session?.messages;
+    if (!msgs || msgs.length === 0) return;
+    const last = msgs[msgs.length - 1];
+    if (last.role !== "assistant") return;
+    if (lastHtmlAutoOpenedRef.current === last.id) return;
+    const blocks = extractHtmlDocBlocks(last.content);
+    if (blocks.length === 0) return;
+    for (const block of blocks) {
+      const title = extractHtmlTitle(block) || "생성된 문서";
+      artifactsState.push({ title, language: "html", code: block });
+    }
+    lastHtmlAutoOpenedRef.current = last.id;
+  }, [streaming, session, artifactsState]);
 
   // Elapsed-time ticker — anchored to the live stream's startedAt so it
   // keeps counting even when the user navigated away and came back.
@@ -848,21 +881,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
-          <button
-            type="button"
-            className={`panel-toggle${selectionMode ? " active" : ""}`}
-            onClick={() => {
-              if (selectionMode) exitSelectionMode();
-              else setSelectionMode(true);
-            }}
-            title={
-              selectionMode
-                ? "선택 모드 종료"
-                : "메시지를 골라 한 문서로 내보내기"
-            }
-          >
-            📄 {selectionMode ? "선택 종료" : "문서 만들기"}
-          </button>
           {session.workspace_id && (
             <button
               type="button"
@@ -955,9 +973,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   content={m.content}
                   attachments={m.attachments_summary ?? null}
                   artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
-                  selectionMode={selectionMode}
-                  selected={selectedMessageIds.has(m.id)}
-                  onToggleSelect={() => toggleMessageSelection(m.id)}
                 />
               );
             });
@@ -1009,29 +1024,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
       </div>
-      {selectionMode && (
-        <div className="export-action-bar">
-          <span className="export-action-count">
-            {selectedMessageIds.size}개 선택됨
-          </span>
-          <button
-            type="button"
-            className="export-action-clear"
-            onClick={() => setSelectedMessageIds(new Set())}
-            disabled={selectedMessageIds.size === 0}
-          >
-            선택 해제
-          </button>
-          <button
-            type="button"
-            className="export-action-go"
-            onClick={() => setExportOpen(true)}
-            disabled={selectedMessageIds.size === 0}
-          >
-            📄 문서로 만들기
-          </button>
-        </div>
-      )}
       {showJumpToLatest && (
         <button
           type="button"
@@ -1249,13 +1241,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       </div>
       </ChatWorkspaceProvider>
 
-      <ExportDocumentDialog
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        messages={session.messages}
-        selectedIds={selectedMessageIds}
-        defaultTitle={session.title}
-      />
     </div>
   );
 });

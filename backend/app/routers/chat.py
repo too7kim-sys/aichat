@@ -165,6 +165,44 @@ _CODE_FOCUSED_SYSTEM = ChatMessage(
 )
 
 
+_HTML_DOC_INTENT_RE = re.compile(
+    r"문서로\s*만들|문서\s*만들|보고서로\s*만들|보고서\s*만들|"
+    r"한\s*페이지로|웹\s*페이지로|"
+    r"html\s*문서|html로\s*만들|html\s*만들|"
+    r"single.?file\s*html|self.?contained\s*html|"
+    r"build\s+an?\s+html\s+(?:document|page|report)|"
+    r"make\s+an?\s+html\s+(?:document|page|report)",
+    re.IGNORECASE,
+)
+
+
+_HTML_DOC_SYSTEM = ChatMessage(
+    role="system",
+    content=(
+        "[HTML 문서 출력 모드]\n"
+        "사용자가 문서/보고서/페이지를 만들어달라고 요청했습니다. 답변은 반드시 "
+        "단 하나의 완전한 자체 포함 HTML 문서를 ```html 코드 블록 안에 "
+        "출력하세요. 클라이언트가 이 블록을 감지해 좌측 슬라이드 패널에서 "
+        "미리보기로 자동 표시하고, .html 파일로 다운로드할 수 있게 합니다.\n\n"
+        "엄격한 규칙:\n"
+        "1. 답변은 ```html 으로 시작해서 ``` 로 끝나는 단 하나의 코드 블록.\n"
+        "2. 코드 블록 외부에 추가 설명·주석·서두 출력 금지. 오직 HTML만.\n"
+        "3. <!DOCTYPE html> 선언으로 시작.\n"
+        "4. <head>에 적절한 <title> 설정 (다운로드 파일명에 사용됨).\n"
+        "5. <head>에 <meta charset=\"utf-8\"> 와 <meta name=\"viewport\" "
+        "   content=\"width=device-width, initial-scale=1\"> 포함.\n"
+        "6. 모든 CSS는 <style> 태그로 인라인 — 외부 stylesheet/CDN 링크 금지.\n"
+        "7. 외부 이미지/스크립트/폰트 CDN 사용 금지 — 오프라인에서도 동작해야 함.\n"
+        "8. 한글 친화 폰트 스택: \"Pretendard\", \"Apple SD Gothic Neo\", "
+        "   \"Malgun Gothic\", sans-serif.\n"
+        "9. 본문 너비는 max-width: 820px; margin: 0 auto; padding: 40px 24px.\n"
+        "10. 본문 색상은 #333~#444 회색 톤, 강조 색은 #cc785c 또는 #b8654a.\n"
+        "11. 인쇄(@media print) 시 적절히 보이도록 페이지 여백·색 대비 확보.\n"
+        "12. 표/목록/제목 위계를 명확히 — 단조로운 텍스트 덩어리 금지."
+    ),
+)
+
+
 _TRANSLATION_SYSTEM = ChatMessage(
     role="system",
     content=(
@@ -196,6 +234,10 @@ _TRANSLATION_SYSTEM = ChatMessage(
 
 def _is_translation_request(prompt: str) -> bool:
     return bool(_TRANSLATION_INTENT_RE.search(prompt))
+
+
+def _is_html_doc_request(prompt: str) -> bool:
+    return bool(_HTML_DOC_INTENT_RE.search(prompt))
 
 
 def _build_history(
@@ -894,6 +936,12 @@ async def chat_single(
     # user prompt (= higher attention) than the global rules.
     if _is_translation_request(payload.prompt):
         history.insert(-1, _TRANSLATION_SYSTEM)
+
+    # Document-build requests get a strict "single self-contained HTML"
+    # output contract — the frontend auto-detects the resulting
+    # ```html``` block and opens it in a left-side preview panel.
+    if _is_html_doc_request(payload.prompt):
+        history.insert(-1, _HTML_DOC_SYSTEM)
 
     # Code-focused sessions get the coding system prompt right next
     # to the user message so its rules win over the global ruleset.

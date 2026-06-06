@@ -1361,14 +1361,23 @@ body {
 }
 
 /* ── Artifact panel (Phase 1) ─────────────────────── */
+/* Slides over the left edge so an auto-generated HTML document opens
+ * next to the sidebar instead of squeezing the chat from the right.
+ * Fixed-positioned overlay on all viewports — the drawer pattern
+ * keeps the chat width stable as artifacts come and go. */
 .artifact-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
   width: 480px;
   background: var(--bg-card);
-  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 18px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  flex-shrink: 0;
+  z-index: 60;
 }
 .artifact-header {
   display: flex;
@@ -5233,16 +5242,17 @@ body {
     box-shadow: -4px 0 18px rgba(0, 0, 0, 0.18);
   }
 
-  /* Artifact (code side) panel: same drawer pattern, full-height,
-     opens over the chat instead of squeezing it. */
+  /* Artifact panel on mobile — same drawer pattern from the left
+     edge, just narrower and full-height. */
   .artifact-panel {
     position: fixed;
-    inset: 0 0 0 auto;
-    z-index: 50;
+    inset: 0 auto 0 0;
+    z-index: 60;
     width: 96vw;
     max-width: 520px;
-    border-left: 1px solid var(--border);
-    box-shadow: -4px 0 18px rgba(0, 0, 0, 0.18);
+    border-right: 1px solid var(--border);
+    border-left: none;
+    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.18);
   }
 
   /* Mobile modals: drop the 95vw cap to 100vw and round only the top
@@ -5255,6 +5265,25 @@ body {
     border-radius: 0 !important;
   }
   .modal-backdrop { padding: 0; }
+
+  /* Search bar — the desktop layout sits the search input + verify
+     banner + user-menu on a single row. On phones they collide, so
+     drop the search to its own row at the bottom of the header strip
+     by allowing the strip to wrap and stretching the search to 100%. */
+  .app-header-strip { flex-wrap: wrap; }
+  .searchbar {
+    flex: 1 1 100%;
+    order: 99;
+    max-width: none;
+    min-width: 0;
+  }
+  .searchbar-panel {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    max-height: 60vh;
+  }
 
   /* CodeWorkspaceModal browse view: the 280px list + content grid
      becomes a single column on phones. Tapping a workspace replaces
