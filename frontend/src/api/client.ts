@@ -347,6 +347,24 @@ export interface OllamaModelList {
 export type CorpusType = "code" | "document" | "api" | "db";
 export type SourceType = "folder" | "git" | "url" | "connection" | "sftp";
 
+export interface DbDriverInfo {
+  code: string;
+  label: string;
+  default_port: number | null;
+  is_file_based: boolean;
+  odbc_based: boolean;
+  default_database: string;
+  notes: string;
+}
+
+export interface DbTestResult {
+  ok: boolean;
+  driver: string;
+  url_redacted: string;
+  error: string | null;
+  table_count: number | null;
+}
+
 export interface Snapshot {
   id: string;
   label: string;
@@ -479,6 +497,25 @@ export const api = {
     }),
 
   // RAG / Projects
+  /** Catalog of supported DB connection drivers (postgresql, mysql,
+   *  mariadb, sqlite, mssql, tibero, cubrid, altibase). Used by the
+   *  project-creation form to render driver-specific fields and pick
+   *  default ports / file-based shape. */
+  listDbDrivers: () => json<DbDriverInfo[]>("/projects/_db-drivers"),
+  /** Build a SA URL from the form fields server-side and attempt a
+   *  real connection. Returns `{ ok, table_count?, error? }`. */
+  testDbConnection: (payload: {
+    driver: string;
+    host?: string;
+    port?: number | null;
+    user?: string;
+    password?: string;
+    database?: string;
+  }) =>
+    json<DbTestResult>("/projects/_db-test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listProjects: () => json<Project[]>("/projects"),
   getProject: (id: string) => json<Project>(`/projects/${id}`),
   createProject: (payload: {

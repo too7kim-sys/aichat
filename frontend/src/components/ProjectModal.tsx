@@ -1,5 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
-import type { CorpusType, Project, SourceType } from "../api/client";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { api } from "../api/client";
+import type {
+  CorpusType,
+  DbDriverInfo,
+  DbTestResult,
+  Project,
+  SourceType,
+} from "../api/client";
 import { useProjects } from "../state/ProjectsContext";
 import {
   IconAlertTriangle,
@@ -51,8 +58,8 @@ const CORPUS_META: Record<
   api: {
     label: "API",
     icon: <IconPlug />,
-    hint: "OpenAPI/Swagger URL 직접 fetch, 또는 .json/.yaml이 든 폴더.",
-    sources: ["url", "folder", "git"],
+    hint: "OpenAPI/Swagger 스펙이 응답되는 HTTPS 엔드포인트를 직접 fetch.",
+    sources: ["url"],
   },
   db: {
     label: "DB",
@@ -826,9 +833,52 @@ function AddProjectForm({
   const [sftpUser, setSftpUser] = useState("");
   const [sftpPass, setSftpPass] = useState("");
   const [sftpPath, setSftpPath] = useState("/");
+  // DB connection driver + per-driver field state. The catalog comes
+  // from /api/projects/_db-drivers so backend-side driver registry is
+  // the source of truth for labels / default ports / file-based flag.
+  const [dbDrivers, setDbDrivers] = useState<DbDriverInfo[]>([]);
+  const [dbDriver, setDbDriver] = useState<string>("postgresql");
+  const [dbHost, setDbHost] = useState("");
+  const [dbPort, setDbPort] = useState("");
+  const [dbUser, setDbUser] = useState("");
+  const [dbPass, setDbPass] = useState("");
+  const [dbDatabase, setDbDatabase] = useState("");
+  const [dbTest, setDbTest] = useState<DbTestResult | null>(null);
+  const [dbTesting, setDbTesting] = useState(false);
   const [name, setName] = useState("");
   const [gitBranch, setGitBranch] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Load the driver catalog once. Failures keep the form usable —
+  // the picker just falls back to the static default list below.
+  useEffect(() => {
+    api.listDbDrivers().then(setDbDrivers).catch(() => undefined);
+  }, []);
+
+  const currentDriver = useMemo(
+    () => dbDrivers.find((d) => d.code === dbDriver),
+    [dbDrivers, dbDriver],
+  );
+
+  // Snap the port placeholder to the driver's default whenever the
+  // user switches drivers, but only if they hadn't typed anything yet
+  // (don't blow away a user-entered port).
+  function onDbDriverChange(code: string) {
+    setDbDriver(code);
+    setDbTest(null);
+    const next = dbDrivers.find((d) => d.code === code);
+    if (next && !dbPort) {
+      // No-op — just leaves the placeholder showing the default.
+    }
+    if (next?.is_file_based) {
+      // Clear network fields so they don't get auto-submitted into a
+      // sqlite URL by accident.
+      setDbHost("");
+      setDbPort("");
+      setDbUser("");
+      setDbPass("");
+    }
+  }
   const [error, setError] = useState<string | null>(null);
 
   // When the corpus tab changes, snap the source picker to a value
@@ -843,6 +893,72 @@ function AddProjectForm({
 
   const sourceMeta = SOURCE_META[sourceType];
   const corpusMeta = CORPUS_META[corpusType];
+
+  /** Mirror of backend `db_drivers.build_db_url` so what the frontend
+   *  submits matches exactly what the test endpoint produces. Keep
+   *  these two in sync — the backend file is the canonical reference. */
+  function buildDbUrl(): string {
+    const info = currentDriver;
+    if (!info) return "";
+    if (info.is_file_based) {
+      const path = dbDatabase.trim();
+      if (!path) return "sqlite:///:memory:";
+      if (path.startsWith("/") || /^[A-Za-z]:/.test(path)) {
+        return `sqlite:///${path}`;
+      }
+      return `sqlite:///./${path}`;
+    }
+    const schemeMap: Record<string, string> = {
+      postgresql: "postgresql+psycopg2",
+      mysql: "mysql+pymysql",
+      mariadb: "mariadb+pymysql",
+      mssql: "mssql+pyodbc",
+      tibero: "tibero+pyodbc",
+      cubrid: "cubrid",
+      altibase: "altibase+pyodbc",
+    };
+    const scheme = schemeMap[info.code] || info.code;
+    const portNum = dbPort.trim() ? Number(dbPort.trim()) : info.default_port;
+    const u = encodeURIComponent(dbUser);
+    const p = encodeURIComponent(dbPass);
+    const auth = u ? (p ? `${u}:${p}@` : `${u}@`) : "";
+    const hostPart = portNum ? `${dbHost}:${portNum}` : dbHost;
+    const dbPart = dbDatabase ? `/${encodeURIComponent(dbDatabase)}` : "";
+    let url = `${scheme}://${auth}${hostPart}${dbPart}`;
+    if (info.code === "mssql") {
+      url += "?driver=ODBC+Driver+17+for+SQL+Server";
+    } else if (info.code === "tibero") {
+      url += "?driver=Tibero";
+    }
+    return url;
+  }
+
+  async function runDbTest() {
+    if (dbTesting) return;
+    setDbTesting(true);
+    setDbTest(null);
+    try {
+      const result = await api.testDbConnection({
+        driver: dbDriver,
+        host: dbHost,
+        port: dbPort.trim() ? Number(dbPort.trim()) : null,
+        user: dbUser,
+        password: dbPass,
+        database: dbDatabase,
+      });
+      setDbTest(result);
+    } catch (e) {
+      setDbTest({
+        ok: false,
+        driver: dbDriver,
+        url_redacted: "",
+        error: e instanceof Error ? e.message : String(e),
+        table_count: null,
+      });
+    } finally {
+      setDbTesting(false);
+    }
+  }
 
   function buildSftpUrl(): string {
     const host = sftpHost.trim();
@@ -871,6 +987,32 @@ function AddProjectForm({
         return;
       }
       sourceRef = buildSftpUrl();
+    } else if (sourceType === "connection") {
+      const info = currentDriver;
+      if (!info) {
+        setError("DB 드라이버를 선택하세요");
+        return;
+      }
+      if (info.is_file_based) {
+        if (!dbDatabase.trim()) {
+          setError("DB 파일 경로를 입력하세요");
+          return;
+        }
+      } else {
+        if (!dbHost.trim()) {
+          setError("호스트를 입력하세요");
+          return;
+        }
+        if (!dbUser.trim()) {
+          setError("사용자명을 입력하세요");
+          return;
+        }
+        if (!dbDatabase.trim()) {
+          setError("데이터베이스 이름을 입력하세요");
+          return;
+        }
+      }
+      sourceRef = buildDbUrl();
     } else {
       sourceRef = (refs[sourceType] || "").trim();
       if (!sourceRef) {
@@ -1053,6 +1195,165 @@ function AddProjectForm({
             </div>
           </div>
         </div>
+      ) : sourceType === "connection" ? (
+        <div className="pm-db-form">
+          <div className="pm-field">
+            <label htmlFor="pm-db-driver">드라이버</label>
+            <select
+              id="pm-db-driver"
+              className="pm-db-driver-select"
+              value={dbDriver}
+              onChange={(e) => onDbDriverChange(e.target.value)}
+              disabled={submitting}
+            >
+              {(dbDrivers.length > 0
+                ? dbDrivers
+                : [
+                    { code: "postgresql", label: "PostgreSQL" },
+                    { code: "mysql", label: "MySQL" },
+                    { code: "mariadb", label: "MariaDB" },
+                    { code: "sqlite", label: "SQLite" },
+                    { code: "mssql", label: "Microsoft SQL Server" },
+                    { code: "tibero", label: "Tibero" },
+                    { code: "cubrid", label: "CUBRID" },
+                    { code: "altibase", label: "Altibase" },
+                  ]
+              ).map((d) => (
+                <option key={d.code} value={d.code}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+            {currentDriver?.notes && (
+              <div className="pm-help">{currentDriver.notes}</div>
+            )}
+          </div>
+
+          {currentDriver?.is_file_based ? (
+            <div className="pm-field">
+              <label htmlFor="pm-db-file">DB 파일 경로</label>
+              <input
+                id="pm-db-file"
+                type="text"
+                placeholder={
+                  currentDriver.default_database || "/path/to/db.sqlite"
+                }
+                value={dbDatabase}
+                onChange={(e) => setDbDatabase(e.target.value)}
+                disabled={submitting}
+                autoComplete="off"
+              />
+              <div className="pm-help">
+                백엔드 서버에서 직접 읽을 수 있는 절대경로. 비워두면
+                in-memory SQLite로 빈 스키마가 됩니다.
+              </div>
+            </div>
+          ) : (
+            <div className="pm-db-grid">
+              <div className="pm-field pm-db-host">
+                <label htmlFor="pm-db-host">호스트</label>
+                <input
+                  id="pm-db-host"
+                  type="text"
+                  placeholder="db.internal.example.com"
+                  value={dbHost}
+                  onChange={(e) => setDbHost(e.target.value)}
+                  disabled={submitting}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="pm-field pm-db-port">
+                <label htmlFor="pm-db-port">포트</label>
+                <input
+                  id="pm-db-port"
+                  type="number"
+                  placeholder={String(currentDriver?.default_port ?? "")}
+                  value={dbPort}
+                  onChange={(e) => setDbPort(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+              <div className="pm-field pm-db-user">
+                <label htmlFor="pm-db-user">사용자명</label>
+                <input
+                  id="pm-db-user"
+                  type="text"
+                  autoComplete="off"
+                  value={dbUser}
+                  onChange={(e) => setDbUser(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+              <div className="pm-field pm-db-pass">
+                <label htmlFor="pm-db-pass">비밀번호</label>
+                <input
+                  id="pm-db-pass"
+                  type="password"
+                  autoComplete="new-password"
+                  value={dbPass}
+                  onChange={(e) => setDbPass(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+              <div className="pm-field pm-db-database">
+                <label htmlFor="pm-db-database">데이터베이스 이름</label>
+                <input
+                  id="pm-db-database"
+                  type="text"
+                  placeholder={
+                    currentDriver?.default_database || "예: mydb / SID / 서비스명"
+                  }
+                  value={dbDatabase}
+                  onChange={(e) => setDbDatabase(e.target.value)}
+                  disabled={submitting}
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="pm-db-test-row">
+            <button
+              type="button"
+              className="pm-btn-secondary"
+              onClick={runDbTest}
+              disabled={dbTesting || submitting}
+            >
+              {dbTesting ? "테스트 중…" : "접속 테스트"}
+            </button>
+            {dbTest && (
+              <div
+                className={
+                  "pm-db-test-result " +
+                  (dbTest.ok ? "pm-db-test-ok" : "pm-db-test-err")
+                }
+              >
+                {dbTest.ok ? (
+                  <>
+                    <IconCheckCircle size={14} />
+                    <span>
+                      접속 성공
+                      {typeof dbTest.table_count === "number"
+                        ? ` · 테이블 ${dbTest.table_count}개 발견`
+                        : ""}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <IconAlertTriangle size={14} />
+                    <span>{dbTest.error || "접속 실패"}</span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {dbTest?.url_redacted && (
+            <div className="pm-help">
+              연결 문자열: <code>{dbTest.url_redacted}</code>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="pm-field">
           <label htmlFor="pm-source-ref">{sourceMeta.label}</label>
@@ -1065,9 +1366,6 @@ function AddProjectForm({
               setRefs((prev) => ({ ...prev, [sourceType]: e.target.value }))
             }
             disabled={submitting}
-            autoComplete={
-              sourceType === "connection" ? "off" : undefined
-            }
           />
           <div className="pm-help">{sourceMeta.help}</div>
         </div>

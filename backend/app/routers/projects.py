@@ -12,6 +12,13 @@ from .. import models, schemas
 from ..auth import get_current_user
 from ..config import settings
 from ..database import get_db
+from ..rag.db_drivers import (
+    DriverInfo,
+    TestConnectionRequest,
+    TestConnectionResult,
+    list_drivers,
+    test_connection,
+)
 from ..rag.indexer import schedule_incremental, schedule_indexing
 from ..rag.retriever import retrieve
 from ..rag.vector import drop_collection, storage_usage_bytes
@@ -126,6 +133,30 @@ async def create_project(
 # below. FastAPI matches in registration order, so a `_storage`
 # request would otherwise be captured as `project_id="_storage"`
 # and return a 404 from the project lookup.
+
+@router.get("/_db-drivers", response_model=list[DriverInfo])
+async def db_drivers(
+    _user: models.User = Depends(get_current_user),
+):
+    """Catalog of supported DB drivers for the connection-source form.
+    Each entry carries the display label, default port, whether the
+    driver is file-based (SQLite) or needs ODBC at the OS level
+    (MSSQL / Tibero / Altibase). The frontend renders one form
+    variant per driver based on these flags."""
+    return list_drivers()
+
+
+@router.post("/_db-test", response_model=TestConnectionResult)
+async def db_test_connection(
+    payload: TestConnectionRequest,
+    _user: models.User = Depends(get_current_user),
+):
+    """Build a SQLAlchemy URL from the per-field payload and try to
+    open a real connection (with a 20s wall-clock). Returns ok=True
+    + a table count on success, or a redacted URL + error string
+    that the UI shows next to the test button."""
+    return await test_connection(payload)
+
 
 @router.get("/_storage")
 async def storage_overview(

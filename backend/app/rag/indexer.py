@@ -240,6 +240,7 @@ def _fetch_url_to_dir(url: str, dest: Path) -> None:
 
 _ALLOWED_DB_SCHEMES = {
     "sqlite", "postgresql", "postgres", "mysql", "mariadb",
+    "mssql", "tibero", "cubrid", "altibase",
 }
 
 
