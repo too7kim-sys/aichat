@@ -38,6 +38,23 @@ class User(Base):
     rejection_reason: Mapped[str | None] = mapped_column(
         Text, nullable=True,
     )
+    # Suspension — a separate status from rejection. Rejection is the
+    # terminal answer for a signup that should never have been accepted;
+    # suspension is a temporary block on an already-approved account
+    # ("성지" / "정지") that an admin can lift later via the dashboard.
+    # All three columns are nullable so the migration is non-breaking
+    # for existing rows.
+    suspended_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+    suspended_by_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    suspension_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+    )
     # Reason the user gave on the signup form — surfaces in the
     # admin queue so reviewers know what the account is for. Nullable
     # because existing accounts predate the field.

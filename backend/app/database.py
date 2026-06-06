@@ -286,6 +286,21 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "ALTER TABLE users ADD COLUMN signup_reason TEXT"
                 )
+            # Suspension columns — temporary block on an already-approved
+            # account, distinct from rejection. Nullable so existing rows
+            # keep working without backfill.
+            if uexisting and "suspended_at" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN suspended_at DATETIME"
+                )
+            if uexisting and "suspended_by_id" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN suspended_by_id VARCHAR(36)"
+                )
+            if uexisting and "suspension_reason" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN suspension_reason TEXT"
+                )
             # ADMIN_EMAIL bootstrap — if the env names an account, make
             # sure it's promoted to admin + approved on every startup
             # so it can recover from accidental role demotion. No-op

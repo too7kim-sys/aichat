@@ -129,7 +129,7 @@ async function mergeFiles(opts: {
   return { blob, filename };
 }
 
-export type UserStatus = "pending" | "approved" | "rejected";
+export type UserStatus = "pending" | "approved" | "rejected" | "suspended";
 export type UserRole = "user" | "moderator" | "admin";
 
 export interface AuthUser {
@@ -141,11 +141,14 @@ export interface AuthUser {
   role: UserRole;
   approved_at: string | null;
   rejection_reason: string | null;
+  suspension_reason: string | null;
   signup_reason: string | null;
   created_at: string;
 }
 export interface AdminUser extends AuthUser {
   approved_by_id: string | null;
+  suspended_at: string | null;
+  suspended_by_id: string | null;
   updated_at: string;
 }
 export interface AuthResponse {
@@ -256,6 +259,13 @@ export const admin = {
       method: "POST",
       body: JSON.stringify({ role }),
     }),
+  suspend: (userId: string, reason: string) =>
+    json<AdminUser>(`/admin/users/${userId}/suspend`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  unsuspend: (userId: string) =>
+    json<AdminUser>(`/admin/users/${userId}/unsuspend`, { method: "POST" }),
 };
 
 export interface OllamaModel {

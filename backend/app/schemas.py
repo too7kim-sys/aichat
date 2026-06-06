@@ -238,10 +238,11 @@ class UserOut(BaseModel):
     email: EmailStr
     name: str
     email_verified: bool
-    status: Literal["pending", "approved", "rejected"] = "pending"
+    status: Literal["pending", "approved", "rejected", "suspended"] = "pending"
     role: Literal["user", "moderator", "admin"] = "user"
     approved_at: datetime | None = None
     rejection_reason: str | None = None
+    suspension_reason: str | None = None
     signup_reason: str | None = None
     created_at: datetime
 
@@ -253,6 +254,8 @@ class UserOut(BaseModel):
 # dashboard can show 'approved by ___' without an extra round trip.
 class AdminUserOut(UserOut):
     approved_by_id: str | None = None
+    suspended_at: datetime | None = None
+    suspended_by_id: str | None = None
     updated_at: datetime
 
 
@@ -261,6 +264,10 @@ class RoleUpdateRequest(BaseModel):
 
 
 class RejectRequest(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
+class SuspendRequest(BaseModel):
     reason: str = Field(default="", max_length=500)
 
 

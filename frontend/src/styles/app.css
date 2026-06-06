@@ -1895,6 +1895,10 @@ body {
   background: #fee2e2;
   color: #991b1b;
 }
+.admin-status-suspended {
+  background: #ffedd5;
+  color: #9a3412;
+}
 .admin-role-select {
   background: var(--bg-card);
   border: 1px solid var(--border);

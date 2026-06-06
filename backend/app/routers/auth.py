@@ -163,6 +163,18 @@ async def login(
             "가입 신청이 반려된 계정입니다."
             + (f" 사유: {reason}" if reason else ""),
         )
+    if user.status == "suspended":
+        reason = (user.suspension_reason or "").strip()
+        await audit.record(
+            db, request, audit.LOGIN_FAIL,
+            user_id=user.id, detail="suspended",
+        )
+        await db.commit()
+        raise HTTPException(
+            403,
+            "관리자에 의해 정지된 계정입니다."
+            + (f" 사유: {reason}" if reason else ""),
+        )
 
     await audit.record(db, request, audit.LOGIN_OK, user_id=user.id)
     await db.commit()

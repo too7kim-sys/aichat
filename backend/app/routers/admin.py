@@ -12,7 +12,7 @@ no separate admin auth.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import app_settings, audit, models, schemas
@@ -23,7 +23,22 @@ from ..email import send_account_approved_email, send_account_rejected_email
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-_VALID_STATUS = {"pending", "approved", "rejected"}
+_VALID_STATUS = {"pending", "approved", "rejected", "suspended"}
+
+
+async def _count_active_admins(
+    db: AsyncSession, *, excluding: str | None = None
+) -> int:
+    """Active admin = role='admin' AND status='approved'. Used to
+    block actions that would leave the system with zero administrators
+    (last-admin self-demote, suspending the last admin, etc.)."""
+    stmt = select(func.count(models.User.id)).where(
+        models.User.role == "admin",
+        models.User.status == "approved",
+    )
+    if excluding:
+        stmt = stmt.where(models.User.id != excluding)
+    return (await db.execute(stmt)).scalar() or 0
 
 
 @router.get("/users", response_model=list[schemas.AdminUserOut])
@@ -142,6 +157,16 @@ async def reject_user(
         raise HTTPException(
             403, "관리자 계정은 다른 관리자만 거절할 수 있습니다",
         )
+    # Block rejecting the last active admin — would leave the system
+    # with no one able to flip roles / lift suspensions / change
+    # policy. Applies even when the actor IS an admin (you can't
+    # reject your last admin colleague if you're rejecting yourself
+    # — but that path is already blocked by the self-check above).
+    if user.role == "admin" and user.status == "approved":
+        if await _count_active_admins(db, excluding=user.id) < 1:
+            raise HTTPException(
+                400, "마지막 관리자(admin) 계정은 거절할 수 없습니다",
+            )
     user.status = "rejected"
     user.rejection_reason = (payload.reason or "").strip() or None
     user.approved_at = None
@@ -177,11 +202,118 @@ async def change_role(
         raise HTTPException(
             400, "본인의 관리자 권한은 직접 내릴 수 없습니다",
         )
+    # Last-admin guard — block any admin demotion (admin → moderator
+    # or user) that would leave the system without an active admin.
+    # The actor.id != user.id branch above means this only triggers
+    # for "demote some other admin"; the self-demote path was already
+    # closed.
+    if (
+        user.role == "admin"
+        and payload.role != "admin"
+        and user.status == "approved"
+    ):
+        if await _count_active_admins(db, excluding=user.id) < 1:
+            raise HTTPException(
+                400,
+                "마지막 관리자(admin) 권한은 내릴 수 없습니다. "
+                "먼저 다른 사용자를 관리자로 승격하세요.",
+            )
     old = user.role
     user.role = payload.role
     await audit.record(
         db, request, "user_role_changed", user_id=actor.id,
         detail=f"target={user.email} {old}->{payload.role}",
+    )
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.post(
+    "/users/{user_id}/suspend",
+    response_model=schemas.AdminUserOut,
+)
+async def suspend_user(
+    user_id: str,
+    payload: schemas.SuspendRequest,
+    request: Request,
+    actor: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Temporarily block an already-approved account. Distinct from
+    rejection (terminal): a suspended user can be reactivated later
+    with /unsuspend. Suspended sessions/JWTs are killed on the next
+    request via get_current_user's status gate."""
+    user = await _load_target(db, user_id)
+    if user.id == actor.id:
+        raise HTTPException(400, "본인 계정은 직접 정지할 수 없습니다")
+    if user.status == "suspended":
+        # Idempotent — already suspended is a no-op so a double-click
+        # in the dashboard doesn't flash an error.
+        return user
+    if user.status != "approved":
+        raise HTTPException(
+            400,
+            f"활성 상태인 사용자만 정지할 수 있습니다 (현재: {user.status})",
+        )
+    # Privilege guard — only admins can suspend an admin or a
+    # moderator. Moderators can suspend regular users only.
+    if user.role in {"admin", "moderator"} and actor.role != "admin":
+        raise HTTPException(
+            403,
+            "관리자/운영자 계정은 다른 관리자(admin)만 정지할 수 있습니다",
+        )
+    # Last-admin guard — suspending the only remaining admin would
+    # lock the system out of role/policy changes.
+    if user.role == "admin":
+        if await _count_active_admins(db, excluding=user.id) < 1:
+            raise HTTPException(
+                400,
+                "마지막 관리자(admin)는 정지할 수 없습니다. "
+                "먼저 다른 사용자를 관리자로 승격하세요.",
+            )
+    user.status = "suspended"
+    user.suspended_at = datetime.now(timezone.utc)
+    user.suspended_by_id = actor.id
+    user.suspension_reason = (payload.reason or "").strip() or None
+    await audit.record(
+        db, request, "user_suspended", user_id=actor.id,
+        detail=f"target={user.email}",
+    )
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.post(
+    "/users/{user_id}/unsuspend",
+    response_model=schemas.AdminUserOut,
+)
+async def unsuspend_user(
+    user_id: str,
+    request: Request,
+    actor: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lift a suspension — moves the user back to 'approved'.
+    Suspension metadata (who/when/why) is preserved as null so the
+    audit trail stays clean for the next admin to look at the row."""
+    user = await _load_target(db, user_id)
+    if user.status != "suspended":
+        # Idempotent if the row is already active.
+        if user.status == "approved":
+            return user
+        raise HTTPException(
+            400,
+            f"정지 상태인 사용자만 해제할 수 있습니다 (현재: {user.status})",
+        )
+    user.status = "approved"
+    user.suspended_at = None
+    user.suspended_by_id = None
+    user.suspension_reason = None
+    await audit.record(
+        db, request, "user_unsuspended", user_id=actor.id,
+        detail=f"target={user.email}",
     )
     await db.commit()
     await db.refresh(user)

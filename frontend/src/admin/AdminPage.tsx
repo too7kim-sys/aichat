@@ -12,11 +12,12 @@ interface Props {
   onBack: () => void;
 }
 
-type Tab = "pending" | "approved" | "rejected" | "all";
+type Tab = "pending" | "approved" | "suspended" | "rejected" | "all";
 
 const TAB_LABELS: Record<Tab, string> = {
   pending: "승인 대기",
   approved: "활성",
+  suspended: "정지",
   rejected: "반려",
   all: "전체",
 };
@@ -30,6 +31,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 const STATUS_BADGE: Record<UserStatus, string> = {
   pending: "대기 중",
   approved: "활성",
+  suspended: "정지",
   rejected: "반려",
 };
 
@@ -46,6 +48,10 @@ export function AdminPage({ onBack }: Props) {
   // completes.
   const [rejectFor, setRejectFor] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // Same pattern for the suspend action — separate buffer so opening
+  // the suspend row doesn't clobber an in-progress reject reason.
+  const [suspendFor, setSuspendFor] = useState<string | null>(null);
+  const [suspendReason, setSuspendReason] = useState("");
   // Runtime app-policy snapshot (currently just the auto-approval
   // toggle). Loaded once on mount; admins can flip the switch and
   // the change is persisted server-side. Moderators see it but the
@@ -161,12 +167,48 @@ export function AdminPage({ onBack }: Props) {
     });
   }
 
+  async function suspend(u: AdminUser) {
+    await withBusy(u.id, async () => {
+      const updated = await admin.suspend(u.id, suspendReason.trim());
+      patchUser(updated);
+      setSuspendFor(null);
+      setSuspendReason("");
+    });
+  }
+
+  async function unsuspend(u: AdminUser) {
+    await withBusy(u.id, async () => {
+      const updated = await admin.unsuspend(u.id);
+      patchUser(updated);
+    });
+  }
+
+  // Last-admin guard at the UI level — purely advisory; the backend
+  // is the source of truth. Used to dim the role dropdown / hide the
+  // suspend button when demoting/suspending the last active admin
+  // would lock the system out of policy controls.
+  const activeAdminCount = useMemo(
+    () =>
+      users.filter((u) => u.role === "admin" && u.status === "approved").length,
+    [users],
+  );
+  function wouldLeaveZeroAdmins(target: AdminUser): boolean {
+    if (target.role !== "admin" || target.status !== "approved") return false;
+    return activeAdminCount <= 1;
+  }
+
   const counts = useMemo(() => {
     // For simplicity these are derived from the current page only —
     // the tab itself filters server-side, so the "pending" count is
     // the actual full count only when the pending tab is active.
     // Good enough for an in-list summary.
-    const c = { pending: 0, approved: 0, rejected: 0, all: users.length };
+    const c = {
+      pending: 0,
+      approved: 0,
+      suspended: 0,
+      rejected: 0,
+      all: users.length,
+    };
     for (const u of users) {
       c[u.status] += 1;
     }
@@ -293,6 +335,11 @@ export function AdminPage({ onBack }: Props) {
                       반려 사유: {u.rejection_reason}
                     </div>
                   )}
+                  {u.suspension_reason && (
+                    <div className="admin-user-reason">
+                      정지 사유: {u.suspension_reason}
+                    </div>
+                  )}
                 </td>
                 <td>
                   <span className={`admin-status admin-status-${u.status}`}>
@@ -305,7 +352,20 @@ export function AdminPage({ onBack }: Props) {
                       className="admin-role-select"
                       value={u.role}
                       onChange={(e) => setRole(u, e.target.value as UserRole)}
-                      disabled={busyId === u.id}
+                      disabled={
+                        busyId === u.id ||
+                        // Last active admin: their role dropdown stays
+                        // anchored to "admin" so a stray click can't
+                        // strip the system of its only operator. The
+                        // backend rejects this too, but pre-blocking
+                        // avoids the round-trip error flash.
+                        wouldLeaveZeroAdmins(u)
+                      }
+                      title={
+                        wouldLeaveZeroAdmins(u)
+                          ? "마지막 관리자입니다. 먼저 다른 사용자를 관리자로 승격하세요."
+                          : undefined
+                      }
                     >
                       <option value="user">{ROLE_LABELS.user}</option>
                       <option value="moderator">{ROLE_LABELS.moderator}</option>
@@ -349,9 +409,37 @@ export function AdminPage({ onBack }: Props) {
                         취소
                       </button>
                     </div>
+                  ) : suspendFor === u.id ? (
+                    <div className="admin-reject-row">
+                      <input
+                        type="text"
+                        placeholder="정지 사유 (선택)"
+                        value={suspendReason}
+                        onChange={(e) => setSuspendReason(e.target.value)}
+                        maxLength={500}
+                        autoFocus
+                      />
+                      <button
+                        className="admin-btn admin-btn-danger"
+                        onClick={() => suspend(u)}
+                        disabled={busyId === u.id}
+                      >
+                        확인
+                      </button>
+                      <button
+                        className="admin-btn"
+                        onClick={() => {
+                          setSuspendFor(null);
+                          setSuspendReason("");
+                        }}
+                        disabled={busyId === u.id}
+                      >
+                        취소
+                      </button>
+                    </div>
                   ) : (
                     <div className="admin-actions">
-                      {u.status !== "approved" && (
+                      {u.status === "pending" && (
                         <button
                           className="admin-btn admin-btn-primary"
                           onClick={() => approve(u)}
@@ -360,7 +448,43 @@ export function AdminPage({ onBack }: Props) {
                           승인
                         </button>
                       )}
-                      {u.status !== "rejected" && (
+                      {u.status === "suspended" && (
+                        <button
+                          className="admin-btn admin-btn-primary"
+                          onClick={() => unsuspend(u)}
+                          disabled={busyId === u.id}
+                        >
+                          정지 해제
+                        </button>
+                      )}
+                      {u.status === "approved" && (
+                        <button
+                          className="admin-btn admin-btn-danger"
+                          onClick={() => {
+                            setSuspendFor(u.id);
+                            setSuspendReason("");
+                          }}
+                          disabled={
+                            busyId === u.id ||
+                            wouldLeaveZeroAdmins(u) ||
+                            // Moderators can only suspend regular users
+                            // — admin/moderator suspension is admin-only
+                            // (backend enforces; this just hides the
+                            // button so the moderator UI isn't busy).
+                            (!isAdmin && u.role !== "user")
+                          }
+                          title={
+                            wouldLeaveZeroAdmins(u)
+                              ? "마지막 관리자입니다. 먼저 다른 사용자를 관리자로 승격하세요."
+                              : !isAdmin && u.role !== "user"
+                              ? "관리자/운영자 계정은 관리자(admin)만 정지할 수 있습니다"
+                              : undefined
+                          }
+                        >
+                          정지
+                        </button>
+                      )}
+                      {u.status !== "rejected" && u.status !== "suspended" && (
                         <button
                           className="admin-btn admin-btn-danger"
                           onClick={() => {
