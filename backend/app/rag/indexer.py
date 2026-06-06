@@ -1028,6 +1028,61 @@ async def scheduler_loop(poll_seconds: int = 60) -> None:
             log.exception("RAG scheduler tick failed: %s", exc)
 
 
+def _due_for_refresh(
+    interval_min: int,
+    last_indexed_at: datetime | None,
+    now_utc: datetime,
+) -> bool:
+    """Wall-clock aligned schedule decision.
+
+    Sub-day intervals (< 1440 min) fire on boundaries measured from
+    local midnight: a 60-min interval is due once per :00 hour, a
+    30-min one at :00 / :30, etc. We compute the start of the current
+    boundary slot and fire if the last run predates it — so the job
+    lands at the top of the slot (within one poll tick) regardless of
+    when the previous run finished, instead of drifting forward.
+
+    Day-or-longer intervals fire once at rag_daily_refresh_hour local
+    time ("새벽"), and only after at least N days have elapsed since
+    the last run (N = interval // 1440)."""
+    from datetime import timedelta
+
+    offset = timedelta(hours=settings.rag_tz_offset_hours)
+    local = now_utc + offset
+    last = last_indexed_at
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+
+    if interval_min < 1440:
+        since_midnight = local.hour * 60 + local.minute
+        slot = (since_midnight // interval_min) * interval_min
+        # Start of the current boundary slot, expressed back in UTC.
+        local_midnight = local.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        boundary_local = local_midnight + timedelta(minutes=slot)
+        boundary_utc = boundary_local - offset
+        return last is None or last < boundary_utc
+
+    # Day-or-longer interval — daily "새벽" run, every N days.
+    days = max(1, interval_min // 1440)
+    if local.hour < settings.rag_daily_refresh_hour:
+        return False  # before today's 새벽 window
+    target_local = local.replace(
+        hour=settings.rag_daily_refresh_hour,
+        minute=0, second=0, microsecond=0,
+    )
+    target_utc = target_local - offset
+    if last is None:
+        return True
+    if last >= target_utc:
+        return False  # already ran in today's window
+    # Enforce the multi-day spacing (1h slack for run duration).
+    if (now_utc - last).total_seconds() < days * 86400 - 3600:
+        return False
+    return True
+
+
 async def _scheduler_tick() -> None:
     async with SessionLocal() as db:
         rows = await db.execute(
@@ -1041,14 +1096,10 @@ async def _scheduler_tick() -> None:
 
     now = datetime.now(timezone.utc)
     for proj in candidates:
-        last = proj.last_indexed_at
-        if last is not None:
-            # SQLite stores naive datetimes — treat them as UTC.
-            if last.tzinfo is None:
-                last = last.replace(tzinfo=timezone.utc)
-            delta_min = (now - last).total_seconds() / 60.0
-            if delta_min < proj.schedule_interval_minutes:
-                continue
+        if not _due_for_refresh(
+            proj.schedule_interval_minutes, proj.last_indexed_at, now
+        ):
+            continue
         log.info(
             "RAG scheduler firing project=%s (interval=%d min)",
             proj.id, proj.schedule_interval_minutes,

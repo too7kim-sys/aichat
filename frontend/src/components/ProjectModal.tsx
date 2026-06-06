@@ -790,6 +790,19 @@ function ScheduleBlock({
           ))}
         </div>
       </div>
+      {current > 0 && (
+        <div className="pm-sched-row pm-sched-hint">
+          <span className="pm-help">
+            {current >= 1440
+              ? "매일 새벽에 자동 갱신됩니다."
+              : current === 60
+              ? "매시 정각(00분)에 자동 갱신됩니다."
+              : current < 60
+              ? `정시 기준 ${current}분 간격(예: 00분, ${current}분…)으로 갱신됩니다.`
+              : `정시 기준 ${current / 60}시간 간격으로 갱신됩니다.`}
+          </span>
+        </div>
+      )}
       <div className="pm-sched-row pm-sched-meta">
         <span>
           {project.last_indexed_at

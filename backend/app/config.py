@@ -120,6 +120,15 @@ class Settings(BaseSettings):
     # caps because the corpus is meant to be larger).
     rag_max_files: int = 5000
     rag_max_bytes_per_file: int = 1024 * 1024
+    # Auto-refresh scheduling. Sub-day intervals fire on wall-clock
+    # boundaries (e.g. a 60-min interval runs at :00 every hour, a
+    # 30-min one at :00 and :30) instead of drifting from the last
+    # run. Day-or-longer intervals fire once at rag_daily_refresh_hour
+    # local time ("새벽"), every N days. rag_tz_offset_hours converts
+    # the server's UTC clock to local for these boundary checks
+    # (default 9 = KST).
+    rag_daily_refresh_hour: int = 3
+    rag_tz_offset_hours: int = 9
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     # Auth — change JWT_SECRET in .env for any non-local deployment.
     jwt_secret: str = "dev-only-change-me"
