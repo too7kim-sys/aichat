@@ -109,6 +109,10 @@ class ProjectCreate(BaseModel):
     source_ref: str = Field(min_length=1, max_length=500)
     ref: str | None = Field(default=None, max_length=120)  # git branch/tag
     corpus_type: CorpusType = "document"
+    # Optional SELECT for the `connection` source — when set the
+    # indexer runs it on every snapshot and embeds the result rows
+    # alongside the reflected schema. Ignored for other source types.
+    sql_query: str | None = Field(default=None, max_length=8000)
 
 
 class SnapshotOut(BaseModel):

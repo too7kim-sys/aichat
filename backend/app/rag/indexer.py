@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -244,7 +245,111 @@ _ALLOWED_DB_SCHEMES = {
 }
 
 
-def _reflect_db_to_dir(connection_string: str, dest: Path) -> None:
+# Max rows / runtime we accept from the user-supplied SELECT during
+# indexing. The cap is wide enough for a normal "load all 우편번호"
+# style dataset but stops a runaway SELECT from a billion-row table
+# from drowning the indexer.
+_SQL_QUERY_MAX_ROWS = 50_000
+_SQL_QUERY_TIMEOUT_S = 60
+
+
+def _is_select_only(sql: str) -> bool:
+    """Allow only SELECT / WITH (CTE) statements. Strips comments and
+    leading whitespace first so a `-- header\nSELECT …` still passes,
+    but a `DELETE FROM …` immediately fails."""
+    if not sql or not sql.strip():
+        return False
+    cleaned_lines: list[str] = []
+    for line in sql.split("\n"):
+        # Drop full-line and trailing `--` comments.
+        idx = line.find("--")
+        if idx >= 0:
+            line = line[:idx]
+        if line.strip():
+            cleaned_lines.append(line)
+    cleaned = " ".join(cleaned_lines).strip()
+    # Drop /* … */ comment blocks before classifying.
+    cleaned = re.sub(r"/\*.*?\*/", " ", cleaned, flags=re.DOTALL).strip()
+    if not cleaned:
+        return False
+    first_word = re.split(r"\s+", cleaned, maxsplit=1)[0].lower()
+    if first_word in {"select", "with"}:
+        # Reject any DML/DDL piggybacked after a semicolon.
+        rest = cleaned[len(first_word):]
+        # Strip a single trailing semicolon — common harmless idiom.
+        rest = rest.rstrip().rstrip(";")
+        if ";" in rest:
+            return False
+        return True
+    return False
+
+
+def _format_rows_as_markdown(
+    rows: list[dict], query: str, total: int, truncated: bool,
+) -> str:
+    """Render the row set as Markdown — one '##' section per row with
+    key/value pairs underneath. Easier for the embedder than a wide
+    table because each row becomes its own chunkable block, which
+    aligns with the document chunker's paragraph-window strategy."""
+    parts: list[str] = []
+    parts.append("# DB query results")
+    parts.append("")
+    parts.append("```sql")
+    parts.append(query.strip())
+    parts.append("```")
+    parts.append("")
+    parts.append(
+        f"- 총 {total}행 조회"
+        + (f" (최대 {_SQL_QUERY_MAX_ROWS}행 cap 적용)" if truncated else "")
+    )
+    parts.append("")
+    if not rows:
+        parts.append("(결과 행 없음)")
+        return "\n".join(parts)
+    for i, row in enumerate(rows, start=1):
+        parts.append(f"## Row {i}")
+        for k, v in row.items():
+            # Compact value representation; long strings keep their
+            # line breaks so the chunker can still slice them cleanly.
+            if v is None:
+                shown = "(null)"
+            elif isinstance(v, (bytes, bytearray)):
+                try:
+                    shown = v.decode("utf-8", errors="replace")
+                except Exception:  # noqa: BLE001
+                    shown = f"<{len(v)} bytes>"
+            else:
+                shown = str(v)
+            parts.append(f"- **{k}**: {shown}")
+        parts.append("")
+    return "\n".join(parts)
+
+
+def _run_user_sql(
+    engine, sql: str,
+) -> tuple[list[dict], int, bool]:
+    """Run the (already-validated) SELECT and return up to
+    _SQL_QUERY_MAX_ROWS rows as dicts, plus the actual fetched count
+    and a `truncated` flag indicating whether the cap was hit."""
+    from sqlalchemy import text
+
+    rows: list[dict] = []
+    with engine.connect() as conn:
+        result = conn.execution_options(
+            stream_results=True, max_row_buffer=1000,
+        ).execute(text(sql))
+        keys = list(result.keys())
+        truncated = False
+        for record in result:
+            d = {k: v for k, v in zip(keys, record)}
+            rows.append(d)
+            if len(rows) >= _SQL_QUERY_MAX_ROWS:
+                truncated = True
+                break
+    return rows, len(rows), truncated
+
+
+def _reflect_db_to_dir(connection_string: str, dest: Path, sql_query: str | None = None) -> None:
     """Connect to the given DB, reflect every table in the default
     schema into a synthetic CREATE TABLE DDL dump, and write it to
     a single file under dest. The db chunker then splits it the
@@ -285,9 +390,26 @@ def _reflect_db_to_dir(connection_string: str, dest: Path) -> None:
                     ddl = f"-- (DDL generation failed for {tname}: {exc})"
                 parts.append(ddl.rstrip() + ";")
                 parts.append("")  # blank line between tables
+        (dest / "schema.sql").write_text("\n".join(parts), encoding="utf-8")
+
+        # Optional user query — execute and dump rows as markdown so
+        # the embedder sees them alongside the schema dump.
+        if sql_query and sql_query.strip():
+            if not _is_select_only(sql_query):
+                raise RuntimeError(
+                    "안전을 위해 SELECT/WITH 문만 허용됩니다. "
+                    "DML/DDL은 인덱싱 SQL로 사용할 수 없습니다."
+                )
+            try:
+                rows, fetched, truncated = _run_user_sql(engine, sql_query)
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"사용자 SQL 실행 실패: {exc}") from exc
+            md = _format_rows_as_markdown(
+                rows, sql_query, total=fetched, truncated=truncated,
+            )
+            (dest / "query_results.md").write_text(md, encoding="utf-8")
     finally:
         engine.dispose()
-    (dest / "schema.sql").write_text("\n".join(parts), encoding="utf-8")
 
 
 # === sftp source — download a tree of documents from a SFTP server ===
@@ -453,6 +575,7 @@ async def run_indexing(snapshot_id: str) -> None:
                 return
             source_type = project.source_type
             source_ref = project.source_ref
+            sql_query = project.sql_query
             corpus_type = project.corpus_type or "code"
 
         await _update_snapshot(
@@ -484,7 +607,7 @@ async def run_indexing(snapshot_id: str) -> None:
             # indexing run only.
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
             cleanup_workdir = True
-            _reflect_db_to_dir(source_ref, workdir)
+            _reflect_db_to_dir(source_ref, workdir, sql_query=sql_query)
             root = workdir
         elif source_type == "sftp":
             # SFTP folder of documents — connect, walk the remote
@@ -682,6 +805,7 @@ async def run_incremental(project_id: str) -> dict:
             snapshot_id = proj.current_snapshot_id
             source_type = proj.source_type
             source_ref = proj.source_ref
+            sql_query = proj.sql_query
             corpus_type = proj.corpus_type or "code"
             # Mark indexing so a parallel scheduled run / manual
             # button doesn't double-trigger.
@@ -716,7 +840,7 @@ async def run_incremental(project_id: str) -> dict:
         elif source_type == "connection":
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
             cleanup_workdir = True
-            _reflect_db_to_dir(source_ref, workdir)
+            _reflect_db_to_dir(source_ref, workdir, sql_query=sql_query)
             root = workdir
         elif source_type == "sftp":
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))

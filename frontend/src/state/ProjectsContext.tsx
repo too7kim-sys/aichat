@@ -25,6 +25,7 @@ interface ProjectsState {
     source_ref: string;
     ref?: string;
     corpus_type?: CorpusType;
+    sql_query?: string | null;
   }) => Promise<Project>;
   remove: (id: string) => Promise<{ freedBytes: number }>;
   reindex: (id: string) => Promise<void>;

@@ -14,9 +14,12 @@ from ..config import settings
 from ..database import get_db
 from ..rag.db_drivers import (
     DriverInfo,
+    SqlPreviewRequest,
+    SqlPreviewResult,
     TestConnectionRequest,
     TestConnectionResult,
     list_drivers,
+    preview_sql,
     test_connection,
 )
 from ..rag.indexer import schedule_incremental, schedule_indexing
@@ -113,12 +116,21 @@ async def create_project(
             f"'{payload.corpus_type}' 코퍼스에는 '{payload.source_type}' 연결을 "
             f"사용할 수 없습니다. 허용: {', '.join(sorted(allowed))}",
         )
+    # sql_query is only meaningful for the connection source — silently
+    # drop it on other source types so a stray paste doesn't end up in
+    # the DB tied to a project that'll never run it.
+    effective_sql = (
+        (payload.sql_query or "").strip() or None
+        if payload.source_type == "connection"
+        else None
+    )
     project = models.Project(
         user_id=user.id,
         name=payload.name,
         source_type=payload.source_type,
         source_ref=payload.source_ref,
         corpus_type=payload.corpus_type,
+        sql_query=effective_sql,
         status="pending",
     )
     db.add(project)
@@ -156,6 +168,18 @@ async def db_test_connection(
     + a table count on success, or a redacted URL + error string
     that the UI shows next to the test button."""
     return await test_connection(payload)
+
+
+@router.post("/_db-sql-preview", response_model=SqlPreviewResult)
+async def db_sql_preview(
+    payload: SqlPreviewRequest,
+    _user: models.User = Depends(get_current_user),
+):
+    """Preview the SELECT the user is about to commit as the
+    project's `sql_query`. Bounded to N rows (UI default = 20) so
+    the response stays small even when the underlying query would
+    fetch millions. SELECT/WITH-only — same guard as the indexer."""
+    return await preview_sql(payload)
 
 
 @router.get("/_storage")

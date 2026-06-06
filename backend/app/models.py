@@ -207,6 +207,13 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(120))
     source_type: Mapped[str] = mapped_column(String(20))  # "folder" | "git"
     source_ref: Mapped[str] = mapped_column(String(500))  # path or git url
+    # Optional SELECT used for the `connection` source type. When set,
+    # the indexer runs the query against the live DB on every
+    # snapshot and embeds the result rows alongside the reflected
+    # CREATE TABLE DDL — turns the DB into a queryable RAG corpus
+    # over actual data, not just schema. Nullable so non-DB projects
+    # and DB projects that only need schema reflection are unaffected.
+    sql_query: Mapped[str | None] = mapped_column(Text, nullable=True)
     # What kind of corpus this is — drives the chunker (line windows for
     # code, paragraph windows for documents, 조-boundary for Korean legal
     # text, endpoint-per-chunk for OpenAPI specs) and the retrieval

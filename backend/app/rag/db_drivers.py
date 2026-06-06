@@ -201,6 +201,23 @@ class TestConnectionRequest(BaseModel):
     database: str = Field(default="", max_length=200)
 
 
+class SqlPreviewRequest(TestConnectionRequest):
+    """Same connection fields as the test endpoint, plus the SELECT
+    body. Used by the new-project form to preview what the indexer
+    would embed once the project is created."""
+    sql: str = Field(min_length=1, max_length=8000)
+    limit: int = Field(default=20, ge=1, le=200)
+
+
+class SqlPreviewResult(BaseModel):
+    ok: bool
+    columns: list[str] = []
+    rows: list[dict] = []
+    row_count: int = 0
+    truncated: bool = False
+    error: str | None = None
+
+
 class TestConnectionResult(BaseModel):
     ok: bool
     driver: str
@@ -277,6 +294,113 @@ def _sync_test(url: str) -> TestConnectionResult:
             engine.dispose()
         except Exception:  # noqa: BLE001
             pass
+
+
+def _sync_preview(url: str, sql: str, limit: int) -> SqlPreviewResult:
+    """Synchronous SQL preview — bounded by `limit` rows. Returns
+    columns + sample rows so the UI can render a small table."""
+    # SELECT-only check lives in the indexer module to avoid a circular
+    # import here; we re-validate ourselves with a tiny inline copy.
+    import re
+
+    body = sql or ""
+    cleaned = re.sub(r"--.*?$", "", body, flags=re.MULTILINE)
+    cleaned = re.sub(r"/\*.*?\*/", " ", cleaned, flags=re.DOTALL).strip()
+    cleaned_body = cleaned.rstrip(";").strip()
+    if not cleaned_body:
+        return SqlPreviewResult(ok=False, error="빈 쿼리입니다")
+    head = re.split(r"\s+", cleaned_body, maxsplit=1)[0].lower()
+    if head not in {"select", "with"}:
+        return SqlPreviewResult(
+            ok=False, error="SELECT / WITH 만 허용됩니다 (DML/DDL 금지)",
+        )
+    if ";" in cleaned_body:
+        return SqlPreviewResult(
+            ok=False,
+            error="여러 문장을 세미콜론으로 연결할 수 없습니다 (SELECT 하나만 사용)",
+        )
+    try:
+        from sqlalchemy import create_engine, text
+    except ImportError as exc:  # pragma: no cover
+        return SqlPreviewResult(ok=False, error=f"SQLAlchemy 임포트 실패: {exc}")
+    try:
+        engine = create_engine(
+            url,
+            connect_args=(
+                {"connect_timeout": 10}
+                if url.startswith(("postgresql", "mysql", "mariadb"))
+                else {}
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return SqlPreviewResult(
+            ok=False, error=f"엔진 생성 실패: {type(exc).__name__}: {exc}",
+        )
+    try:
+        with engine.connect() as conn:
+            result = conn.execution_options(
+                stream_results=True, max_row_buffer=500,
+            ).execute(text(cleaned_body))
+            keys = list(result.keys())
+            rows: list[dict] = []
+            truncated = False
+            for record in result:
+                rows.append(
+                    {
+                        k: (
+                            None if v is None
+                            else v.decode("utf-8", "replace") if isinstance(
+                                v, (bytes, bytearray),
+                            )
+                            else str(v) if not isinstance(
+                                v, (int, float, bool, str),
+                            )
+                            else v
+                        )
+                        for k, v in zip(keys, record)
+                    }
+                )
+                if len(rows) >= limit:
+                    truncated = True
+                    break
+        return SqlPreviewResult(
+            ok=True, columns=keys, rows=rows,
+            row_count=len(rows), truncated=truncated,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return SqlPreviewResult(
+            ok=False, error=f"쿼리 실행 실패: {type(exc).__name__}: {exc}",
+        )
+    finally:
+        try:
+            engine.dispose()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def preview_sql(payload: SqlPreviewRequest) -> SqlPreviewResult:
+    """Build a SA URL from the fields, run the SELECT with a row cap,
+    return columns + sample rows for the UI table."""
+    try:
+        url = build_db_url(
+            driver=payload.driver,
+            host=payload.host,
+            port=payload.port,
+            user=payload.user,
+            password=payload.password,
+            database=payload.database,
+        )
+    except ValueError as exc:
+        return SqlPreviewResult(ok=False, error=str(exc))
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_sync_preview, url, payload.sql, payload.limit),
+            timeout=30,
+        )
+    except asyncio.TimeoutError:
+        return SqlPreviewResult(
+            ok=False, error="쿼리 시간 초과 (30초). 네트워크/인덱스/필터 확인.",
+        )
 
 
 async def test_connection(payload: TestConnectionRequest) -> TestConnectionResult:

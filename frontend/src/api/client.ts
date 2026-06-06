@@ -365,6 +365,15 @@ export interface DbTestResult {
   table_count: number | null;
 }
 
+export interface SqlPreviewResult {
+  ok: boolean;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+  truncated: boolean;
+  error: string | null;
+}
+
 export interface Snapshot {
   id: string;
   label: string;
@@ -516,6 +525,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  /** Preview the SELECT the user is about to attach to the project.
+   *  Returns up to `limit` rows + their column names so the form
+   *  can render a sample table next to the SQL textarea. */
+  previewDbSql: (payload: {
+    driver: string;
+    host?: string;
+    port?: number | null;
+    user?: string;
+    password?: string;
+    database?: string;
+    sql: string;
+    limit?: number;
+  }) =>
+    json<SqlPreviewResult>("/projects/_db-sql-preview", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   listProjects: () => json<Project[]>("/projects"),
   getProject: (id: string) => json<Project>(`/projects/${id}`),
   createProject: (payload: {
@@ -524,6 +550,10 @@ export const api = {
     source_ref: string;
     ref?: string;
     corpus_type?: CorpusType;
+    /** Only meaningful for source_type='connection' — backend silently
+     *  drops it on other source types so a stray value can't pollute
+     *  an unrelated project's indexing run. */
+    sql_query?: string | null;
   }) =>
     json<Project>("/projects", {
       method: "POST",

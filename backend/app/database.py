@@ -90,6 +90,12 @@ async def init_db() -> None:
                     "UPDATE projects SET corpus_type = 'document' "
                     "WHERE corpus_type = 'legal'"
                 )
+            if pexisting and "sql_query" not in pexisting:
+                # Per-project SELECT for the connection source — see
+                # models.Project.sql_query for the indexer flow.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN sql_query TEXT"
+                )
             if pexisting and "schedule_interval_minutes" not in pexisting:
                 await conn.exec_driver_sql(
                     "ALTER TABLE projects ADD COLUMN "

@@ -6,6 +6,7 @@ import type {
   DbTestResult,
   Project,
   SourceType,
+  SqlPreviewResult,
 } from "../api/client";
 import { useProjects } from "../state/ProjectsContext";
 import {
@@ -808,6 +809,7 @@ function AddProjectForm({
     source_ref: string;
     ref?: string;
     corpus_type: CorpusType;
+    sql_query?: string | null;
   }) => Promise<void>;
 }) {
   // Code corpus moved to the Code tab; new Cowork projects default
@@ -845,6 +847,12 @@ function AddProjectForm({
   const [dbDatabase, setDbDatabase] = useState("");
   const [dbTest, setDbTest] = useState<DbTestResult | null>(null);
   const [dbTesting, setDbTesting] = useState(false);
+  // Optional SELECT — when filled the indexer runs it on every
+  // snapshot and embeds the row set alongside the schema dump. The
+  // textarea + preview button only render for source_type='connection'.
+  const [dbSql, setDbSql] = useState("");
+  const [dbSqlPreview, setDbSqlPreview] = useState<SqlPreviewResult | null>(null);
+  const [dbSqlPreviewing, setDbSqlPreviewing] = useState(false);
   const [name, setName] = useState("");
   const [gitBranch, setGitBranch] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -931,6 +939,47 @@ function AddProjectForm({
       url += "?driver=Tibero";
     }
     return url;
+  }
+
+  async function runDbSqlPreview() {
+    if (dbSqlPreviewing) return;
+    if (!dbSql.trim()) {
+      setDbSqlPreview({
+        ok: false,
+        columns: [],
+        rows: [],
+        row_count: 0,
+        truncated: false,
+        error: "SQL을 입력하세요",
+      });
+      return;
+    }
+    setDbSqlPreviewing(true);
+    setDbSqlPreview(null);
+    try {
+      const result = await api.previewDbSql({
+        driver: dbDriver,
+        host: dbHost,
+        port: dbPort.trim() ? Number(dbPort.trim()) : null,
+        user: dbUser,
+        password: dbPass,
+        database: dbDatabase,
+        sql: dbSql.trim(),
+        limit: 20,
+      });
+      setDbSqlPreview(result);
+    } catch (e) {
+      setDbSqlPreview({
+        ok: false,
+        columns: [],
+        rows: [],
+        row_count: 0,
+        truncated: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setDbSqlPreviewing(false);
+    }
   }
 
   async function runDbTest() {
@@ -1035,6 +1084,10 @@ function AddProjectForm({
             ? gitBranch.trim()
             : undefined,
         corpus_type: corpusType,
+        sql_query:
+          sourceType === "connection" && dbSql.trim()
+            ? dbSql.trim()
+            : null,
       });
       setName("");
       setRefs({ git: "", folder: "", url: "", connection: "", sftp: "" });
@@ -1351,6 +1404,92 @@ function AddProjectForm({
           {dbTest?.url_redacted && (
             <div className="pm-help">
               연결 문자열: <code>{dbTest.url_redacted}</code>
+            </div>
+          )}
+
+          <div className="pm-field">
+            <label htmlFor="pm-db-sql">조회 SQL (선택)</label>
+            <textarea
+              id="pm-db-sql"
+              className="pm-db-sql-textarea"
+              placeholder={
+                "예) SELECT id, title, body, created_at\n  FROM articles\n WHERE status = 'public'\n ORDER BY created_at DESC"
+              }
+              value={dbSql}
+              onChange={(e) => setDbSql(e.target.value)}
+              disabled={submitting}
+              rows={6}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+            <div className="pm-help">
+              SELECT 또는 WITH 문만 허용 (DML/DDL 금지). 인덱싱 시 결과
+              행을 Markdown 형식으로 변환해 RAG에 포함합니다. 최대{" "}
+              <code>50,000행</code>까지 가져오고 그 이상은 잘립니다.
+              비워두면 스키마(DDL)만 인덱싱합니다.
+            </div>
+          </div>
+
+          <div className="pm-db-test-row">
+            <button
+              type="button"
+              className="pm-btn-secondary"
+              onClick={runDbSqlPreview}
+              disabled={dbSqlPreviewing || submitting || !dbSql.trim()}
+            >
+              {dbSqlPreviewing ? "조회 중…" : "쿼리 미리보기 (20행)"}
+            </button>
+            {dbSqlPreview?.error && (
+              <div className="pm-db-test-result pm-db-test-err">
+                <IconAlertTriangle size={14} />
+                <span>{dbSqlPreview.error}</span>
+              </div>
+            )}
+            {dbSqlPreview?.ok && (
+              <div className="pm-db-test-result pm-db-test-ok">
+                <IconCheckCircle size={14} />
+                <span>
+                  {dbSqlPreview.row_count}행 미리보기
+                  {dbSqlPreview.truncated ? " (cap 도달)" : ""}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {dbSqlPreview?.ok && dbSqlPreview.rows.length > 0 && (
+            <div className="pm-sql-preview-wrap">
+              <table className="pm-sql-preview-table">
+                <thead>
+                  <tr>
+                    {dbSqlPreview.columns.map((c) => (
+                      <th key={c}>{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dbSqlPreview.rows.map((row, i) => (
+                    <tr key={i}>
+                      {dbSqlPreview.columns.map((c) => {
+                        const v = row[c];
+                        const shown =
+                          v === null || v === undefined
+                            ? ""
+                            : typeof v === "object"
+                            ? JSON.stringify(v)
+                            : String(v);
+                        return (
+                          <td key={c} title={shown}>
+                            {shown.length > 80
+                              ? shown.slice(0, 80) + "…"
+                              : shown}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
