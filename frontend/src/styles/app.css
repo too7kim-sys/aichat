@@ -4915,6 +4915,52 @@ body {
   max-height: 60vh;
 }
 
+/* API list→detail collection fields + preview records */
+.pm-api-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+.pm-api-rec {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+}
+.pm-api-rec:last-child { border-bottom: none; }
+.pm-api-rec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.pm-api-rec-head code {
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-weight: 600;
+}
+.pm-api-rec-url {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-api-rec-body {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 /* Shared knowledge-base toggle + role grants (admin add form) */
 .pm-share-field {
   border-top: 1px dashed var(--border);

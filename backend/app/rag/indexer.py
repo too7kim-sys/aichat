@@ -198,6 +198,33 @@ _URL_FETCH_MAX_BYTES = 10 * 1024 * 1024  # 10 MB cap on a single spec
 _ALLOWED_URL_SCHEMES = {"http", "https"}
 
 
+def _fetch_url_source_to_dir(
+    list_url: str,
+    dest: Path,
+    detail_key: str | None,
+    detail_url: str | None,
+) -> None:
+    """Dispatch the `url` source: when api_detail_key + api_detail_url
+    are both set, collect per-item details (list → detail fetch);
+    otherwise fall back to the plain single-spec fetch."""
+    if detail_key and detail_key.strip() and detail_url and detail_url.strip():
+        from .api_collect import ApiCollectError, collect_api_details_to_file
+
+        try:
+            n = collect_api_details_to_file(
+                list_url.strip(),
+                detail_key.strip(),
+                detail_url.strip(),
+                dest / "api_details.md",
+                limit=settings.rag_max_files,
+            )
+        except ApiCollectError as exc:
+            raise RuntimeError(f"API 상세 수집 실패: {exc}") from exc
+        log.info("API detail collection wrote %d items", n)
+        return
+    _fetch_url_to_dir(list_url, dest)
+
+
 def _fetch_url_to_dir(url: str, dest: Path) -> None:
     """HTTP GET the URL and stage the body as a single file in dest.
     The filename is taken from the URL path so the chunker's file-type
@@ -576,6 +603,8 @@ async def run_indexing(snapshot_id: str) -> None:
             source_type = project.source_type
             source_ref = project.source_ref
             sql_query = project.sql_query
+            api_detail_key = project.api_detail_key
+            api_detail_url = project.api_detail_url
             corpus_type = project.corpus_type or "code"
 
         await _update_snapshot(
@@ -598,7 +627,9 @@ async def run_indexing(snapshot_id: str) -> None:
             # chunker pipeline kicks in unchanged.
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
             cleanup_workdir = True
-            _fetch_url_to_dir(source_ref, workdir)
+            _fetch_url_source_to_dir(
+                source_ref, workdir, api_detail_key, api_detail_url
+            )
             root = workdir
         elif source_type == "connection":
             # Live database — connect, reflect every table into a
@@ -806,6 +837,8 @@ async def run_incremental(project_id: str) -> dict:
             source_type = proj.source_type
             source_ref = proj.source_ref
             sql_query = proj.sql_query
+            api_detail_key = proj.api_detail_key
+            api_detail_url = proj.api_detail_url
             corpus_type = proj.corpus_type or "code"
             # Mark indexing so a parallel scheduled run / manual
             # button doesn't double-trigger.
@@ -835,7 +868,9 @@ async def run_incremental(project_id: str) -> dict:
         elif source_type == "url":
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
             cleanup_workdir = True
-            _fetch_url_to_dir(source_ref, workdir)
+            _fetch_url_source_to_dir(
+                source_ref, workdir, api_detail_key, api_detail_url
+            )
             root = workdir
         elif source_type == "connection":
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))

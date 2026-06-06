@@ -407,6 +407,8 @@ export interface Project {
    *  auto-searched in chat for those users. */
   is_shared: boolean;
   role_codes: string[];
+  api_detail_key: string | null;
+  api_detail_url: string | null;
   /** False when the user is accessing this as a shared knowledge base
    *  they don't own — the UI hides delete / reindex in that case. */
   owned: boolean;
@@ -561,12 +563,33 @@ export const api = {
      *  drops it on other source types so a stray value can't pollute
      *  an unrelated project's indexing run. */
     sql_query?: string | null;
+    /** API list→detail collection (url source only). */
+    api_detail_key?: string | null;
+    api_detail_url?: string | null;
     /** Admin-only: create as a shared knowledge base exposed to the
      *  given role codes. */
     is_shared?: boolean;
     role_codes?: string[];
   }) =>
     json<Project>("/projects", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Preview the API list→detail collection before creating: returns
+   *  total list size + a few sampled detail records. */
+  previewApiDetails: (payload: {
+    list_url: string;
+    detail_key: string;
+    detail_url: string;
+    limit?: number;
+  }) =>
+    json<{
+      ok: boolean;
+      error?: string;
+      total?: number;
+      sampled?: number;
+      records?: { _key: string; _url: string; _body: unknown }[];
+    }>("/projects/_api-preview", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

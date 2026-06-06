@@ -113,6 +113,12 @@ class ProjectCreate(BaseModel):
     # indexer runs it on every snapshot and embeds the result rows
     # alongside the reflected schema. Ignored for other source types.
     sql_query: str | None = Field(default=None, max_length=8000)
+    # API list→detail collection (url source). When both set, the
+    # indexer fetches the list URL, pulls api_detail_key from each
+    # item, substitutes into api_detail_url's {key}, and embeds every
+    # detail response.
+    api_detail_key: str | None = Field(default=None, max_length=120)
+    api_detail_url: str | None = Field(default=None, max_length=500)
     # Shared knowledge base — admin-only. When true, the project is
     # exposed to every role listed in `role_codes` and auto-searched
     # in chat for those users. Personal projects leave is_shared=False.
@@ -158,6 +164,8 @@ class ProjectOut(BaseModel):
     last_indexed_at: datetime | None = None
     created_at: datetime
     is_shared: bool = False
+    api_detail_key: str | None = None
+    api_detail_url: str | None = None
     # Populated for shared projects so the admin UI can render the
     # current role grants. Empty for personal projects.
     role_codes: list[str] = []

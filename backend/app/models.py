@@ -214,6 +214,18 @@ class Project(Base):
     # over actual data, not just schema. Nullable so non-DB projects
     # and DB projects that only need schema reflection are unaffected.
     sql_query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # API "list → per-item detail" collection. When both are set for a
+    # `url` source, the indexer fetches the list URL (source_ref),
+    # extracts api_detail_key from each item, substitutes it into
+    # api_detail_url's {key} placeholder, fetches every detail
+    # response, and embeds them. Empty = list URL is embedded as-is
+    # (plain OpenAPI/spec fetch).
+    api_detail_key: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
+    )
+    api_detail_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True
+    )
     # What kind of corpus this is — drives the chunker (line windows for
     # code, paragraph windows for documents, 조-boundary for Korean legal
     # text, endpoint-per-chunk for OpenAPI specs) and the retrieval

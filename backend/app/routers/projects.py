@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from pydantic import BaseModel, Field as PydField
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -229,6 +230,17 @@ async def create_project(
         raise HTTPException(
             403, "공유 지식베이스는 관리자(admin)만 만들 수 있습니다",
         )
+    # api_detail_* only apply to the url source — drop them otherwise.
+    api_key = (
+        (payload.api_detail_key or "").strip() or None
+        if payload.source_type == "url"
+        else None
+    )
+    api_url = (
+        (payload.api_detail_url or "").strip() or None
+        if payload.source_type == "url"
+        else None
+    )
     project = models.Project(
         user_id=user.id,
         name=payload.name,
@@ -236,6 +248,8 @@ async def create_project(
         source_ref=payload.source_ref,
         corpus_type=payload.corpus_type,
         sql_query=effective_sql,
+        api_detail_key=api_key,
+        api_detail_url=api_url,
         is_shared=payload.is_shared,
         status="pending",
     )
@@ -254,6 +268,52 @@ async def create_project(
 # below. FastAPI matches in registration order, so a `_storage`
 # request would otherwise be captured as `project_id="_storage"`
 # and return a 404 from the project lookup.
+
+class _ApiPreviewIn(BaseModel):
+    list_url: str = PydField(min_length=1, max_length=500)
+    detail_key: str = PydField(min_length=1, max_length=120)
+    detail_url: str = PydField(min_length=1, max_length=500)
+    limit: int = 3
+
+
+@router.post("/_api-preview")
+async def api_preview(
+    payload: _ApiPreviewIn,
+    _user: models.User = Depends(get_current_user),
+):
+    """Preview the list→detail collection before creating the project:
+    fetch the list, then up to `limit` item details, and return the
+    sampled records + total list size. SELECT-equivalent guard for the
+    API source."""
+    import asyncio as _asyncio
+
+    from ..rag.api_collect import ApiCollectError, collect_api_details
+
+    def _run():
+        return collect_api_details(
+            payload.list_url.strip(),
+            payload.detail_key.strip(),
+            payload.detail_url.strip(),
+            limit=max(1, min(payload.limit, 10)),
+        )
+
+    try:
+        records, total = await _asyncio.wait_for(
+            _asyncio.to_thread(_run), timeout=40
+        )
+    except _asyncio.TimeoutError:
+        return {"ok": False, "error": "미리보기 시간 초과 (40초)"}
+    except ApiCollectError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "ok": True,
+        "total": total,
+        "sampled": len(records),
+        "records": records,
+    }
+
 
 @router.get("/_db-drivers", response_model=list[DriverInfo])
 async def db_drivers(

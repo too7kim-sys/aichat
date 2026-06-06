@@ -123,6 +123,17 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "ALTER TABLE projects ADD COLUMN sql_query TEXT"
                 )
+            if pexisting and "api_detail_key" not in pexisting:
+                # API list→detail collection columns — see
+                # models.Project.api_detail_key / api_detail_url.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN api_detail_key "
+                    "VARCHAR(120)"
+                )
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN api_detail_url "
+                    "VARCHAR(500)"
+                )
             if pexisting and "schedule_interval_minutes" not in pexisting:
                 await conn.exec_driver_sql(
                     "ALTER TABLE projects ADD COLUMN "

@@ -99,9 +99,10 @@ const SOURCE_META: Record<
   url: {
     label: "API URL",
     icon: <IconGlobe size={14} />,
-    placeholder: "https://api.example.com/openapi.json",
+    placeholder: "https://api.example.com/items",
     help:
-      "OpenAPI/Swagger 스펙이 응답되는 HTTPS 엔드포인트. 30초 fetch, 10 MB 한도.",
+      "JSON 목록을 응답하는 HTTPS 엔드포인트. 아래 상세 키/URL을 채우면 " +
+      "각 항목의 상세까지 가져오고, 비우면 이 응답만 인덱싱합니다.",
     inputType: "url",
   },
   connection: {
@@ -878,15 +879,28 @@ function AddProjectForm({
     ref?: string;
     corpus_type: CorpusType;
     sql_query?: string | null;
+    api_detail_key?: string | null;
+    api_detail_url?: string | null;
     is_shared?: boolean;
     role_codes?: string[];
   }) => Promise<void>;
 }) {
-  // Shared knowledge-base toggle + role grants (admin only). When
-  // shared, the project is auto-searched in chat for any user whose
-  // role is checked here — no per-session linking needed.
-  const [isShared, setIsShared] = useState(false);
+  // Shared knowledge-base toggle + role grants (admin only). Default
+  // ON in admin mode — knowledge bases created from the admin panel
+  // are shared by intent; the operator unchecks for a private one.
+  const [isShared, setIsShared] = useState(adminMode);
   const [shareRoles, setShareRoles] = useState<Set<string>>(new Set());
+  // API list→detail collection (url source). Empty = plain spec fetch.
+  const [apiDetailKey, setApiDetailKey] = useState("");
+  const [apiDetailUrl, setApiDetailUrl] = useState("");
+  const [apiPreview, setApiPreview] = useState<{
+    ok: boolean;
+    error?: string;
+    total?: number;
+    sampled?: number;
+    records?: { _key: string; _url: string; _body: unknown }[];
+  } | null>(null);
+  const [apiPreviewing, setApiPreviewing] = useState(false);
   // Code corpus moved to the Code tab; new Cowork projects default
   // to "document". CORPUS_META still keeps the "code" entry so legacy
   // chips render, but the tabs no longer expose it.
@@ -1014,6 +1028,37 @@ function AddProjectForm({
       url += "?driver=Tibero";
     }
     return url;
+  }
+
+  async function runApiPreview() {
+    if (apiPreviewing) return;
+    if (!apiDetailKey.trim() || !apiDetailUrl.trim()) {
+      setApiPreview({ ok: false, error: "상세 키와 상세 URL을 모두 입력하세요" });
+      return;
+    }
+    const listUrl = (refs.url || "").trim();
+    if (!listUrl) {
+      setApiPreview({ ok: false, error: "목록 API URL을 먼저 입력하세요" });
+      return;
+    }
+    setApiPreviewing(true);
+    setApiPreview(null);
+    try {
+      const res = await api.previewApiDetails({
+        list_url: listUrl,
+        detail_key: apiDetailKey.trim(),
+        detail_url: apiDetailUrl.trim(),
+        limit: 3,
+      });
+      setApiPreview(res);
+    } catch (e) {
+      setApiPreview({
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setApiPreviewing(false);
+    }
   }
 
   async function runDbSqlPreview() {
@@ -1162,6 +1207,14 @@ function AddProjectForm({
         sql_query:
           sourceType === "connection" && dbSql.trim()
             ? dbSql.trim()
+            : null,
+        api_detail_key:
+          sourceType === "url" && apiDetailKey.trim()
+            ? apiDetailKey.trim()
+            : null,
+        api_detail_url:
+          sourceType === "url" && apiDetailUrl.trim()
+            ? apiDetailUrl.trim()
             : null,
         is_shared: adminMode ? isShared : false,
         role_codes: adminMode && isShared ? Array.from(shareRoles) : [],
@@ -1572,7 +1625,9 @@ function AddProjectForm({
         </div>
       ) : (
         <div className="pm-field">
-          <label htmlFor="pm-source-ref">{sourceMeta.label}</label>
+          <label htmlFor="pm-source-ref">
+            {sourceType === "url" ? "목록 API URL" : sourceMeta.label}
+          </label>
           <input
             id="pm-source-ref"
             type={sourceMeta.inputType ?? "text"}
@@ -1587,6 +1642,88 @@ function AddProjectForm({
         </div>
       )}
 
+      {sourceType === "url" && (
+        <div className="pm-api-detail">
+          <div className="pm-field">
+            <label htmlFor="pm-api-key">상세 키 (태그명, 선택)</label>
+            <input
+              id="pm-api-key"
+              type="text"
+              placeholder="예: id  ·  중첩이면 data.id"
+              value={apiDetailKey}
+              onChange={(e) => setApiDetailKey(e.target.value)}
+              disabled={submitting}
+              autoComplete="off"
+            />
+          </div>
+          <div className="pm-field">
+            <label htmlFor="pm-api-url">상세 API URL 템플릿 (선택)</label>
+            <input
+              id="pm-api-url"
+              type="text"
+              placeholder="예: https://api.example.com/items/{key}"
+              value={apiDetailUrl}
+              onChange={(e) => setApiDetailUrl(e.target.value)}
+              disabled={submitting}
+              autoComplete="off"
+            />
+            <div className="pm-help">
+              목록 응답(JSON 배열)의 각 항목에서 <code>상세 키</code>를 뽑아
+              <code>{"{key}"}</code> 자리에 넣어 상세를 가져옵니다. 두 칸을
+              비우면 목록 응답만 인덱싱합니다. 최대{" "}
+              <code>{`${5000}`}건</code>.
+            </div>
+          </div>
+
+          {(apiDetailKey.trim() || apiDetailUrl.trim()) && (
+            <div className="pm-db-test-row">
+              <button
+                type="button"
+                className="pm-btn-secondary"
+                onClick={runApiPreview}
+                disabled={apiPreviewing || submitting}
+              >
+                {apiPreviewing ? "조회 중…" : "상세 미리보기 (3건)"}
+              </button>
+              {apiPreview?.error && (
+                <div className="pm-db-test-result pm-db-test-err">
+                  <IconAlertTriangle size={14} />
+                  <span>{apiPreview.error}</span>
+                </div>
+              )}
+              {apiPreview?.ok && (
+                <div className="pm-db-test-result pm-db-test-ok">
+                  <IconCheckCircle size={14} />
+                  <span>
+                    목록 {apiPreview.total}건 · {apiPreview.sampled}건
+                    상세 수집됨
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {apiPreview?.ok &&
+            apiPreview.records &&
+            apiPreview.records.length > 0 && (
+              <div className="pm-sql-preview-wrap">
+                {apiPreview.records.map((rec, i) => (
+                  <div key={i} className="pm-api-rec">
+                    <div className="pm-api-rec-head">
+                      <code>{rec._key}</code>
+                      <span className="pm-api-rec-url">{rec._url}</span>
+                    </div>
+                    <pre className="pm-api-rec-body">
+                      {typeof rec._body === "string"
+                        ? rec._body.slice(0, 600)
+                        : JSON.stringify(rec._body, null, 2).slice(0, 600)}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+      )}
       {sourceType === "git" && (
         <div className="pm-field">
           <label htmlFor="pm-ref">브랜치 / 태그 (선택)</label>

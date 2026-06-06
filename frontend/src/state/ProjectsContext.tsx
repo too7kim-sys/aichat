@@ -26,6 +26,8 @@ interface ProjectsState {
     ref?: string;
     corpus_type?: CorpusType;
     sql_query?: string | null;
+    api_detail_key?: string | null;
+    api_detail_url?: string | null;
     is_shared?: boolean;
     role_codes?: string[];
   }) => Promise<Project>;
