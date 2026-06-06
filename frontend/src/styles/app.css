@@ -4706,7 +4706,10 @@ body {
 .pm-field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  /* 7px between label → input so the label sits clearly above the
+   * input border without touching it. Help text gets its own larger
+   * margin via .pm-field > .pm-help below. */
+  gap: 7px;
 }
 .pm-field label {
   font-size: 11.5px;
@@ -4714,6 +4717,9 @@ body {
   color: var(--text-muted);
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  /* Reserve some line-height so descenders / Korean glyphs don't
+   * collide with the input border below. */
+  line-height: 1.25;
 }
 .pm-field input {
   padding: 10px 12px;
@@ -4724,6 +4730,14 @@ body {
   color: var(--text);
   background: var(--bg-input);
   transition: border-color 0.12s, box-shadow 0.12s;
+  /* Stop iOS Safari from baking in its own rounded corners + shadow
+   * that visually overlap with our label above. */
+  -webkit-appearance: none;
+  appearance: none;
+  /* Inputs need to be able to shrink inside narrow grid cells —
+   * otherwise the default min-width:auto on grid items keeps them
+   * at intrinsic width and the whole row overflows the modal. */
+  min-width: 0;
 }
 .pm-field input:focus {
   outline: none;
@@ -4733,17 +4747,25 @@ body {
 .pm-help {
   font-size: 11.5px;
   color: var(--text-faint);
-  line-height: 1.45;
+  line-height: 1.5;
+}
+/* Help text sitting under an input inside a pm-field gets extra
+ * breathing room so it doesn't visually collide with the input
+ * border above (which is what made the SFTP remote-path help text
+ * look like it was being clipped by the border on mobile). */
+.pm-field > .pm-help {
+  margin-top: 4px;
 }
 
-/* SFTP form — host (wide) + port (narrow) on one row, user (wide) on
-   another, password full-width, remote path full-width. */
+/* SFTP form — desktop: host full row, port (narrow) + user (wide)
+   on one row, password full row, remote path full row. Mobile: every
+   field stacks vertically so the labels stay readable. */
 .pm-sftp-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 12px;
+  grid-template-columns: 1fr 2fr;
+  gap: 14px 12px;
 }
-.pm-sftp-grid .pm-field { margin: 0; }
+.pm-sftp-grid .pm-field { margin: 0; min-width: 0; }
 .pm-help code {
   background: var(--bg);
   padding: 1px 5px;
@@ -5459,6 +5481,24 @@ body {
   .pm-body-browse { grid-template-columns: 1fr; }
   .pm-side { border-right: none; border-bottom: 1px solid var(--border); }
   .pm-side-list { max-height: 38vh; }
+
+  /* SFTP form: the 5 fields fit ridiculously badly in a 2-col grid
+   * on a phone — collapse to a single column so each label and
+   * input gets the full row. Inline gridColumn="1 / span 2" props
+   * from the JSX are still valid (they just span the only column). */
+  .pm-sftp-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .pm-sftp-grid .pm-field[style*="span 2"] {
+    grid-column: 1 !important;
+  }
+
+  /* Add-form padding also dialed down so 320px viewports don't lose
+   * 80px to side padding alone. */
+  .pm-add-wrap { padding: 16px 14px; }
+  .pm-add { padding: 14px; }
+  .pm-add.hero { padding: 16px 14px; }
 
   /* Header buttons can wrap on phones without breaking the line. */
   .chat-header-right { flex-wrap: wrap; justify-content: flex-end; }
