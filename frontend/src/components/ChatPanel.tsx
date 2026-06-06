@@ -37,6 +37,33 @@ export interface ChatPanelHandle {
   addAttachmentFromText: (filename: string, text: string) => void;
 }
 
+/** Parse a merge slash-command from the composer prompt.
+ *
+ * Accepted forms (case-insensitive on the keywords):
+ *   /merge                /병합                 → no title (uses default)
+ *   /merge 회의자료       /병합 회의자료        → title = "회의자료"
+ *   합쳐줘 / 합쳐 / 합치기 / 병합 / 병합해줘     → no title
+ *   회의자료로 병합        회의자료 합치기        → title = "회의자료"
+ *   merge / combine                              → no title (EN aliases)
+ *
+ * Returns `{ matched: false }` for anything else so the normal LLM
+ * flow runs. The match is strict — the whole prompt must be the
+ * command, otherwise "병합 보고서를 요약해줘" type prompts would be
+ * intercepted by accident.
+ */
+function parseMergeCommand(raw: string): { matched: boolean; title?: string } {
+  const text = raw.trim();
+  if (!text) return { matched: false };
+  const slash = /^\/(?:merge|병합)(?:\s+(.+))?$/i.exec(text);
+  if (slash) return { matched: true, title: slash[1]?.trim() };
+  if (/^(?:병합(?:해줘|해)?|합쳐(?:줘)?|합치기|merge|combine)$/i.test(text)) {
+    return { matched: true };
+  }
+  const suffix = /^(.+?)\s*(?:로|을|를)?\s*(?:병합(?:해줘|해)?|합쳐(?:줘)?|합치기)$/.exec(text);
+  if (suffix) return { matched: true, title: suffix[1]?.trim() };
+  return { matched: false };
+}
+
 export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   { sessionId, providers, onTitleSync },
   ref
@@ -100,6 +127,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   );
   const [exportOpen, setExportOpen] = useState(false);
   const [mergeAttachOpen, setMergeAttachOpen] = useState(false);
+  // Inline status for the `/병합` slash-command path — short banner
+  // above the composer reporting merge progress / success / failure
+  // without opening the modal.
+  const [mergeStatus, setMergeStatus] = useState<string | null>(null);
   const toggleMessageSelection = (id: string) =>
     setSelectedMessageIds((prev) => {
       const next = new Set(prev);
@@ -512,7 +543,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   function send() {
     if (!prompt.trim() || streaming || !activeProvider) return;
     const text = prompt;
+
+    // Composer slash command: `/merge`, `/병합`, "합쳐줘", "[제목]로 병합".
+    // Detected here so the user can stay in the textarea instead of
+    // reaching for the 🔗 button — the LLM call is skipped entirely
+    // when a merge command is recognised.
+    const merge = parseMergeCommand(text);
+    if (merge.matched) {
+      void runInlineMerge(merge.title);
+      return;
+    }
+
     setPrompt("");
+    setMergeStatus(null);
     const sentAttachments = attachments;
     setAttachments([]);
     streamStore.start({
@@ -528,6 +571,67 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       })),
       projectId: linkedProjectId,
     });
+  }
+
+  async function runInlineMerge(titleOverride?: string) {
+    const MERGEABLE = /\.(pdf|docx|xlsx|pptx|hwpx)$/i;
+    const mergeable = attachments.filter(
+      (a) => MERGEABLE.test(a.filename) && !!a._file,
+    );
+    if (mergeable.length < 2) {
+      setMergeStatus(
+        `병합하려면 같은 형식 원본 파일(.pdf/.docx/.xlsx/.pptx/.hwpx)이 ` +
+          `2개 이상 필요합니다. 지금 ${mergeable.length}개. ` +
+          `(원본이 보존된 직접 업로드 파일만 가능합니다.)`,
+      );
+      return;
+    }
+    // Group by extension and pick the largest same-format batch — so
+    // "PDF 2개 + DOCX 1개"가 섞여 있어도 PDF 쪽만 자동으로 골라 병합.
+    const byExt = new Map<string, typeof mergeable>();
+    for (const a of mergeable) {
+      const m = a.filename.toLowerCase().match(MERGEABLE);
+      const ext = m ? m[0] : "";
+      if (!byExt.has(ext)) byExt.set(ext, []);
+      byExt.get(ext)!.push(a);
+    }
+    let majority: typeof mergeable = [];
+    for (const group of byExt.values()) {
+      if (group.length > majority.length) majority = group;
+    }
+    if (majority.length < 2) {
+      setMergeStatus(
+        "같은 형식의 원본 파일이 2개 이상 필요합니다 (현재는 형식이 모두 달라요).",
+      );
+      return;
+    }
+
+    const baseTitle =
+      titleOverride?.trim() || `${session?.title || "merged"} — 첨부 병합`;
+    setMergeStatus(`병합 중… (${majority.length}개)`);
+    try {
+      const { blob, filename } = await api.mergeFiles({
+        files: majority.map((a) => a._file as File),
+        title: baseTitle,
+        withSeparators: true,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMergeStatus(
+        `✅ 다운로드 완료 — ${filename} (${Math.round(blob.size / 1024)} KB, ${majority.length}개 합침)`,
+      );
+      setPrompt("");
+    } catch (e) {
+      setMergeStatus(
+        `병합 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
 
@@ -867,12 +971,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               </button>
             </div>
           )}
+          {mergeStatus && (
+            <div className="composer-notice">
+              <span>{mergeStatus}</span>
+              <button
+                type="button"
+                className="composer-notice-action"
+                onClick={() => setMergeStatus(null)}
+              >
+                닫기
+              </button>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={prompt}
             placeholder={
               attachments.length > 0
-                ? "예) 이 파일 요약해줘 · 오타 찾아줘 · 핵심만 알려줘 · 표로 정리해줘"
+                ? "예) 요약해줘 · 오타 찾아줘 · 핵심만 알려줘 · 표로 정리해줘 · /병합 [제목] 으로 한 파일 합치기"
                 : "무엇이든 물어보세요. 이미지를 붙여넣거나(Ctrl+V) 끌어다 놓아 분석·요약·번역도 가능합니다."
             }
             onChange={(e) => setPrompt(e.target.value)}
