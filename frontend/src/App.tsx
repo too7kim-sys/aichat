@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, auth as authApi } from "./api/client";
 import { BrandLogo } from "./components/BrandLogo";
 import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
-import { SearchDialog } from "./components/SearchDialog";
+import { SearchBar, type SearchBarHandle } from "./components/SearchBar";
 import { Sidebar, type Workspace } from "./components/Sidebar";
 import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
@@ -152,29 +152,28 @@ function AppInner({
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  // Pending scroll target — set by the global SearchDialog when the
+  // Pending scroll target — set by the global SearchBar when the
   // user picks a result so ChatPanel knows which message to flash
   // into view after the (potentially cross-session) navigation.
   // Cleared by ChatPanel once handled.
   const [pendingScrollMessageId, setPendingScrollMessageId] = useState<
     string | null
   >(null);
-  // Whether the global ⌘K / Ctrl+K search modal is open.
-  const [searchOpen, setSearchOpen] = useState(false);
   const chatRef = useRef<ChatPanelHandle | null>(null);
+  const searchRef = useRef<SearchBarHandle | null>(null);
   const artifacts = useArtifacts();
 
-  // Global keyboard shortcut: ⌘K / Ctrl+K opens chat search. Skipped
-  // when the user is in any kind of typing context that's not the
-  // chat composer — the composer itself doesn't claim ⌘K, so this
-  // doesn't fight with anything.
+  // Global keyboard shortcut: ⌘K / Ctrl+K focuses the header search
+  // input from anywhere on the page. The input lives in the header
+  // strip and is always visible, so this just yanks focus to it
+  // rather than opening any modal.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const isCmdK =
         (e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey);
       if (!isCmdK) return;
       e.preventDefault();
-      setSearchOpen((v) => !v);
+      searchRef.current?.focus();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -312,6 +311,11 @@ function AppInner({
               <button onClick={onDismissFlash}>닫기</button>
             </div>
           )}
+          <SearchBar
+            ref={searchRef}
+            sessions={sessions}
+            onPick={jumpToMessage}
+          />
           <UserMenu onOpenMyPage={onOpenMyPage} onOpenAdmin={onOpenAdmin} />
         </div>
         {activeId ? (
@@ -323,7 +327,6 @@ function AppInner({
             onTitleSync={refreshSessions}
             scrollToMessageId={pendingScrollMessageId}
             onScrollHandled={() => setPendingScrollMessageId(null)}
-            onOpenSearch={() => setSearchOpen(true)}
             onCloseChat={closeActiveChat}
           />
         ) : (
@@ -335,12 +338,6 @@ function AppInner({
           onSendToChat={(snippet) => chatRef.current?.appendToPrompt(snippet)}
         />
       </Suspense>
-      <SearchDialog
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        sessions={sessions}
-        onPick={jumpToMessage}
-      />
     </div>
   );
 }

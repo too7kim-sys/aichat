@@ -452,49 +452,14 @@ function CodePane({
   );
 }
 
-// Topic → emoji rules ordered by specificity. First match wins, so
-// keep stronger signals (코드/번역/요약) ahead of generic ones (글/문서).
-// Korean + English keywords mixed; case-insensitive substring match.
-const EMOJI_RULES: ReadonlyArray<readonly [string, RegExp]> = [
-  ["💻", /code|코드|function|함수|버그|bug|debug|refactor|리팩|api|서버|server|frontend|backend|배포|deploy|git|github|sql|쿼리|query/i],
-  ["🐛", /오류|error|exception|버그만|stack ?trace/i],
-  ["🌏", /번역|translate|translation|영어로|한국어로|일본어|중국어/i],
-  ["📋", /요약|summary|summarize|정리해|간단히/i],
-  ["🔍", /오타|맞춤법|검토|proofread|typo|찾아|search|검색/i],
-  ["📊", /데이터|data|분석|analysis|통계|stat|chart|excel|spreadsheet|시각화/i],
-  ["📅", /회의|meeting|일정|schedule|agenda|약속/i],
-  ["✉️", /메일|email|편지|letter/i],
-  ["📝", /글쓰기|작문|essay|블로그|blog|article|write|writing|초안|draft/i],
-  ["📚", /학습|공부|study|learn|강의|lecture|튜토|tutorial/i],
-  ["🎨", /디자인|design|ui|ux|css|색상|color|레이아웃|layout/i],
-  ["📄", /문서|document|보고서|report|논문|paper/i],
-  ["🖼️", /이미지|image|사진|picture|photo|그림/i],
-  ["💼", /업무|비즈니스|business|사업|회사|company/i],
-  ["🍳", /요리|레시피|recipe|음식/i],
-  ["✈️", /여행|travel|trip|항공/i],
-  ["🎮", /게임|game/i],
-  ["🎵", /음악|music|노래|song/i],
-  ["🎬", /영화|movie|video|영상/i],
-  ["💪", /운동|exercise|workout|건강|health|다이어트/i],
-  ["💰", /돈|money|투자|invest|재무|finance|예산|budget/i],
-  ["⏰", /시간|time|알람|alarm/i],
-  ["📐", /수학|math|기하|geometry|algebra|적분|미분/i],
-  ["🧪", /과학|science|실험|experiment|화학|chemistry|물리|physics/i],
-  ["⚖️", /법|law|legal|계약|contract|규정|policy/i],
-  ["❓", /질문|question|궁금|물어보|how to|what is/i],
-];
-
-function sessionEmoji(s: Session): string {
-  // Topic-based pick from the title, falling back to a generic
-  // speech-bubble. Code-focused sessions always get the 💻 glyph
-  // regardless of title — the workspace context is a stronger signal
-  // than whatever name the chat ended up with.
-  if (s.code_focused) return "💻";
-  const title = s.title || "";
-  for (const [glyph, re] of EMOJI_RULES) {
-    if (re.test(title)) return glyph;
-  }
-  return "💬";
+/** Monochrome SVG glyph per session row. Code-focused sessions get
+ *  the code icon; everything else gets a generic chat-bubble icon
+ *  that picks up the surrounding text color via currentColor stroke.
+ *  We used to render colored emojis here for topic-based variety but
+ *  the saturation distracted from the title text. */
+function SessionIcon({ session }: { session: Session }) {
+  if (session.code_focused) return <IconCode size={14} />;
+  return <IconChat size={14} />;
 }
 
 function SessionGroup({
@@ -521,11 +486,8 @@ function SessionGroup({
             className={s.id === activeId ? "active" : ""}
             onClick={() => onSelect(s.id)}
           >
-            <span
-              className="session-emoji"
-              aria-hidden="true"
-            >
-              {sessionEmoji(s)}
+            <span className="session-emoji" aria-hidden="true">
+              <SessionIcon session={s} />
             </span>
             <span className="session-title">{s.title}</span>
             <button

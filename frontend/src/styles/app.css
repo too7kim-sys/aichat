@@ -109,12 +109,11 @@ body {
 }
 .session-emoji {
   flex-shrink: 0;
-  font-size: 14px;
-  line-height: 1;
   width: 16px;
-  text-align: center;
-  /* keep the emoji visually centered against the title baseline */
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
 }
 .session-mode {
   font-size: 10px;
@@ -260,7 +259,13 @@ body {
   font-size: 13px;
   color: var(--text-muted);
 }
-.empty-greeting-emoji { font-size: 14px; line-height: 1; }
+.empty-greeting-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  width: 18px;
+}
 
 .turn {
   display: flex;
@@ -322,52 +327,70 @@ body {
   font-weight: 500;
 }
 
-/* ── Global chat search modal ──────────────────────────────────── */
-.search-backdrop {
-  align-items: flex-start;
-  padding-top: 8vh;
+/* ── Persistent header search (통합검색) ───────────────────────── */
+.searchbar {
+  position: relative;
+  flex: 1;
+  max-width: 480px;
+  min-width: 180px;
 }
-.search-dialog {
-  width: min(760px, 94vw);
-  max-height: 78vh;
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  border-radius: 14px;
-  overflow: hidden;
-}
-.search-input-row {
+.searchbar-input-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 18px 16px 14px;
-  border-bottom: 1px solid var(--border);
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
-.search-input-icon {
-  font-size: 18px;
-  line-height: 1;
+.searchbar-input-wrap:focus-within {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+.searchbar-icon {
   color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
 }
-.search-input {
+.searchbar-input {
   flex: 1;
   border: none;
   outline: none;
   background: transparent;
-  font-size: 16px;
-  color: var(--text);
-}
-.search-input::placeholder { color: var(--text-faint); }
-.search-input::-webkit-search-cancel-button { display: none; }
-.search-close {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 6px;
-  padding: 2px 9px;
+  font: inherit;
   font-size: 13px;
-  cursor: pointer;
+  color: var(--text);
+  padding: 0;
+  min-width: 0;
 }
-.search-close:hover { background: var(--bg-card); color: var(--text); }
+.searchbar-input::placeholder { color: var(--text-faint); }
+.searchbar-input::-webkit-search-cancel-button { display: none; }
+.searchbar-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.searchbar-clear:hover { color: var(--text); }
+.searchbar-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(560px, 92vw);
+  max-height: 70vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 20;
+}
 .search-error {
   margin: 8px 14px;
   padding: 8px 12px;
@@ -2659,7 +2682,9 @@ body {
   justify-content: flex-end;
   padding: 8px 16px 0;
 }
-.app-header-strip .verify-banner { flex: 1; }
+/* When the verify banner is showing, share the row with the search
+ * bar instead of taking the whole width. */
+.app-header-strip .verify-banner { flex: 0 1 auto; }
 
 /* ── Model selector (chat header) ─────────────────── */
 .model-select { position: relative; }

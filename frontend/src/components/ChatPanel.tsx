@@ -3,10 +3,13 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
+  IconBookOpen,
+  IconCheckCircle,
   IconCode,
   IconDownload,
   IconFileText,
   IconFolder,
+  IconGlobe,
   IconImage,
   IconPaperclip,
   IconSearch,
@@ -35,8 +38,6 @@ interface Props {
    *  once the effect ran so a re-render doesn't re-trigger. */
   scrollToMessageId?: string | null;
   onScrollHandled?: () => void;
-  /** Open the global chat search modal. Owned by App. */
-  onOpenSearch?: () => void;
   /** Close the chat view — deselects the active session at the App
    *  level so the main pane falls back to the empty/welcome state.
    *  Optional so storybook-style mounts that pass no parent stay
@@ -149,7 +150,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     onTitleSync,
     scrollToMessageId,
     onScrollHandled,
-    onOpenSearch,
     onCloseChat,
   },
   ref
@@ -662,8 +662,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const picked = liveStream?.pickedModel ?? null;
   const activeProviderLabel = (() => {
     if (model === "auto") {
-      if (picked) return `Ollama (${picked.name}) · 🤖 ${picked.reason}`;
-      return "Ollama · 🤖 자동 선택 중…";
+      if (picked) return `Ollama (${picked.name}) · 자동: ${picked.reason}`;
+      return "Ollama · 자동 선택 중…";
     }
     return model ? `Ollama (${model})` : defaultLabel;
   })();
@@ -848,16 +848,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
-          {onOpenSearch && (
-            <button
-              type="button"
-              className="panel-toggle"
-              onClick={onOpenSearch}
-              title="모든 채팅에서 검색 (Ctrl+K)"
-            >
-              <IconSearch size={13} /> 검색
-            </button>
-          )}
           <button
             type="button"
             className={`panel-toggle${selectionMode ? " active" : ""}`}
@@ -1071,7 +1061,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               {attachments.length > 0 && (
                 <div className="attachments-summary">
                   <span>
-                    📎 {attachments.length}개 첨부 · 총{" "}
+                    <IconPaperclip size={12} />{" "}
+                    {attachments.length}개 첨부 · 총{" "}
                     {attachments
                       .reduce((acc, a) => acc + a.char_count, 0)
                       .toLocaleString()}
@@ -1289,11 +1280,11 @@ function EmptyGreeting({ userName }: { userName: string | null }) {
       : `${timeGreeting}`;
     const sub = "오늘은 무엇을 도와드릴까요?";
     const suggestions = [
-      { emoji: "📋", text: "긴 문서를 요약하기" },
-      { emoji: "🔍", text: "오타·맞춤법 검사" },
-      { emoji: "🌐", text: "웹 검색으로 최신 정보 찾기" },
-      { emoji: "💻", text: "코드 작성 / 리뷰" },
-      { emoji: "🌏", text: "번역하기" },
+      { Icon: IconFileText, text: "긴 문서를 요약하기" },
+      { Icon: IconCheckCircle, text: "오타·맞춤법 검사" },
+      { Icon: IconGlobe, text: "웹 검색으로 최신 정보 찾기" },
+      { Icon: IconCode, text: "코드 작성 / 리뷰" },
+      { Icon: IconBookOpen, text: "번역하기" },
     ];
     return { headline, sub, suggestions };
   }, [userName]);
@@ -1305,7 +1296,9 @@ function EmptyGreeting({ userName }: { userName: string | null }) {
       <ul className="empty-greeting-suggestions">
         {suggestions.map((s) => (
           <li key={s.text}>
-            <span className="empty-greeting-emoji">{s.emoji}</span>
+            <span className="empty-greeting-emoji">
+              <s.Icon size={16} />
+            </span>
             <span>{s.text}</span>
           </li>
         ))}
@@ -1353,7 +1346,7 @@ function SourcesBox({
         onClick={() => setExpanded(true)}
         title="검색 출처 펼치기"
       >
-        📎 출처 {sources.length}개
+        <IconPaperclip size={12} /> 출처 {sources.length}개
         {warning ? " · ⚠" : ""}
       </button>
     );
