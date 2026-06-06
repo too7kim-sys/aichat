@@ -1,3 +1,5 @@
+import type { AttachmentSummary } from "../api/client";
+
 export interface ProviderInfo {
   name: string;
   label: string;
@@ -10,6 +12,7 @@ export interface Message {
   role: "user" | "assistant";
   provider: string | null;
   content: string;
+  attachments_summary: AttachmentSummary[] | null;
   created_at: string;
 }
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { AttachmentSummary } from "../api/client";
 import { BubbleContent } from "./BubbleContent";
 
 interface Props {
@@ -7,12 +8,36 @@ interface Props {
   content: string;
   streaming?: boolean;
   artifactTitlePrefix?: string;
+  /** Compact list of files that travelled with this user message —
+   *  rendered as small chips above the prompt text so the bubble
+   *  preserves "I attached report.pdf + chart.png" context on
+   *  reload. No-op for assistant bubbles. */
+  attachments?: AttachmentSummary[] | null;
   /** When set, the bubble shows a select checkbox so the user can
    *  pick it for the "export to document" flow. The parent owns the
    *  selection state — the bubble just toggles the bound flag. */
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
+}
+
+/** Tiny icon + label helpers — duplicated from ChatPanel.tsx's
+ *  attachment-chip renderer on purpose so the bubble doesn't pull
+ *  in the entire ChatPanel module. Kept short. */
+function bubbleAttachmentIcon(filename: string, kind: string): string {
+  if (kind === "image") return "🖼️";
+  const ext = filename.toLowerCase().split(".").pop() || "";
+  if (ext === "pdf") return "📕";
+  if (["docx", "doc"].includes(ext)) return "📘";
+  if (["xlsx", "xls", "csv", "tsv"].includes(ext)) return "📗";
+  if (["pptx", "ppt"].includes(ext)) return "📙";
+  if (["hwpx", "hwp"].includes(ext)) return "📜";
+  return "📄";
+}
+
+function bubbleAttachmentBasename(filename: string): string {
+  const slash = filename.lastIndexOf("/");
+  return slash >= 0 ? filename.slice(slash + 1) : filename;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -57,6 +82,7 @@ export function MessageBubble({
   content,
   streaming,
   artifactTitlePrefix,
+  attachments,
   selectionMode,
   selected,
   onToggleSelect,
@@ -76,10 +102,25 @@ export function MessageBubble({
   ) : null;
 
   if (role === "user") {
+    const showAttachments = attachments && attachments.length > 0;
     return (
       <div className="bubble-row user-row">
         {selectCheckbox}
         <div className="bubble user">
+          {showAttachments && (
+            <div className="bubble-attachments">
+              {attachments!.map((a, i) => (
+                <span key={i} className="bubble-attachment" title={a.filename}>
+                  <span className="bubble-attachment-icon" aria-hidden="true">
+                    {bubbleAttachmentIcon(a.filename, a.kind)}
+                  </span>
+                  <span className="bubble-attachment-name">
+                    {bubbleAttachmentBasename(a.filename)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
           {content}
           {streaming && <span className="cursor">▍</span>}
         </div>

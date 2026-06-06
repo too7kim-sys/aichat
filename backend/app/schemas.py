@@ -1,7 +1,18 @@
+import json
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+
+class AttachmentSummary(BaseModel):
+    """Compact record of a single attachment as rendered in the chat
+    bubble. The actual extracted text + image_b64 are NOT stored here —
+    this is for visual recall only ("you attached report.pdf"), not for
+    re-running analysis."""
+    filename: str
+    kind: Literal["image", "file"]
+    size: int = 0
 
 
 class MessageOut(BaseModel):
@@ -9,9 +20,29 @@ class MessageOut(BaseModel):
     role: Literal["user", "assistant"]
     provider: str | None = None
     content: str
+    attachments_summary: list[AttachmentSummary] | None = None
     tokens_out: int | None = None
     latency_ms: int | None = None
     created_at: datetime
+
+    @field_validator("attachments_summary", mode="before")
+    @classmethod
+    def _parse_attachments_summary(cls, v):
+        # The DB column stores a JSON string; the wire format is a
+        # parsed list. None / empty strings collapse to None so the
+        # bubble renderer skips the chip row entirely.
+        if v is None or isinstance(v, list):
+            return v or None
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None
+            try:
+                parsed = json.loads(s)
+            except json.JSONDecodeError:
+                return None
+            return parsed or None
+        return v
 
     class Config:
         from_attributes = True

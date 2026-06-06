@@ -518,15 +518,39 @@ def _derive_title(prompt: str, limit: int = 40) -> str:
     return cleaned[:limit].rstrip() + "..."
 
 
+def _attachments_summary_json(
+    attachments: list[schemas.AttachmentIn],
+) -> str | None:
+    """Compact JSON list persisted alongside the user message so the
+    bubble can render filename + type chips after reload. Only the
+    client-uploaded attachments belong here — auto-injected workspace
+    files would duplicate on every turn and aren't useful to recall."""
+    if not attachments:
+        return None
+    summary = [
+        {
+            "filename": a.filename,
+            "kind": "image" if a.image_b64 else "file",
+            "size": len(a.text),
+        }
+        for a in attachments
+    ]
+    return json.dumps(summary, ensure_ascii=False)
+
+
 async def _persist_messages(
     session_id: str,
     user_prompt: str,
     assistant_results: dict[str, tuple[str, int]],
+    attachments_summary_json: str | None = None,
 ) -> None:
     async with SessionLocal() as db:
         db.add(
             models.Message(
-                session_id=session_id, role="user", content=user_prompt
+                session_id=session_id,
+                role="user",
+                content=user_prompt,
+                attachments_summary=attachments_summary_json,
             )
         )
         for provider_name, (content, latency_ms) in assistant_results.items():
@@ -867,7 +891,14 @@ async def chat_single(
             # still cancelled by the outer task, but the persistence task
             # keeps running to completion.
             persist = asyncio.create_task(
-                _persist_messages(session_id, payload.prompt, captured)
+                _persist_messages(
+                    session_id,
+                    payload.prompt,
+                    captured,
+                    attachments_summary_json=_attachments_summary_json(
+                        payload.attachments
+                    ),
+                )
             )
             try:
                 await asyncio.shield(persist)

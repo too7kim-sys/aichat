@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from "react";
-import { streamChat, type RagChunk, type SearchSource } from "../api/client";
+import {
+  streamChat,
+  type AttachmentSummary,
+  type RagChunk,
+  type SearchSource,
+} from "../api/client";
 
 /**
  * Live state for a single in-flight chat response, indexed by sessionId.
@@ -18,6 +23,10 @@ export interface PickedModel {
 export interface LiveStream {
   sessionId: string;
   prompt: string;
+  // Compact attachment list shown on the live user bubble. Mirrors
+  // the format that gets persisted to messages.attachments_summary —
+  // basename + kind only, no blobs.
+  attachments: AttachmentSummary[] | null;
   buffer: string; // accumulated assistant text
   sources: SearchSource[] | null;
   searchWarning: string | null;
@@ -72,6 +81,14 @@ class StreamStore {
     const stream: LiveStream = {
       sessionId: params.sessionId,
       prompt: params.prompt,
+      attachments:
+        params.attachments && params.attachments.length > 0
+          ? params.attachments.map((a) => ({
+              filename: a.filename,
+              kind: a.image_b64 ? "image" : "file",
+              size: a.text?.length ?? 0,
+            }))
+          : null,
       buffer: "",
       sources: params.webSearch ? [] : null,
       searchWarning: null,

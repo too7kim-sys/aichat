@@ -301,6 +301,16 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "ALTER TABLE users ADD COLUMN suspension_reason TEXT"
                 )
+            # Per-message attachment summary — JSON list of
+            # {filename, kind, size} that the chat bubble renders as
+            # compact chips above the user message. Nullable so
+            # historical messages without attachments stay untouched.
+            mcols = await conn.exec_driver_sql("PRAGMA table_info(messages)")
+            mexisting = {row[1] for row in mcols.fetchall()}
+            if mexisting and "attachments_summary" not in mexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN attachments_summary TEXT"
+                )
             # ADMIN_EMAIL bootstrap — if the env names an account, make
             # sure it's promoted to admin + approved on every startup
             # so it can recover from accidental role demotion. No-op

@@ -342,6 +342,14 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20))  # user | assistant
     provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     content: Mapped[str] = mapped_column(Text)
+    # JSON-serialised list of attachment summaries that travelled with
+    # the user prompt (NEVER assistant). Just {filename, kind, size} —
+    # no image_b64 or extracted text, both because they'd bloat the
+    # row and because the row's job here is to render a compact chip
+    # in the bubble, not to replay the attachment.
+    attachments_summary: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+    )
     tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

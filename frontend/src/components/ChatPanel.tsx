@@ -13,10 +13,7 @@ import {
   IconX,
 } from "./Icon";
 import { ExportDocumentDialog } from "../export/ExportDocumentDialog";
-import {
-  MergeAttachmentsDialog,
-  type LocalAttachment,
-} from "../export/MergeAttachmentsDialog";
+import type { LocalAttachment } from "../export/MergeAttachmentsDialog";
 import { MessageBubble } from "./MessageBubble";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
@@ -214,10 +211,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     new Set(),
   );
   const [exportOpen, setExportOpen] = useState(false);
-  const [mergeAttachOpen, setMergeAttachOpen] = useState(false);
   // Inline status for the `/병합` slash-command path — short banner
-  // above the composer reporting merge progress / success / failure
-  // without opening the modal.
+  // above the composer reporting merge progress / success / failure.
+  // The legacy modal entry point was removed; the slash command is
+  // now the only way to invoke merge from the chat surface.
   const [mergeStatus, setMergeStatus] = useState<string | null>(null);
   const toggleMessageSelection = (id: string) =>
     setSelectedMessageIds((prev) => {
@@ -581,7 +578,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             </header>
             <div className="messages">
               <div className="messages-inner">
-                <MessageBubble role="user" content={liveStream.prompt} />
+                <MessageBubble
+                  role="user"
+                  content={liveStream.prompt}
+                  attachments={liveStream.attachments}
+                />
                 <MessageBubble
                   role="assistant"
                   provider="Ollama"
@@ -864,6 +865,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   role={m.role}
                   provider={m.provider}
                   content={m.content}
+                  attachments={m.attachments_summary ?? null}
                   artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
                   selectionMode={selectionMode}
                   selected={selectedMessageIds.has(m.id)}
@@ -877,7 +879,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               session.messages and we'd duplicate it. The sources box
               below stays visible regardless of done state. */}
           {streaming && livePrompt && (
-            <MessageBubble role="user" content={livePrompt} />
+            <MessageBubble
+              role="user"
+              content={livePrompt}
+              attachments={liveStream?.attachments ?? null}
+            />
           )}
           {streaming && liveAssistant !== null && liveAssistant === "" ? (
             <div className="bubble assistant">
@@ -973,15 +979,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                       .toLocaleString()}
                     자
                   </span>
-                  <button
-                    type="button"
-                    className="attachments-merge"
-                    onClick={() => setMergeAttachOpen(true)}
-                    disabled={streaming || attachments.length < 1}
-                    title="첨부 파일들을 하나의 문서로 합쳐서 다운로드"
-                  >
-                    🔗 병합 문서
-                  </button>
                   <button
                     type="button"
                     className="attachments-clear"
@@ -1169,12 +1166,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         messages={session.messages}
         selectedIds={selectedMessageIds}
         defaultTitle={session.title}
-      />
-      <MergeAttachmentsDialog
-        open={mergeAttachOpen}
-        onClose={() => setMergeAttachOpen(false)}
-        attachments={attachments}
-        defaultTitle={`${session.title} — 첨부 병합`}
       />
     </div>
   );

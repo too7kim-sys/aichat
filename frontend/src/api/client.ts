@@ -129,6 +129,15 @@ async function mergeFiles(opts: {
   return { blob, filename };
 }
 
+/** Compact attachment record stored alongside a persisted user
+ *  message so the chat bubble can render filename + type chips on
+ *  reload. Mirrors `AttachmentSummary` on the backend. */
+export interface AttachmentSummary {
+  filename: string;
+  kind: "image" | "file";
+  size: number;
+}
+
 export type UserStatus = "pending" | "approved" | "rejected" | "suspended";
 export type UserRole = "user" | "moderator" | "admin";
 

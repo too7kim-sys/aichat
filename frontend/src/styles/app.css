@@ -280,6 +280,36 @@ body {
   padding: 12px 18px;
   max-width: 80%;
 }
+/* Compact list of files that travelled with this user prompt —
+ * sits above the message body inside the bubble. Empty when the
+ * turn had no attachments. */
+.bubble-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: -2px 0 8px;
+}
+.bubble-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text);
+  max-width: 220px;
+}
+.bubble-attachment-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+.bubble-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .bubble.assistant {
   align-self: stretch;
   background: transparent;
