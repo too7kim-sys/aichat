@@ -113,7 +113,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  /* Lighter gray than the title text so the glyph reads as a small
+     ornament rather than competing with the title. */
+  color: var(--text-faint);
 }
 .session-mode {
   font-size: 10px;
@@ -263,7 +265,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  /* Soft gray so the icon is a subtle hint, not a focal point. */
+  color: var(--text-faint);
   width: 18px;
 }
 
