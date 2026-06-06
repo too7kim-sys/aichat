@@ -636,10 +636,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     // Composer slash command: `/merge`, `/병합`, "합쳐줘", "[제목]로 병합".
     // Detected here so the user can stay in the textarea instead of
     // reaching for the 🔗 button — the LLM call is skipped entirely
-    // when a merge command is recognised.
+    // when a merge command is recognised. The raw text is preserved
+    // so the persisted user message reflects what they typed.
     const merge = parseMergeCommand(text);
     if (merge.matched) {
-      void runInlineMerge(merge.title);
+      void runInlineMerge(merge.title, text);
       return;
     }
 
@@ -662,7 +663,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     });
   }
 
-  async function runInlineMerge(titleOverride?: string) {
+  async function runInlineMerge(
+    titleOverride?: string,
+    userPromptRaw?: string,
+  ) {
     const MERGEABLE = /\.(pdf|docx|xlsx|pptx|hwpx)$/i;
     const mergeable = attachments.filter(
       (a) => MERGEABLE.test(a.filename) && !!a._file,
@@ -695,9 +699,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       return;
     }
 
-    const baseTitle =
-      titleOverride?.trim() || `${session?.title || "merged"} — 첨부 병합`;
+    // Default filename is timestamp-based — independent of the
+    // session title so chats whose title happens to be "오타 찾아줘"
+    // or any other prompt-derived string don't end up in the merge
+    // output's name.
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const stamp =
+      `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+      `-${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const baseTitle = titleOverride?.trim() || `병합문서-${stamp}`;
     setMergeStatus(`병합 중… (${majority.length}개)`);
+    const userPrompt = (userPromptRaw ?? "").trim() || "/병합";
     try {
       const { blob, filename } = await api.mergeFiles({
         files: majority.map((a) => a._file as File),
@@ -716,6 +729,30 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         `✅ 다운로드 완료 — ${filename} (${Math.round(blob.size / 1024)} KB, ${majority.length}개 합침)`,
       );
       setPrompt("");
+      // Persist a chat record of the merge — user's slash command
+      // + an assistant-style confirmation chip. The download blob
+      // itself isn't stored; this is purely for the visible log.
+      try {
+        const newMessages = await api.logMerge(sessionId, {
+          user_prompt: userPrompt,
+          source_filenames: majority.map((m) => m.filename),
+          result_filename: filename,
+          result_size: blob.size,
+        });
+        setSession((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [
+                  ...prev.messages,
+                  ...newMessages.map((m) => ({ ...m, provider: m.provider })),
+                ],
+              }
+            : prev,
+        );
+      } catch {
+        // Logging is best-effort — the user already has their file.
+      }
     } catch (e) {
       setMergeStatus(
         `병합 실패: ${e instanceof Error ? e.message : String(e)}`,

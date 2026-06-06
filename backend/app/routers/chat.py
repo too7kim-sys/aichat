@@ -619,6 +619,75 @@ async def _stream_one(
         )
 
 
+@router.post("/{session_id}/log-merge", response_model=list[schemas.MessageOut])
+async def log_merge(
+    session_id: str,
+    payload: schemas.MergeLogRequest,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Persist a two-message record of a `/병합` exchange so the chat
+    surface shows what happened — the user's slash command (with the
+    source files as chips) on one side, and an assistant-style
+    confirmation (with the merged filename as a chip) on the other.
+
+    The actual merged bytes are NOT stored — the download already
+    fired client-side during the merge call. This endpoint is purely
+    for the visible chat log."""
+    session = await _load_session(db, session_id, user.id)
+
+    _image_exts = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff"}
+
+    def _kind(fn: str) -> str:
+        i = fn.rfind(".")
+        ext = fn[i:].lower() if i >= 0 else ""
+        return "image" if ext in _image_exts else "file"
+
+    user_summary = json.dumps(
+        [
+            {"filename": fn, "kind": _kind(fn), "size": 0}
+            for fn in payload.source_filenames
+        ],
+        ensure_ascii=False,
+    )
+    result_summary = json.dumps(
+        [
+            {
+                "filename": payload.result_filename,
+                "kind": _kind(payload.result_filename),
+                "size": max(payload.result_size, 0),
+            }
+        ],
+        ensure_ascii=False,
+    )
+    kb = (max(payload.result_size, 0) + 1023) // 1024
+    summary_text = (
+        f"✅ 병합 완료 — {payload.result_filename} "
+        f"({len(payload.source_filenames)}개 파일 합침, {kb:,} KB)"
+    )
+
+    user_msg = models.Message(
+        session_id=session_id,
+        role="user",
+        content=payload.user_prompt,
+        attachments_summary=user_summary,
+    )
+    result_msg = models.Message(
+        session_id=session_id,
+        role="assistant",
+        provider="merge",
+        content=summary_text,
+        attachments_summary=result_summary,
+    )
+    db.add(user_msg)
+    db.add(result_msg)
+    await db.commit()
+    await db.refresh(user_msg)
+    await db.refresh(result_msg)
+    _ = session  # suppress unused — ownership check already happened
+    return [user_msg, result_msg]
+
+
 @router.post("/{session_id}/chat")
 async def chat_single(
     session_id: str,

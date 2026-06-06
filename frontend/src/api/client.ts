@@ -384,6 +384,33 @@ export const api = {
     }),
   extractFile: uploadExtract,
   mergeFiles,
+  /** Persist a two-message record of a `/병합` exchange so the chat
+   *  surface shows what happened — the user's slash command and an
+   *  assistant-style "병합 완료" confirmation with the merged
+   *  filename as an attachment chip. The actual merged bytes are
+   *  NOT stored; the download already happened browser-side. */
+  logMerge: (
+    sessionId: string,
+    payload: {
+      user_prompt: string;
+      source_filenames: string[];
+      result_filename: string;
+      result_size: number;
+    },
+  ) =>
+    json<
+      {
+        id: string;
+        role: "user" | "assistant";
+        provider: string | null;
+        content: string;
+        attachments_summary: AttachmentSummary[] | null;
+        created_at: string;
+      }[]
+    >(`/sessions/${sessionId}/log-merge`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   // RAG / Projects
   listProjects: () => json<Project[]>("/projects"),

@@ -128,6 +128,7 @@ export function MessageBubble({
       </div>
     );
   }
+  const showAssistantAttachments = attachments && attachments.length > 0;
   return (
     <div className="bubble assistant">
       {selectCheckbox}
@@ -140,6 +141,20 @@ export function MessageBubble({
             streaming={!!streaming}
             artifactTitlePrefix={artifactTitlePrefix}
           />
+          {showAssistantAttachments && (
+            <div className="bubble-attachments assistant-side">
+              {attachments!.map((a, i) => (
+                <span key={i} className="bubble-attachment" title={a.filename}>
+                  <span className="bubble-attachment-icon" aria-hidden="true">
+                    {bubbleAttachmentIcon(a.filename, a.kind)}
+                  </span>
+                  <span className="bubble-attachment-name">
+                    {bubbleAttachmentBasename(a.filename)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         {!streaming && content && (
           <div className="bubble-actions">

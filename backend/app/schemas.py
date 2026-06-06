@@ -302,6 +302,17 @@ class SuspendRequest(BaseModel):
     reason: str = Field(default="", max_length=500)
 
 
+class MergeLogRequest(BaseModel):
+    """Body posted by the chat composer after a successful inline
+    `/병합` so the backend can persist a two-message record of the
+    exchange — the user's command and an assistant-style confirmation
+    with the merged filename as an attachment chip."""
+    user_prompt: str = Field(min_length=1, max_length=2000)
+    source_filenames: list[str] = Field(default_factory=list, max_length=200)
+    result_filename: str = Field(min_length=1, max_length=200)
+    result_size: int = 0
+
+
 class AppSettingsOut(BaseModel):
     """Snapshot of the runtime-toggleable app settings the admin
     dashboard reads/writes."""

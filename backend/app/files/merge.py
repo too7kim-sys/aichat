@@ -30,6 +30,7 @@ concatenated continuously.
 from __future__ import annotations
 
 import copy
+import html as _html
 import io
 import re
 import uuid
@@ -147,20 +148,45 @@ def _merge_pdf(
 def _insert_pdf_divider_page(dst: "fitz.Document", filename: str) -> None:
     """Append a single A4 page with the source filename centered.
     Used as a separator between source PDFs when the caller asked for
-    visible boundaries."""
+    visible boundaries.
+
+    insert_htmlbox uses the PyMuPDF Story renderer, which falls back
+    to system fonts for CJK glyphs — so Korean filenames actually
+    show up instead of rendering as boxes (which is what plain
+    insert_text with "helv" used to do)."""
     page = dst.new_page(width=595, height=842)  # A4 in points
-    text = f"📄  {filename}"
-    # PyMuPDF picks a CJK-capable font if available; falls back to
-    # Helvetica for ASCII-only content.
+    label = f"📄 {filename}"
+    # Big centered title block — leaves the rest of the page empty so
+    # the source's first page begins on the next sheet.
+    rect = fitz.Rect(50, 300, 545, 500)
+    html = (
+        '<div style="font-family: sans-serif; font-size: 20pt; '
+        'text-align: center; color: #222;">'
+        f"{_html.escape(label)}</div>"
+    )
+    try:
+        page.insert_htmlbox(rect, html)
+        return
+    except Exception:
+        pass
+    # Fallback 1 — try a CJK fontname for Korean characters; PyMuPDF
+    # ships a few CIDFonts (korea / korea-s) since 1.21.
     try:
         page.insert_text(
-            fitz.Point(60, 380),
-            text,
-            fontsize=18,
-            fontname="helv",
+            fitz.Point(60, 400), label, fontsize=18, fontname="korea",
+        )
+        return
+    except Exception:
+        pass
+    # Fallback 2 — plain helv; ASCII parts of the filename will still
+    # show, Korean glyphs may render as boxes. Better than nothing.
+    try:
+        page.insert_text(
+            fitz.Point(60, 400), label, fontsize=18, fontname="helv",
         )
     except Exception:
-        # Fontless fallback — at worst the page is blank with no name.
+        # Final fallback: page stays blank but the divider is at least
+        # there so the source-document boundary is visible.
         pass
 
 

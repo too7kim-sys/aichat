@@ -310,6 +310,17 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Assistant-side chip row sits BELOW the message text (the "결과
+   문서" feeling); the user-side row sits above the prompt body. */
+.bubble-attachments.assistant-side {
+  margin: 8px 0 0;
+}
+.bubble-attachments.assistant-side .bubble-attachment {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 500;
+}
 .bubble.assistant {
   align-self: stretch;
   background: transparent;
