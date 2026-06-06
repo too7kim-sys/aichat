@@ -403,6 +403,13 @@ export interface Project {
   schedule_interval_minutes: number;
   last_indexed_at: string | null;
   created_at: string;
+  /** Shared knowledge base — exposed to the roles in role_codes and
+   *  auto-searched in chat for those users. */
+  is_shared: boolean;
+  role_codes: string[];
+  /** False when the user is accessing this as a shared knowledge base
+   *  they don't own — the UI hides delete / reindex in that case. */
+  owned: boolean;
 }
 
 export interface Workspace {
@@ -554,10 +561,21 @@ export const api = {
      *  drops it on other source types so a stray value can't pollute
      *  an unrelated project's indexing run. */
     sql_query?: string | null;
+    /** Admin-only: create as a shared knowledge base exposed to the
+     *  given role codes. */
+    is_shared?: boolean;
+    role_codes?: string[];
   }) =>
     json<Project>("/projects", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  /** Admin-only: replace the role→project access grants for a shared
+   *  knowledge base (marks it shared if it wasn't). */
+  updateProjectAccess: (id: string, roleCodes: string[]) =>
+    json<Project>(`/projects/${id}/access`, {
+      method: "PATCH",
+      body: JSON.stringify({ role_codes: roleCodes }),
     }),
   reindexProject: (id: string) =>
     json<Project>(`/projects/${id}/reindex`, { method: "POST" }),

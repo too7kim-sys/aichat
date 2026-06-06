@@ -4895,6 +4895,51 @@ body {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/* Shared knowledge-base toggle + role grants (admin add form) */
+.pm-share-field {
+  border-top: 1px dashed var(--border);
+  padding-top: 14px;
+}
+.pm-share-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  text-transform: none;
+}
+.pm-share-toggle input { margin-top: 3px; width: 15px; height: 15px; }
+.pm-share-toggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pm-share-toggle b { font-size: 13px; color: var(--text); }
+.pm-share-roles {
+  margin-top: 12px;
+  padding-left: 25px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pm-share-role-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pm-share-role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+  text-transform: none;
+}
+.pm-share-role-chip input { width: 14px; height: 14px; }
+
 .pm-sql-preview-wrap {
   max-height: 280px;
   overflow: auto;

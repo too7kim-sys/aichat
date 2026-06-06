@@ -113,6 +113,16 @@ class ProjectCreate(BaseModel):
     # indexer runs it on every snapshot and embeds the result rows
     # alongside the reflected schema. Ignored for other source types.
     sql_query: str | None = Field(default=None, max_length=8000)
+    # Shared knowledge base — admin-only. When true, the project is
+    # exposed to every role listed in `role_codes` and auto-searched
+    # in chat for those users. Personal projects leave is_shared=False.
+    is_shared: bool = False
+    role_codes: list[str] = Field(default_factory=list, max_length=50)
+
+
+class ProjectAccessUpdate(BaseModel):
+    """PATCH the role→project access list for a shared project."""
+    role_codes: list[str] = Field(default_factory=list, max_length=50)
 
 
 class SnapshotOut(BaseModel):
@@ -147,6 +157,15 @@ class ProjectOut(BaseModel):
     schedule_interval_minutes: int = 0
     last_indexed_at: datetime | None = None
     created_at: datetime
+    is_shared: bool = False
+    # Populated for shared projects so the admin UI can render the
+    # current role grants. Empty for personal projects.
+    role_codes: list[str] = []
+    # True when the requesting user owns this project (vs. accessing
+    # it as a shared knowledge base). Lets the UI hide owner-only
+    # controls (delete, reindex) for shared projects a user merely
+    # consumes.
+    owned: bool = True
 
     class Config:
         from_attributes = True

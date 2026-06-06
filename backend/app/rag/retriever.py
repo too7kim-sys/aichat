@@ -123,6 +123,75 @@ async def retrieve(
     return _merge_adjacent(hits)
 
 
+async def retrieve_many(
+    project_ids: list[str],
+    query: str,
+    *,
+    min_score: float = 0.0,
+    top_k: int | None = None,
+) -> list[RetrievedChunk]:
+    """Question-driven multi-project retrieval. Embeds the query ONCE,
+    searches every given project's current snapshot, pools the hits,
+    score-gates them with `min_score`, and returns the global top-K.
+
+    This is what powers "권한 있는 지식베이스를 채팅에 연결하지 않아도
+    질문 기반으로 자동 활용" — irrelevant projects simply contribute
+    low-scoring chunks that fall below the gate, so they cost a search
+    but never pollute the context."""
+    if not settings.rag_enabled or not project_ids:
+        return []
+    limit = top_k or settings.rag_top_k
+    try:
+        qvec = await embed_one(query)
+    except EmbedError as exc:
+        log.warning("RAG multi-retrieval: embedding failed (%s)", exc)
+        return []
+
+    # Resolve each project's current snapshot in one DB round-trip.
+    async with SessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(models.Project.id, models.Project.current_snapshot_id)
+                .where(models.Project.id.in_(project_ids))
+            )
+        ).all()
+    snapshots = [(pid, snap) for pid, snap in rows if snap]
+    if not snapshots:
+        return []
+
+    client = get_client()
+    pooled: list[RetrievedChunk] = []
+    for _pid, snap in snapshots:
+        cname = collection_name(snap)
+        try:
+            results = client.search(
+                collection_name=cname,
+                query_vector=qvec,
+                limit=limit,
+                with_payload=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - collection may be absent
+            log.warning("RAG multi-retrieval: search failed on %s (%s)", cname, exc)
+            continue
+        for r in results:
+            if not r.payload:
+                continue
+            if float(r.score) < min_score:
+                continue
+            pooled.append(
+                RetrievedChunk(
+                    filename=str(r.payload.get("filename", "")),
+                    start_line=int(r.payload.get("start_line", 0)),
+                    end_line=int(r.payload.get("end_line", 0)),
+                    text=str(r.payload.get("text", "")),
+                    score=float(r.score),
+                    corpus_type=str(r.payload.get("corpus_type", "code")),
+                )
+            )
+    merged = _merge_adjacent(pooled)
+    return merged[:limit]
+
+
 _TYPE_PROMPT_HEADER = {
     "code": (
         "[RETRIEVED PROJECT CONTEXT — 소스 코드]\n"

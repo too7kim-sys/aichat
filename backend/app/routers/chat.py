@@ -893,29 +893,51 @@ async def chat_single(
         )
         if session_row is not None:
             project_id = session_row.project_id
+
+    chunks: list = []
     if project_id:
+        # Explicit link — search just that project (existing behaviour).
         try:
             chunks = await retrieve(project_id, payload.prompt)
         except Exception as exc:  # noqa: BLE001
             chunks = []
             log.warning("RAG retrieve failed: %s", exc)
-        if chunks:
-            history.insert(
-                -1,
-                ChatMessage(
-                    role="system",
-                    content=format_chunks_for_prompt(chunks),
-                ),
-            )
-            rag_chunks = [
-                {
-                    "filename": c.filename,
-                    "start_line": c.start_line,
-                    "end_line": c.end_line,
-                    "score": c.score,
-                }
-                for c in chunks
-            ]
+    else:
+        # No explicit link — question-driven auto search across every
+        # shared knowledge base this user's role can access. Score-
+        # gated so unrelated bases contribute nothing to the context.
+        try:
+            from ..rag.access import accessible_shared_project_ids
+            from ..rag.retriever import retrieve_many
+
+            accessible = await accessible_shared_project_ids(db, user)
+            if accessible:
+                chunks = await retrieve_many(
+                    accessible,
+                    payload.prompt,
+                    min_score=settings.rag_auto_min_score,
+                )
+        except Exception as exc:  # noqa: BLE001
+            chunks = []
+            log.warning("RAG auto-retrieve failed: %s", exc)
+
+    if chunks:
+        history.insert(
+            -1,
+            ChatMessage(
+                role="system",
+                content=format_chunks_for_prompt(chunks),
+            ),
+        )
+        rag_chunks = [
+            {
+                "filename": c.filename,
+                "start_line": c.start_line,
+                "end_line": c.end_line,
+                "score": c.score,
+            }
+            for c in chunks
+        ]
 
     # Optional per-deployment system prompt from .env (house style,
     # domain rules, escalation policy, ...). Goes near the front so

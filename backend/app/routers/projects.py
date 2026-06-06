@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .. import models, schemas
-from ..auth import get_current_user
+from ..auth import get_current_user, require_admin
 from ..config import settings
 from ..database import get_db
+from ..rag.access import accessible_shared_project_ids, can_access_project
 from ..rag.db_drivers import (
     DriverInfo,
     SqlPreviewRequest,
@@ -46,6 +47,75 @@ def _new_snapshot_label() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
+async def _is_admin(db: AsyncSession, user: models.User) -> bool:
+    """True when the user's role resolves to the admin tier (built-in
+    'admin' or a custom code with base_role='admin')."""
+    if user.role == "admin":
+        return True
+    if user.role in {"moderator", "user"}:
+        return False
+    role = (
+        await db.execute(
+            select(models.Role).where(models.Role.code == user.role)
+        )
+    ).scalar_one_or_none()
+    return role is not None and role.base_role == "admin"
+
+
+async def _role_codes_for_project(db: AsyncSession, project_id: str) -> list[str]:
+    rows = (
+        await db.execute(
+            select(models.ProjectRoleAccess.role_code).where(
+                models.ProjectRoleAccess.project_id == project_id
+            )
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+async def _serialize_project(
+    db: AsyncSession, project: models.Project, user: models.User
+) -> schemas.ProjectOut:
+    """Build a ProjectOut, attaching the shared-project role grants and
+    an `owned` flag so the UI can gate owner-only controls."""
+    out = schemas.ProjectOut.model_validate(project)
+    out.owned = project.user_id == user.id
+    if project.is_shared:
+        out.role_codes = await _role_codes_for_project(db, project.id)
+    return out
+
+
+async def _set_project_roles(
+    db: AsyncSession, project_id: str, role_codes: list[str]
+) -> None:
+    """Replace the role grants for a project with `role_codes`. Unknown
+    codes are silently dropped (validated against the roles table) so a
+    stale client can't grant access to a role that no longer exists."""
+    valid = set(
+        (
+            await db.execute(
+                select(models.Role.code).where(
+                    models.Role.code.in_(role_codes)
+                )
+            )
+        ).scalars().all()
+    )
+    # Wipe existing grants, re-insert the validated set.
+    existing = (
+        await db.execute(
+            select(models.ProjectRoleAccess).where(
+                models.ProjectRoleAccess.project_id == project_id
+            )
+        )
+    ).scalars().all()
+    for row in existing:
+        await db.delete(row)
+    for code in valid:
+        db.add(
+            models.ProjectRoleAccess(project_id=project_id, role_code=code)
+        )
+
+
 async def _create_snapshot_and_schedule(
     db: AsyncSession, project: models.Project
 ) -> models.ProjectSnapshot:
@@ -74,13 +144,41 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(models.Project)
-        .where(models.Project.user_id == user.id)
-        .options(selectinload(models.Project.snapshots))
-        .order_by(models.Project.created_at.desc())
+    """Personal projects (owned) plus any shared knowledge bases the
+    user's role grants access to. Shared projects the user merely
+    consumes come back with owned=False so the UI hides delete /
+    reindex on them."""
+    owned = (
+        await db.execute(
+            select(models.Project)
+            .where(models.Project.user_id == user.id)
+            .options(selectinload(models.Project.snapshots))
+            .order_by(models.Project.created_at.desc())
+        )
+    ).scalars().all()
+
+    shared_ids = await accessible_shared_project_ids(
+        db, user, ready_only=False
     )
-    return list(result.scalars())
+    owned_ids = {p.id for p in owned}
+    extra_ids = [pid for pid in shared_ids if pid not in owned_ids]
+    shared: list[models.Project] = []
+    if extra_ids:
+        shared = list(
+            (
+                await db.execute(
+                    select(models.Project)
+                    .where(models.Project.id.in_(extra_ids))
+                    .options(selectinload(models.Project.snapshots))
+                    .order_by(models.Project.created_at.desc())
+                )
+            ).scalars().all()
+        )
+
+    out: list[schemas.ProjectOut] = []
+    for p in [*owned, *shared]:
+        out.append(await _serialize_project(db, p, user))
+    return out
 
 
 _ALLOWED_SOURCE_BY_CORPUS = {
@@ -124,6 +222,13 @@ async def create_project(
         if payload.source_type == "connection"
         else None
     )
+    # Shared knowledge bases are admin-only. A non-admin trying to
+    # set is_shared gets a clear 403 rather than a silently-personal
+    # project that wouldn't behave as they expect.
+    if payload.is_shared and not await _is_admin(db, user):
+        raise HTTPException(
+            403, "공유 지식베이스는 관리자(admin)만 만들 수 있습니다",
+        )
     project = models.Project(
         user_id=user.id,
         name=payload.name,
@@ -131,13 +236,17 @@ async def create_project(
         source_ref=payload.source_ref,
         corpus_type=payload.corpus_type,
         sql_query=effective_sql,
+        is_shared=payload.is_shared,
         status="pending",
     )
     db.add(project)
     await db.flush()
+    if payload.is_shared and payload.role_codes:
+        await _set_project_roles(db, project.id, payload.role_codes)
     await _create_snapshot_and_schedule(db, project)
     # Reload with snapshots populated for the response.
-    return await _project_with_snapshots(db, project.id, user.id)
+    proj = await _project_with_snapshots(db, project.id, user.id)
+    return await _serialize_project(db, proj, user)
 
 
 # IMPORTANT: literal routes (anything that doesn't start with a path
@@ -263,6 +372,33 @@ async def update_schedule(
     project.schedule_interval_minutes = payload.schedule_interval_minutes
     await db.commit()
     return await _project_with_snapshots(db, project.id, user.id)
+
+
+@router.patch("/{project_id}/access", response_model=schemas.ProjectOut)
+async def update_project_access(
+    project_id: str,
+    payload: schemas.ProjectAccessUpdate,
+    db: AsyncSession = Depends(get_db),
+    actor: models.User = Depends(require_admin),
+):
+    """Replace the role→project access grants for a shared knowledge
+    base. Admin-only. Marks the project shared if it wasn't already so
+    granting a role from the dashboard 'just works'."""
+    project = await db.scalar(
+        select(models.Project).where(models.Project.id == project_id)
+    )
+    if not project:
+        raise HTTPException(404, "project not found")
+    if not project.is_shared:
+        project.is_shared = True
+    await _set_project_roles(db, project_id, payload.role_codes)
+    await db.commit()
+    proj = await db.scalar(
+        select(models.Project)
+        .where(models.Project.id == project_id)
+        .options(selectinload(models.Project.snapshots))
+    )
+    return await _serialize_project(db, proj, actor)
 
 
 @router.post(

@@ -90,6 +90,33 @@ async def init_db() -> None:
                     "UPDATE projects SET corpus_type = 'document' "
                     "WHERE corpus_type = 'legal'"
                 )
+            if pexisting and "is_shared" not in pexisting:
+                # Shared knowledge-base flag — see models.Project.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN is_shared "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_projects_is_shared "
+                    "ON projects(is_shared)"
+                )
+            # role→project access table — created by create_all when
+            # the model registers, but belt-and-suspenders for older
+            # DBs so the chat auto-search join doesn't crash.
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS project_role_access (
+                    project_id  VARCHAR(36) NOT NULL,
+                    role_code   VARCHAR(40) NOT NULL,
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (project_id, role_code)
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_project_role_access_role "
+                "ON project_role_access(role_code)"
+            )
             if pexisting and "sql_query" not in pexisting:
                 # Per-project SELECT for the connection source — see
                 # models.Project.sql_query for the indexer flow.

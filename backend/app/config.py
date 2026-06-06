@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     # Retrieval: Top-K chunks per query. 12 keeps token cost sane
     # while covering ~6-8 files of relevant code.
     rag_top_k: int = 12
+    # Minimum cosine score a chunk must clear to be injected during
+    # question-driven auto-search across shared knowledge bases (the
+    # "연결 안 해도 자동 활용" path). Explicit per-session links skip
+    # this gate. Tuned conservative so an unrelated knowledge base
+    # doesn't bleed noise into every answer; lower it if relevant
+    # bases are being missed.
+    rag_auto_min_score: float = 0.45
     # Per-project file limits (separate from the git/folder upload
     # caps because the corpus is meant to be larger).
     rag_max_files: int = 5000

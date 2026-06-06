@@ -221,6 +221,13 @@ class Project(Base):
     corpus_type: Mapped[str] = mapped_column(
         String(20), default="code", index=True
     )
+    # Shared knowledge base flag. When True the project is owned by an
+    # admin and exposed to any user whose role is mapped in
+    # project_role_access. Personal projects (the original model) keep
+    # is_shared=False and stay scoped to their user_id owner.
+    is_shared: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True
+    )
     # The vector index lives in a Snapshot row, not on Project itself
     # (the project is the logical group; snapshots are the versioned
     # instances). current_snapshot_id is the one chat retrieval uses
@@ -256,6 +263,29 @@ class Project(Base):
         cascade="all, delete-orphan",
         foreign_keys="ProjectSnapshot.project_id",
         order_by="ProjectSnapshot.created_at.desc()",
+    )
+
+
+class ProjectRoleAccess(Base):
+    """M:N — which roles may use a shared knowledge-base project. A
+    user whose `role` (or its base_role) is listed here gets the
+    project in their accessible set, which the chat router then
+    auto-searches on every turn (question-driven, score-gated). Only
+    meaningful for projects with is_shared=True."""
+    __tablename__ = "project_role_access"
+
+    project_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role_code: Mapped[str] = mapped_column(
+        String(40),
+        ForeignKey("roles.code", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
     )
 
 

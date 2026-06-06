@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "../api/client";
+import { admin, api } from "../api/client";
 import type {
   CorpusType,
   DbDriverInfo,
   DbTestResult,
   Project,
+  Role,
   SourceType,
   SqlPreviewResult,
 } from "../api/client";
@@ -141,6 +142,10 @@ interface Props {
   linkedProjectId?: string | null;
   /** Called when the user toggles the link from a project card. */
   onLinkChange?: (projectId: string | null) => void;
+  /** When true (admin context), the add form exposes the "공유
+   *  지식베이스" toggle + role-grant checkboxes, and project cards
+   *  show the role-access editor. */
+  adminMode?: boolean;
 }
 
 function fmtBytes(n: number): string {
@@ -157,10 +162,19 @@ export function ProjectModal({
   linkSessionId = null,
   linkedProjectId = null,
   onLinkChange,
+  adminMode = false,
 }: Props) {
   const { projects, storageBytes, create, remove, reindex, refresh } =
     useProjects();
   const [addOpen, setAddOpen] = useState(false);
+  // Role catalog for the admin share-grant UI. Only fetched in admin
+  // mode; non-admins can't hit /admin/roles anyway.
+  const [roles, setRoles] = useState<Role[]>([]);
+  useEffect(() => {
+    if (open && adminMode) {
+      admin.listRoles().then(setRoles).catch(() => undefined);
+    }
+  }, [open, adminMode]);
   // Master-detail: only one project's full card (status / snapshots /
   // schedule / actions) is rendered at a time. The list on the left
   // shows just name + status so the modal isn't a wall of expanded
@@ -260,6 +274,8 @@ export function ProjectModal({
             <div className="pm-add-wrap">
               <AddProjectForm
                 compact={projects.length > 0}
+                adminMode={adminMode}
+                roles={roles}
                 onCancel={
                   projects.length > 0 ? () => setAddOpen(false) : undefined
                 }
@@ -666,7 +682,7 @@ function ProjectCard({
             )}
           </button>
         )}
-        {(p.status === "ready" || p.status === "failed") && (
+        {p.owned && (p.status === "ready" || p.status === "failed") && (
           <button
             type="button"
             className="pm-icon-btn"
@@ -677,15 +693,21 @@ function ProjectCard({
             <IconRefresh size={15} />
           </button>
         )}
-        <button
-          type="button"
-          className="pm-icon-btn danger"
-          onClick={onDelete}
-          title="삭제"
-          aria-label="삭제"
-        >
-          <IconTrash size={15} />
-        </button>
+        {p.owned ? (
+          <button
+            type="button"
+            className="pm-icon-btn danger"
+            onClick={onDelete}
+            title="삭제"
+            aria-label="삭제"
+          >
+            <IconTrash size={15} />
+          </button>
+        ) : (
+          <span className="pm-shared-badge" title="공유 지식베이스 — 읽기 전용">
+            공유
+          </span>
+        )}
       </div>
     </article>
   );
@@ -798,10 +820,14 @@ function StatusBadge({ status }: { status: Project["status"] }) {
 
 function AddProjectForm({
   compact,
+  adminMode = false,
+  roles = [],
   onCancel,
   onSubmit,
 }: {
   compact: boolean;
+  adminMode?: boolean;
+  roles?: Role[];
   onCancel?: () => void;
   onSubmit: (payload: {
     name: string;
@@ -810,8 +836,15 @@ function AddProjectForm({
     ref?: string;
     corpus_type: CorpusType;
     sql_query?: string | null;
+    is_shared?: boolean;
+    role_codes?: string[];
   }) => Promise<void>;
 }) {
+  // Shared knowledge-base toggle + role grants (admin only). When
+  // shared, the project is auto-searched in chat for any user whose
+  // role is checked here — no per-session linking needed.
+  const [isShared, setIsShared] = useState(false);
+  const [shareRoles, setShareRoles] = useState<Set<string>>(new Set());
   // Code corpus moved to the Code tab; new Cowork projects default
   // to "document". CORPUS_META still keeps the "code" entry so legacy
   // chips render, but the tabs no longer expose it.
@@ -1088,6 +1121,8 @@ function AddProjectForm({
           sourceType === "connection" && dbSql.trim()
             ? dbSql.trim()
             : null,
+        is_shared: adminMode ? isShared : false,
+        role_codes: adminMode && isShared ? Array.from(shareRoles) : [],
       });
       setName("");
       setRefs({ git: "", folder: "", url: "", connection: "", sftp: "" });
@@ -1521,6 +1556,56 @@ function AddProjectForm({
             onChange={(e) => setGitBranch(e.target.value)}
             disabled={submitting}
           />
+        </div>
+      )}
+
+      {adminMode && (
+        <div className="pm-field pm-share-field">
+          <label className="pm-share-toggle">
+            <input
+              type="checkbox"
+              checked={isShared}
+              onChange={(e) => setIsShared(e.target.checked)}
+              disabled={submitting}
+            />
+            <span>
+              <b>공유 지식베이스로 만들기</b>
+              <span className="pm-help">
+                선택한 역할의 사용자는 채팅에 연결하지 않아도 질문과
+                관련될 때 자동으로 이 지식베이스를 검색합니다.
+              </span>
+            </span>
+          </label>
+
+          {isShared && (
+            <div className="pm-share-roles">
+              <div className="pm-help">이 지식베이스를 사용할 역할</div>
+              {roles.length === 0 ? (
+                <div className="pm-help">역할 목록을 불러오는 중…</div>
+              ) : (
+                <div className="pm-share-role-grid">
+                  {roles.map((r) => (
+                    <label key={r.code} className="pm-share-role-chip">
+                      <input
+                        type="checkbox"
+                        checked={shareRoles.has(r.code)}
+                        onChange={(e) =>
+                          setShareRoles((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(r.code);
+                            else next.delete(r.code);
+                            return next;
+                          })
+                        }
+                        disabled={submitting}
+                      />
+                      <span>{r.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
