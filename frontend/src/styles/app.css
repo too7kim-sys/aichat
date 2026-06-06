@@ -4648,8 +4648,33 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* Box-model + flex-item floor so a wide grid child (the SFTP /
+   * DB field rows) can't push the card outside .pm-add-wrap. The
+   * defaults (min-width: auto in column flex) were letting the
+   * intrinsic width of the inputs leak past max-width: 640px. */
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
+/* Every direct child of the form card respects the card's inner
+ * width — grids, tables, the SQL preview wrap, etc. all stay
+ * inside the bordered area instead of bleeding past it. */
+.pm-add > * { min-width: 0; max-width: 100%; }
 .pm-add.hero { background: var(--bg-card); padding: 24px 22px; }
+
+/* SFTP form rows sit inside .pm-add. Each row is a grid cell, the
+ * children are .pm-field. Desktop: port (narrow) + user (wide) on
+ * one row, everything else full-width via gridColumn='1 / span 2'
+ * inline. Mobile (@media below): grid collapses to a single column
+ * so phone labels stay readable. */
+.pm-sftp-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 14px 12px;
+  width: 100%;
+  min-width: 0;
+}
+.pm-sftp-grid .pm-field { margin: 0; min-width: 0; }
 .pm-add-hero {
   text-align: center;
   display: flex;
@@ -4757,16 +4782,6 @@ body {
   margin-top: 4px;
 }
 
-/* SFTP form — desktop: host full row, port (narrow) + user (wide)
-   on one row, password full row, remote path full row. Mobile: every
-   field stacks vertically so the labels stay readable. */
-.pm-sftp-grid {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 14px 12px;
-}
-.pm-sftp-grid .pm-field { margin: 0; min-width: 0; }
-
 /* DB connection form — driver picker + per-driver field grid. The
  * grid mirrors the SFTP layout: host (wide) + port (narrow) on one
  * row, user + pass on another, database on its own row. */
@@ -4774,6 +4789,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 .pm-db-driver-select {
   padding: 10px 12px;
@@ -4802,6 +4819,8 @@ body {
   display: grid;
   grid-template-columns: 2fr 1fr;
   gap: 14px 12px;
+  width: 100%;
+  min-width: 0;
 }
 .pm-db-grid .pm-field { margin: 0; min-width: 0; }
 .pm-db-host { grid-column: 1; }
@@ -4882,6 +4901,11 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
+  /* Wide query results scroll horizontally INSIDE the wrap; the
+   * wrap itself never escapes the form card. */
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 .pm-sql-preview-table {
   width: 100%;
