@@ -317,6 +317,8 @@ export function ProjectModal({
               {activeProject ? (
                 <ProjectCard
                   project={activeProject}
+                  adminMode={adminMode}
+                  allRoles={roles}
                   linkable={!!linkSessionId}
                   linked={linkedProjectId === activeProject.id}
                   onLink={() =>
@@ -460,6 +462,8 @@ function ProjectListItem({
 
 function ProjectCard({
   project: p,
+  adminMode = false,
+  allRoles = [],
   linkable,
   linked,
   onLink,
@@ -467,15 +471,90 @@ function ProjectCard({
   onDelete,
 }: {
   project: Project;
+  adminMode?: boolean;
+  allRoles?: Role[];
   linkable: boolean;
   linked: boolean;
   onLink: () => void;
   onReindex: () => void;
   onDelete: () => void;
 }) {
-  const { activateSnapshot, deleteSnapshot, refreshProject, setSchedule } =
-    useProjects();
+  const {
+    activateSnapshot,
+    deleteSnapshot,
+    refreshProject,
+    setSchedule,
+    update,
+  } = useProjects();
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  // Edit mode — populated from the current project when the user
+  // clicks 편집. Save = PATCH, then refresh; cancel reverts.
+  const [editing, setEditing] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editErr, setEditErr] = useState<string | null>(null);
+  const [eName, setEName] = useState(p.name);
+  const [eSourceRef, setESourceRef] = useState(p.source_ref);
+  const [eSql, setESql] = useState(p.sql_query ?? "");
+  const [eApiKey, setEApiKey] = useState(p.api_detail_key ?? "");
+  const [eApiUrl, setEApiUrl] = useState(p.api_detail_url ?? "");
+  const [eShared, setEShared] = useState(p.is_shared);
+  const [eRoles, setERoles] = useState<Set<string>>(new Set(p.role_codes));
+
+  // Re-seed every time the project under the card changes (user
+  // switched projects, snapshot landed, etc.) so we don't keep stale
+  // edit state from a previous selection.
+  useEffect(() => {
+    if (editing) return;
+    setEName(p.name);
+    setESourceRef(p.source_ref);
+    setESql(p.sql_query ?? "");
+    setEApiKey(p.api_detail_key ?? "");
+    setEApiUrl(p.api_detail_url ?? "");
+    setEShared(p.is_shared);
+    setERoles(new Set(p.role_codes));
+  }, [
+    p.id, p.name, p.source_ref, p.sql_query, p.api_detail_key,
+    p.api_detail_url, p.is_shared, p.role_codes, editing,
+  ]);
+
+  async function saveEdit() {
+    setEditBusy(true);
+    setEditErr(null);
+    try {
+      const payload: Parameters<typeof update>[1] = {};
+      if (eName.trim() !== p.name) payload.name = eName.trim();
+      if (eSourceRef.trim() !== p.source_ref) payload.source_ref = eSourceRef.trim();
+      if (p.source_type === "connection") {
+        const next = eSql.trim() || null;
+        if (next !== (p.sql_query ?? null)) payload.sql_query = next;
+      }
+      if (p.source_type === "url") {
+        const k = eApiKey.trim() || null;
+        const u = eApiUrl.trim() || null;
+        if (k !== (p.api_detail_key ?? null)) payload.api_detail_key = k;
+        if (u !== (p.api_detail_url ?? null)) payload.api_detail_url = u;
+      }
+      if (adminMode) {
+        if (eShared !== p.is_shared) payload.is_shared = eShared;
+        const cur = new Set(p.role_codes);
+        const sameSize = cur.size === eRoles.size;
+        const sameMembers = sameSize && [...cur].every((c) => eRoles.has(c));
+        if (!sameMembers) payload.role_codes = Array.from(eRoles);
+      }
+      if (Object.keys(payload).length === 0) {
+        setEditing(false);
+        return;
+      }
+      await update(p.id, payload);
+      setEditing(false);
+    } catch (e) {
+      setEditErr(
+        e instanceof Error ? e.message.replace(/^\d+\s/, "") : "저장 실패",
+      );
+    } finally {
+      setEditBusy(false);
+    }
+  }
   const pct =
     p.status === "indexing" && p.progress_total
       ? Math.round((100 * p.progress_done) / p.progress_total)
@@ -723,6 +802,17 @@ function ProjectCard({
             <IconRefresh size={15} />
           </button>
         )}
+        {(p.owned || adminMode) && (
+          <button
+            type="button"
+            className="pm-icon-btn"
+            onClick={() => setEditing((v) => !v)}
+            title={editing ? "편집 취소" : "편집"}
+            aria-label="편집"
+          >
+            {editing ? <IconX size={15} /> : <IconCode size={15} />}
+          </button>
+        )}
         {p.owned ? (
           <button
             type="button"
@@ -739,6 +829,165 @@ function ProjectCard({
           </span>
         )}
       </div>
+
+      {editing && (
+        <div className="pm-edit-form">
+          <div className="pm-field">
+            <label htmlFor={`pm-edit-name-${p.id}`}>이름</label>
+            <input
+              id={`pm-edit-name-${p.id}`}
+              type="text"
+              value={eName}
+              onChange={(e) => setEName(e.target.value)}
+              disabled={editBusy}
+              maxLength={120}
+            />
+          </div>
+          <div className="pm-field">
+            <label htmlFor={`pm-edit-ref-${p.id}`}>
+              {p.source_type === "url"
+                ? "목록 API URL"
+                : p.source_type === "git"
+                ? "Git URL"
+                : p.source_type === "folder"
+                ? "서버 폴더"
+                : p.source_type === "connection"
+                ? "DB 연결 문자열"
+                : p.source_type === "sftp"
+                ? "SFTP URL"
+                : "출처"}
+            </label>
+            <input
+              id={`pm-edit-ref-${p.id}`}
+              type="text"
+              value={eSourceRef}
+              onChange={(e) => setESourceRef(e.target.value)}
+              disabled={editBusy}
+              maxLength={500}
+            />
+            <div className="pm-help">
+              값을 바꾸면 기존 인덱스가 오래된 상태로 표시되고,
+              저장 즉시 새 스냅샷이 시작됩니다.
+            </div>
+          </div>
+
+          {p.source_type === "connection" && (
+            <div className="pm-field">
+              <label htmlFor={`pm-edit-sql-${p.id}`}>조회 SQL</label>
+              <textarea
+                id={`pm-edit-sql-${p.id}`}
+                className="pm-db-sql-textarea"
+                value={eSql}
+                onChange={(e) => setESql(e.target.value)}
+                disabled={editBusy}
+                rows={5}
+                spellCheck={false}
+              />
+              <div className="pm-help">
+                SELECT/WITH 만 허용. 비우면 스키마만 인덱싱.
+              </div>
+            </div>
+          )}
+
+          {p.source_type === "url" && (
+            <>
+              <div className="pm-field">
+                <label htmlFor={`pm-edit-apik-${p.id}`}>상세 키</label>
+                <input
+                  id={`pm-edit-apik-${p.id}`}
+                  type="text"
+                  value={eApiKey}
+                  onChange={(e) => setEApiKey(e.target.value)}
+                  disabled={editBusy}
+                />
+              </div>
+              <div className="pm-field">
+                <label htmlFor={`pm-edit-apiu-${p.id}`}>
+                  상세 URL 템플릿
+                </label>
+                <input
+                  id={`pm-edit-apiu-${p.id}`}
+                  type="text"
+                  value={eApiUrl}
+                  onChange={(e) => setEApiUrl(e.target.value)}
+                  disabled={editBusy}
+                />
+              </div>
+            </>
+          )}
+
+          {adminMode && (
+            <div className="pm-field pm-share-field">
+              <label className="pm-share-toggle">
+                <input
+                  type="checkbox"
+                  checked={eShared}
+                  onChange={(e) => setEShared(e.target.checked)}
+                  disabled={editBusy}
+                />
+                <span>
+                  <b>공유 지식베이스</b>
+                  <span className="pm-help">
+                    체크 시 아래 역할 사용자가 채팅에서 자동 활용
+                  </span>
+                </span>
+              </label>
+              {eShared && (
+                <div className="pm-share-roles">
+                  <div className="pm-share-role-grid">
+                    {allRoles.map((r) => (
+                      <label key={r.code} className="pm-share-role-chip">
+                        <input
+                          type="checkbox"
+                          checked={eRoles.has(r.code)}
+                          onChange={(e) =>
+                            setERoles((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(r.code);
+                              else next.delete(r.code);
+                              return next;
+                            })
+                          }
+                          disabled={editBusy}
+                        />
+                        <span>{r.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {editErr && (
+            <div className="pm-add-error">
+              <IconAlertTriangle size={14} />
+              <span>{editErr}</span>
+            </div>
+          )}
+          <div className="pm-edit-actions">
+            <button
+              type="button"
+              className="pm-btn-primary"
+              onClick={saveEdit}
+              disabled={editBusy}
+            >
+              {editBusy ? "저장 중…" : "저장"}
+            </button>
+            <button
+              type="button"
+              className="pm-btn-secondary"
+              onClick={() => {
+                setEditing(false);
+                setEditErr(null);
+              }}
+              disabled={editBusy}
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
     </article>
   );
 }

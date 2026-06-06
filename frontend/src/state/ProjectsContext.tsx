@@ -31,6 +31,19 @@ interface ProjectsState {
     is_shared?: boolean;
     role_codes?: string[];
   }) => Promise<Project>;
+  update: (
+    id: string,
+    payload: {
+      name?: string;
+      source_ref?: string;
+      ref?: string;
+      sql_query?: string | null;
+      api_detail_key?: string | null;
+      api_detail_url?: string | null;
+      is_shared?: boolean;
+      role_codes?: string[];
+    },
+  ) => Promise<Project>;
   remove: (id: string) => Promise<{ freedBytes: number }>;
   reindex: (id: string) => Promise<void>;
   activateSnapshot: (projectId: string, snapshotId: string) => Promise<void>;
@@ -107,6 +120,15 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const update = useCallback<ProjectsState["update"]>(
+    async (id, payload) => {
+      const updated = await api.updateProject(id, payload);
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
   const remove = useCallback<ProjectsState["remove"]>(
     async (id) => {
       const res = await api.deleteProject(id);
@@ -164,6 +186,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
         storageBytes,
         refresh,
         create,
+        update,
         remove,
         reindex,
         activateSnapshot,

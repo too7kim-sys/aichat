@@ -407,6 +407,9 @@ export interface Project {
    *  auto-searched in chat for those users. */
   is_shared: boolean;
   role_codes: string[];
+  /** Per-project SELECT for the connection source. Exposed so the
+   *  edit form can pre-fill it (null on non-DB sources). */
+  sql_query: string | null;
   api_detail_key: string | null;
   api_detail_url: string | null;
   /** False when the user is accessing this as a shared knowledge base
@@ -599,6 +602,27 @@ export const api = {
     json<Project>(`/projects/${id}/access`, {
       method: "PATCH",
       body: JSON.stringify({ role_codes: roleCodes }),
+    }),
+  /** PATCH editable fields on an existing project. Pass only the
+   *  fields you want to change. Source-defining changes (source_ref /
+   *  sql_query / api_detail_*) invalidate the index — backend
+   *  triggers a fresh snapshot automatically. */
+  updateProject: (
+    id: string,
+    payload: {
+      name?: string;
+      source_ref?: string;
+      ref?: string;
+      sql_query?: string | null;
+      api_detail_key?: string | null;
+      api_detail_url?: string | null;
+      is_shared?: boolean;
+      role_codes?: string[];
+    },
+  ) =>
+    json<Project>(`/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
     }),
   reindexProject: (id: string) =>
     json<Project>(`/projects/${id}/reindex`, { method: "POST" }),

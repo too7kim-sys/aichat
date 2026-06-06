@@ -131,6 +131,21 @@ class ProjectAccessUpdate(BaseModel):
     role_codes: list[str] = Field(default_factory=list, max_length=50)
 
 
+class ProjectUpdate(BaseModel):
+    """PATCH editable fields on an existing project. All optional —
+    backend touches only what's set. Changing source_ref / ref /
+    sql_query / api_detail_* invalidates the current index and the
+    router triggers a new snapshot."""
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    source_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    ref: str | None = Field(default=None, max_length=120)
+    sql_query: str | None = Field(default=None, max_length=8000)
+    api_detail_key: str | None = Field(default=None, max_length=120)
+    api_detail_url: str | None = Field(default=None, max_length=500)
+    is_shared: bool | None = None
+    role_codes: list[str] | None = Field(default=None, max_length=50)
+
+
 class SnapshotOut(BaseModel):
     id: str
     label: str
@@ -164,6 +179,7 @@ class ProjectOut(BaseModel):
     last_indexed_at: datetime | None = None
     created_at: datetime
     is_shared: bool = False
+    sql_query: str | None = None
     api_detail_key: str | None = None
     api_detail_url: str | None = None
     # Populated for shared projects so the admin UI can render the

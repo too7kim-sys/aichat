@@ -434,6 +434,104 @@ async def update_schedule(
     return await _project_with_snapshots(db, project.id, user.id)
 
 
+@router.patch("/{project_id}", response_model=schemas.ProjectOut)
+async def update_project(
+    project_id: str,
+    payload: schemas.ProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Edit an existing project. Owner can edit fields; admin
+    additionally edits is_shared / role_codes on shared projects.
+    When a source-defining field changes, the current index is stale,
+    so we set status back to 'pending' and create a fresh snapshot —
+    same path as the manual reindex button."""
+    project = await db.scalar(
+        select(models.Project)
+        .where(models.Project.id == project_id)
+        .options(selectinload(models.Project.snapshots))
+    )
+    if project is None:
+        raise HTTPException(404, "project not found")
+
+    is_owner = project.user_id == user.id
+    is_admin = await _is_admin(db, user)
+    if not is_owner and not is_admin:
+        raise HTTPException(403, "권한이 없습니다")
+
+    # Track whether the source / fetch contract changed — that's what
+    # makes the existing index stale and warrants a reindex.
+    source_changed = False
+
+    if payload.name is not None and payload.name.strip() != project.name:
+        project.name = payload.name.strip()
+
+    if payload.source_ref is not None:
+        new_ref = payload.source_ref.strip()
+        if new_ref and new_ref != project.source_ref:
+            project.source_ref = new_ref
+            source_changed = True
+
+    # `ref` (git branch/tag) only applies to git sources; accept the
+    # value regardless and let the indexer ignore it on other sources.
+    if payload.ref is not None and project.source_type == "git":
+        # Empty string is meaningful: "back to default branch".
+        new_branch = payload.ref.strip()
+        # We don't store branch on the project today — silently no-op
+        # so the wire shape stays compatible with the create form.
+        _ = new_branch
+        source_changed = True
+
+    if payload.sql_query is not None and project.source_type == "connection":
+        new_sql = (payload.sql_query or "").strip() or None
+        if new_sql != project.sql_query:
+            project.sql_query = new_sql
+            source_changed = True
+
+    if payload.api_detail_key is not None and project.source_type == "url":
+        new_key = (payload.api_detail_key or "").strip() or None
+        if new_key != project.api_detail_key:
+            project.api_detail_key = new_key
+            source_changed = True
+    if payload.api_detail_url is not None and project.source_type == "url":
+        new_dt_url = (payload.api_detail_url or "").strip() or None
+        if new_dt_url != project.api_detail_url:
+            project.api_detail_url = new_dt_url
+            source_changed = True
+
+    # Admin-only flag changes.
+    if payload.is_shared is not None:
+        if payload.is_shared != project.is_shared:
+            if not is_admin:
+                raise HTTPException(
+                    403, "공유 지식베이스 토글은 관리자만 변경할 수 있습니다",
+                )
+            project.is_shared = payload.is_shared
+    if payload.role_codes is not None:
+        if not is_admin:
+            raise HTTPException(
+                403, "역할 매핑은 관리자만 변경할 수 있습니다",
+            )
+        await _set_project_roles(db, project_id, payload.role_codes)
+
+    if source_changed and project.current_snapshot_id is not None:
+        # Stale index — schedule a fresh snapshot (same path as the
+        # reindex button) so retrieval reflects the new source ASAP.
+        # status flips to pending so the UI shows "대기" until the
+        # new snapshot kicks off.
+        project.status = "pending"
+        await db.flush()
+        await _create_snapshot_and_schedule(db, project)
+
+    await db.commit()
+    proj = await db.scalar(
+        select(models.Project)
+        .where(models.Project.id == project_id)
+        .options(selectinload(models.Project.snapshots))
+    )
+    return await _serialize_project(db, proj, user)
+
+
 @router.patch("/{project_id}/access", response_model=schemas.ProjectOut)
 async def update_project_access(
     project_id: str,
