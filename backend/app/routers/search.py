@@ -28,6 +28,11 @@ class MessageSearchResult(BaseModel):
     session_title: str
     role: Literal["user", "assistant"]
     snippet: str
+    # Where the query actually matched on the row. "attachment" means
+    # the body didn't contain the query but the attachments_summary
+    # JSON column did — i.e., the user is searching for a filename.
+    # Lets the frontend group results into a "첨부 파일" section.
+    match_in: Literal["content", "attachment"]
     created_at: datetime
 
 
@@ -89,14 +94,19 @@ async def search_messages(
         .limit(limit)
     )
     rows = (await db.execute(stmt)).all()
-    return [
-        MessageSearchResult(
-            message_id=m.id,
-            session_id=m.session_id,
-            session_title=(title or "(제목 없음)"),
-            role=m.role if m.role in ("user", "assistant") else "user",
-            snippet=_make_snippet(m.content or "", query),
-            created_at=m.created_at,
+    qlow = query.lower()
+    out: list[MessageSearchResult] = []
+    for m, title in rows:
+        body_match = qlow in (m.content or "").lower()
+        out.append(
+            MessageSearchResult(
+                message_id=m.id,
+                session_id=m.session_id,
+                session_title=(title or "(제목 없음)"),
+                role=m.role if m.role in ("user", "assistant") else "user",
+                snippet=_make_snippet(m.content or "", query),
+                match_in="content" if body_match else "attachment",
+                created_at=m.created_at,
+            )
         )
-        for m, title in rows
-    ]
+    return out

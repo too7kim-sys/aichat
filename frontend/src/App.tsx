@@ -180,9 +180,13 @@ function AppInner({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  function jumpToMessage(sessionId: string, messageId: string) {
-    setPendingScrollMessageId(messageId);
+  function jumpToMessage(sessionId: string, messageId: string | null) {
+    if (messageId) setPendingScrollMessageId(messageId);
     if (sessionId !== activeId) setActiveId(sessionId);
+  }
+
+  function closeActiveChat() {
+    setActiveId(null);
   }
 
   // Top-level workspace tab — Chat / Cowork / Code. Persisted across
@@ -320,6 +324,7 @@ function AppInner({
             scrollToMessageId={pendingScrollMessageId}
             onScrollHandled={() => setPendingScrollMessageId(null)}
             onOpenSearch={() => setSearchOpen(true)}
+            onCloseChat={closeActiveChat}
           />
         ) : (
           <div className="empty">왼쪽에서 새 대화를 시작하세요.</div>
@@ -333,6 +338,7 @@ function AppInner({
       <SearchDialog
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
+        sessions={sessions}
         onPick={jumpToMessage}
       />
     </div>

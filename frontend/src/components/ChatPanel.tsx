@@ -37,6 +37,11 @@ interface Props {
   onScrollHandled?: () => void;
   /** Open the global chat search modal. Owned by App. */
   onOpenSearch?: () => void;
+  /** Close the chat view — deselects the active session at the App
+   *  level so the main pane falls back to the empty/welcome state.
+   *  Optional so storybook-style mounts that pass no parent stay
+   *  functional. */
+  onCloseChat?: () => void;
 }
 
 export interface ChatPanelHandle {
@@ -145,6 +150,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     scrollToMessageId,
     onScrollHandled,
     onOpenSearch,
+    onCloseChat,
   },
   ref
 ) {
@@ -886,6 +892,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               title="코드 사이드 패널 토글"
             >
               {artifactsState.open ? "패널 닫기" : `패널 열기 (${artifactsState.artifacts.length})`}
+            </button>
+          )}
+          {onCloseChat && (
+            <button
+              type="button"
+              className="panel-toggle chat-close-btn"
+              onClick={onCloseChat}
+              title="채팅 닫기"
+              aria-label="채팅 닫기"
+            >
+              <IconX size={14} />
             </button>
           )}
         </div>

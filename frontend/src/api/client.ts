@@ -147,6 +147,10 @@ export interface MessageSearchResult {
   session_title: string;
   role: "user" | "assistant";
   snippet: string;
+  /** "content" = matched in the message body; "attachment" = matched
+   *  in the attachments_summary JSON. Lets the dialog group the
+   *  "I'm looking for a file" hits under their own section. */
+  match_in: "content" | "attachment";
   created_at: string;
 }
 
