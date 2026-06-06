@@ -1,19 +1,25 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { api, type Prompt, type Workflow } from "../api/client";
 import { queueAttachment } from "../state/attachQueue";
 import { useWorkspaces } from "../state/WorkspacesContext";
 import type { Session } from "../types";
 import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
 import {
   IconChat,
+  IconCheckCircle,
+  IconClock,
   IconCode,
   IconFileText,
   IconFolder,
   IconGitBranch,
   IconPlus,
   IconRefresh,
+  IconSparkles,
+  IconUsers,
+  IconX,
 } from "./Icon";
 
-export type Workspace = "chat" | "code";
+export type Workspace = "chat" | "cowork" | "code";
 
 interface Props {
   /** Extra className applied to the root <aside> — used by the parent
@@ -29,6 +35,10 @@ interface Props {
   /** Click on a Code workspace card → create a chat named after the
    *  workspace and pre-attach a representative slice of its files. */
   onStartChatFromWorkspace: (workspaceId: string) => Promise<void> | void;
+  /** Refresh the chat-session list — the Cowork pane calls this after
+   *  a workflow run completes so the freshly-created session appears
+   *  in the sidebar without a page reload. */
+  onSessionRefresh?: () => Promise<void> | void;
 }
 
 function groupByDate(sessions: Session[]) {
@@ -57,11 +67,12 @@ function groupByDate(sessions: Session[]) {
   return { today, yesterday, lastWeek, earlier };
 }
 
-// Cowork (RAG project management) was folded into the admin
-// "지식베이스" panel — knowledge bases are now admin-managed + role-
-// mapped and auto-used in chat, so the standalone Cowork tab is gone.
+// Cowork hosts the shared prompt library + workflow automation. RAG
+// project management moved to the admin "지식베이스" panel; Cowork
+// is now where users browse prompts and schedule workflow runs.
 const TABS: { id: Workspace; label: string; icon: ReactNode }[] = [
   { id: "chat", label: "Chat", icon: <IconChat size={18} /> },
+  { id: "cowork", label: "Cowork", icon: <IconUsers size={18} /> },
   { id: "code", label: "Code", icon: <IconCode size={18} /> },
 ];
 
@@ -75,6 +86,7 @@ export function Sidebar({
   onCreate,
   onDelete,
   onStartChatFromWorkspace,
+  onSessionRefresh,
 }: Props) {
   return (
     <aside className={`sidebar${className ? " " + className : ""}`}>
@@ -103,6 +115,12 @@ export function Sidebar({
           onSelect={onSelect}
           onCreate={onCreate}
           onDelete={onDelete}
+        />
+      )}
+      {workspace === "cowork" && (
+        <CoworkPane
+          onSessionRefresh={onSessionRefresh}
+          onOpenSession={onSelect}
         />
       )}
       {workspace === "code" && (
@@ -358,6 +376,206 @@ function SessionGroup({
           </li>
         ))}
       </ul>
+    </>
+  );
+}
+
+
+function CoworkPane({
+  onSessionRefresh,
+  onOpenSession,
+}: {
+  onSessionRefresh?: () => Promise<void> | void;
+  onOpenSession: (id: string) => void;
+}) {
+  const [tab, setTab] = useState<"prompts" | "workflows">("workflows");
+  const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function refreshAll() {
+    try {
+      const [p, w] = await Promise.all([
+        api.listPrompts(),
+        api.listWorkflows(),
+      ]);
+      setPrompts(p);
+      setWorkflows(w);
+    } catch {
+      /* unauthorized — empty */
+    }
+  }
+
+  useEffect(() => {
+    refreshAll();
+  }, []);
+
+  // While any workflow is running, poll every 2s. The runner stamps
+  // last_run_status="running" → "ok"/"failed"; we keep polling until
+  // nothing's running and the new session is in the sidebar list.
+  useEffect(() => {
+    const anyRunning = workflows.some((w) => w.last_run_status === "running");
+    if (!anyRunning) return;
+    const id = window.setInterval(async () => {
+      const w = await api.listWorkflows();
+      setWorkflows(w);
+      if (!w.some((x) => x.last_run_status === "running")) {
+        await onSessionRefresh?.();
+      }
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [workflows, onSessionRefresh]);
+
+  async function runWorkflow(w: Workflow) {
+    setBusyId(w.id);
+    try {
+      const updated = await api.runWorkflow(w.id);
+      setWorkflows((prev) =>
+        prev.map((x) => (x.id === updated.id ? updated : x)),
+      );
+    } catch (e) {
+      window.alert(
+        `실행 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <>
+      <div className="cowork-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "workflows"}
+          className={`cowork-tab${tab === "workflows" ? " active" : ""}`}
+          onClick={() => setTab("workflows")}
+        >
+          <IconClock size={13} /> 워크플로
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "prompts"}
+          className={`cowork-tab${tab === "prompts" ? " active" : ""}`}
+          onClick={() => setTab("prompts")}
+        >
+          <IconSparkles size={13} /> 프롬프트
+        </button>
+      </div>
+
+      {tab === "workflows" && (
+        <div className="sidebar-sessions">
+          <div className="session-section">자동화 워크플로</div>
+          {workflows.length === 0 ? (
+            <div className="sidebar-empty">
+              프롬프트와 (선택) 지식베이스를 묶어 정해진 시각에 자동
+              실행할 수 있어요. 결과는 새 채팅 세션으로 남습니다.
+            </div>
+          ) : (
+            <ul className="cowork-list">
+              {workflows.map((w) => (
+                <li key={w.id} className={`cowork-item status-${w.last_run_status ?? "idle"}`}>
+                  <div className="cowork-item-head">
+                    <span className="cowork-item-name" title={w.description ?? undefined}>
+                      {w.name}
+                    </span>
+                    <button
+                      type="button"
+                      className="cowork-item-run"
+                      onClick={() => runWorkflow(w)}
+                      disabled={
+                        busyId === w.id || w.last_run_status === "running"
+                      }
+                      title="지금 실행"
+                    >
+                      <IconRefresh size={13} />
+                    </button>
+                  </div>
+                  <div className="cowork-item-meta">
+                    <span>
+                      {w.prompt_name ?? "?"}
+                      {w.project_name ? ` · ${w.project_name}` : ""}
+                    </span>
+                    {w.last_run_status === "running" ? (
+                      <span className="cowork-run-badge running">실행 중…</span>
+                    ) : w.last_run_status === "ok" ? (
+                      <button
+                        type="button"
+                        className="cowork-run-badge ok"
+                        onClick={() =>
+                          w.last_session_id &&
+                          onOpenSession(w.last_session_id)
+                        }
+                        title="마지막 결과 열기"
+                      >
+                        <IconCheckCircle size={11} /> 보기
+                      </button>
+                    ) : w.last_run_status === "failed" ? (
+                      <span
+                        className="cowork-run-badge failed"
+                        title={w.last_error ?? "실패"}
+                      >
+                        실패
+                      </span>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="cowork-foot">
+            <a
+              href="#admin-knowledge"
+              className="cowork-foot-hint"
+              onClick={(e) => {
+                e.preventDefault();
+                window.alert(
+                  "워크플로 생성/편집은 권한 관리 → 워크플로 탭에서 합니다.",
+                );
+              }}
+            >
+              워크플로 추가는 권한 관리 메뉴에서
+            </a>
+          </div>
+        </div>
+      )}
+
+      {tab === "prompts" && (
+        <div className="sidebar-sessions">
+          <div className="session-section">프롬프트 라이브러리</div>
+          {prompts.length === 0 ? (
+            <div className="sidebar-empty">
+              자주 쓰는 질문을 템플릿으로 저장해두면 채팅 입력창에서
+              한 번에 끼울 수 있어요.
+            </div>
+          ) : (
+            <ul className="cowork-list">
+              {prompts.map((p) => (
+                <li key={p.id} className="cowork-item">
+                  <div className="cowork-item-head">
+                    <span className="cowork-item-name" title={p.description ?? undefined}>
+                      {p.name}
+                    </span>
+                    {!p.owned && (
+                      <span className="cowork-shared-badge">공유</span>
+                    )}
+                  </div>
+                  <div className="cowork-item-meta">
+                    {p.category && <span>{p.category}</span>}
+                    {p.tags && <span>{p.tags}</span>}
+                  </div>
+                  <div className="cowork-item-body">
+                    {p.body.slice(0, 140)}
+                    {p.body.length > 140 ? "…" : ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </>
   );
 }

@@ -278,6 +278,58 @@ class Project(Base):
     )
 
 
+class Prompt(Base):
+    """Reusable prompt template — body may carry {var} placeholders
+    the chat composer fills in before sending. Mirrors the Project
+    ownership model: personal (user_id only) or shared (is_shared +
+    PromptRoleAccess grants). Code is the URL-safe slug used as a
+    stable id, while name is the display label."""
+    __tablename__ = "prompts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    code: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body: Mapped[str] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Comma-separated tags for quick filter. Avoid a join table for v1
+    # — the volume is tiny and full-text search isn't needed yet.
+    tags: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    is_shared: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class PromptRoleAccess(Base):
+    """M:N — which roles may use a shared prompt. Parallels
+    ProjectRoleAccess so the access layer can resolve both with the
+    same role/base_role inheritance logic."""
+    __tablename__ = "prompt_role_access"
+
+    prompt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("prompts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role_code: Mapped[str] = mapped_column(
+        String(40),
+        ForeignKey("roles.code", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
 class ProjectRoleAccess(Base):
     """M:N — which roles may use a shared knowledge-base project. A
     user whose `role` (or its base_role) is listed here gets the
@@ -325,6 +377,53 @@ class ProjectSnapshot(Base):
 
     project: Mapped[Project] = relationship(
         back_populates="snapshots", foreign_keys=[project_id]
+    )
+
+
+class Workflow(Base):
+    """Automated chat — a prompt + variable values + optional RAG
+    project + optional schedule. Each run creates a new chat session
+    (so users see results in their normal session list) and posts
+    the rendered prompt + AI reply there."""
+    __tablename__ = "workflows"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_id: Mapped[str] = mapped_column(
+        ForeignKey("prompts.id", ondelete="CASCADE")
+    )
+    # JSON object: {var_name: value}. Rendered into prompt.body's
+    # {var_name} placeholders at run time.
+    prompt_vars: Mapped[str | None] = mapped_column(Text, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Optional Ollama model override. NULL → use OLLAMA_MODEL default.
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Wall-clock schedule, same shape as Project.schedule_interval_minutes.
+    # 0 = manual only.
+    schedule_interval_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    last_run_status: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
+    last_session_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )
 
 

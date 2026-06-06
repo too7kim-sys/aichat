@@ -126,6 +126,90 @@ class ProjectCreate(BaseModel):
     role_codes: list[str] = Field(default_factory=list, max_length=50)
 
 
+class PromptOut(BaseModel):
+    id: str
+    code: str
+    name: str
+    description: str | None = None
+    body: str
+    category: str | None = None
+    tags: str | None = None
+    is_shared: bool
+    role_codes: list[str] = []
+    owned: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PromptCreate(BaseModel):
+    code: str = Field(min_length=2, max_length=60, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    body: str = Field(min_length=1, max_length=20000)
+    category: str = Field(default="", max_length=40)
+    tags: str = Field(default="", max_length=200)
+    is_shared: bool = False
+    role_codes: list[str] = Field(default_factory=list, max_length=50)
+
+
+class PromptUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    body: str | None = Field(default=None, min_length=1, max_length=20000)
+    category: str | None = Field(default=None, max_length=40)
+    tags: str | None = Field(default=None, max_length=200)
+    is_shared: bool | None = None
+    role_codes: list[str] | None = Field(default=None, max_length=50)
+
+
+class WorkflowOut(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    prompt_id: str
+    prompt_name: str | None = None
+    prompt_vars: dict | None = None
+    project_id: str | None = None
+    project_name: str | None = None
+    model: str | None = None
+    schedule_interval_minutes: int = 0
+    enabled: bool = True
+    last_run_at: datetime | None = None
+    last_run_status: str | None = None
+    last_session_id: str | None = None
+    last_error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WorkflowCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    prompt_id: str = Field(min_length=1, max_length=36)
+    prompt_vars: dict | None = None
+    project_id: str | None = Field(default=None, max_length=36)
+    model: str | None = Field(default=None, max_length=120)
+    schedule_interval_minutes: int = 0
+    enabled: bool = True
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    prompt_id: str | None = Field(default=None, max_length=36)
+    prompt_vars: dict | None = None
+    project_id: str | None = Field(default=None, max_length=36)
+    model: str | None = Field(default=None, max_length=120)
+    schedule_interval_minutes: int | None = None
+    enabled: bool | None = None
+
+
 class ProjectAccessUpdate(BaseModel):
     """PATCH the role→project access list for a shared project."""
     role_codes: list[str] = Field(default_factory=list, max_length=50)

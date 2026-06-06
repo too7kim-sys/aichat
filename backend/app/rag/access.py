@@ -68,6 +68,55 @@ async def accessible_shared_project_ids(
     return list(dict.fromkeys(rows))
 
 
+async def accessible_shared_prompt_ids(
+    db: AsyncSession, user: models.User
+) -> list[str]:
+    """IDs of shared prompts this user's role can use. Same resolution
+    logic as the project access list: matches `user.role` directly
+    against the grant table and also against the user's base_role so
+    a grant to 'moderator' covers any custom code with base_role=
+    'moderator'."""
+    codes = await _role_codes_for_user(db, user)
+    if not codes:
+        return []
+    rows = (
+        await db.execute(
+            select(models.Prompt.id)
+            .join(
+                models.PromptRoleAccess,
+                models.PromptRoleAccess.prompt_id == models.Prompt.id,
+            )
+            .where(
+                models.Prompt.is_shared.is_(True),
+                models.PromptRoleAccess.role_code.in_(codes),
+            )
+        )
+    ).scalars().all()
+    return list(dict.fromkeys(rows))
+
+
+async def can_access_prompt(
+    db: AsyncSession, user: models.User, prompt: models.Prompt
+) -> bool:
+    """Per-prompt authorization: owner OR (shared AND role mapped)."""
+    if prompt.user_id == user.id:
+        return True
+    if not prompt.is_shared:
+        return False
+    codes = await _role_codes_for_user(db, user)
+    if not codes:
+        return False
+    grant = (
+        await db.execute(
+            select(models.PromptRoleAccess).where(
+                models.PromptRoleAccess.prompt_id == prompt.id,
+                models.PromptRoleAccess.role_code.in_(codes),
+            )
+        )
+    ).first()
+    return grant is not None
+
+
 async def can_access_project(
     db: AsyncSession, user: models.User, project: models.Project
 ) -> bool:

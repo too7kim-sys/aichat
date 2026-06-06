@@ -8,7 +8,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
-from .routers import admin, auth, chat, code, files, ollama, search, sessions
+from .routers import (
+    admin, auth, chat, code, files, ollama, prompts, search,
+    sessions, workflows,
+)
 
 # RAG router pulls in qdrant-client. Import lazily so a missing
 # `pip install -r requirements.txt` doesn't keep the rest of the app
@@ -45,20 +48,28 @@ async def lifespan(app: FastAPI):
     # stays up when the optional dep is missing.
     import asyncio
     scheduler_task = None
+    wf_scheduler_task = None
     if _RAG_AVAILABLE:
         try:
             from .rag.indexer import scheduler_loop
             scheduler_task = asyncio.create_task(scheduler_loop())
         except Exception as exc:  # noqa: BLE001
             log.warning("RAG scheduler not started: %s", exc)
+    try:
+        from .workflows.scheduler import scheduler_loop as wf_loop
+        wf_scheduler_task = asyncio.create_task(wf_loop())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("workflow scheduler not started: %s", exc)
 
     try:
         yield
     finally:
-        if scheduler_task is not None:
-            scheduler_task.cancel()
+        for t in (scheduler_task, wf_scheduler_task):
+            if t is None:
+                continue
+            t.cancel()
             try:
-                await scheduler_task
+                await t
             except (asyncio.CancelledError, Exception):
                 pass
 
@@ -118,6 +129,8 @@ app.include_router(files.router)
 app.include_router(ollama.router)
 app.include_router(code.router)
 app.include_router(admin.router)
+app.include_router(prompts.router)
+app.include_router(workflows.router)
 app.include_router(search.router)
 if _RAG_AVAILABLE and _projects_router is not None:
     app.include_router(_projects_router.router)

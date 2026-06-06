@@ -283,6 +283,9 @@ function AppInner({
         }}
         onDelete={handleDelete}
         onStartChatFromWorkspace={handleCreateFromWorkspace}
+        onSessionRefresh={async () => {
+          await refreshSessions();
+        }}
       />
       {/* Mobile-only backdrop to dismiss the sidebar drawer. CSS hides
           it above 900px so it has no effect on desktop. */}

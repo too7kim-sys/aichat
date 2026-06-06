@@ -417,6 +417,41 @@ export interface Project {
   owned: boolean;
 }
 
+export interface Prompt {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  body: string;
+  category: string | null;
+  tags: string | null;
+  is_shared: boolean;
+  role_codes: string[];
+  owned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description: string | null;
+  prompt_id: string;
+  prompt_name: string | null;
+  prompt_vars: Record<string, string> | null;
+  project_id: string | null;
+  project_name: string | null;
+  model: string | null;
+  schedule_interval_minutes: number;
+  enabled: boolean;
+  last_run_at: string | null;
+  last_run_status: string | null;
+  last_session_id: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -660,6 +695,79 @@ export const api = {
       bundle_max_total_bytes: number;
       bundle_max_per_file_bytes: number;
     }>("/code/_constraints"),
+  // Prompts (personal + shared)
+  listPrompts: () => json<Prompt[]>("/prompts"),
+  createPrompt: (payload: {
+    code: string;
+    name: string;
+    description?: string;
+    body: string;
+    category?: string;
+    tags?: string;
+    is_shared?: boolean;
+    role_codes?: string[];
+  }) =>
+    json<Prompt>("/prompts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updatePrompt: (
+    id: string,
+    payload: Partial<{
+      name: string;
+      description: string;
+      body: string;
+      category: string;
+      tags: string;
+      is_shared: boolean;
+      role_codes: string[];
+    }>,
+  ) =>
+    json<Prompt>(`/prompts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deletePrompt: (id: string) =>
+    json<void>(`/prompts/${id}`, { method: "DELETE" }),
+
+  // Workflows (per-user automation)
+  listWorkflows: () => json<Workflow[]>("/workflows"),
+  createWorkflow: (payload: {
+    name: string;
+    description?: string;
+    prompt_id: string;
+    prompt_vars?: Record<string, string> | null;
+    project_id?: string | null;
+    model?: string | null;
+    schedule_interval_minutes?: number;
+    enabled?: boolean;
+  }) =>
+    json<Workflow>("/workflows", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateWorkflow: (
+    id: string,
+    payload: Partial<{
+      name: string;
+      description: string;
+      prompt_id: string;
+      prompt_vars: Record<string, string> | null;
+      project_id: string | null;
+      model: string | null;
+      schedule_interval_minutes: number;
+      enabled: boolean;
+    }>,
+  ) =>
+    json<Workflow>(`/workflows/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteWorkflow: (id: string) =>
+    json<void>(`/workflows/${id}`, { method: "DELETE" }),
+  runWorkflow: (id: string) =>
+    json<Workflow>(`/workflows/${id}/run`, { method: "POST" }),
+
   listWorkspaces: () => json<Workspace[]>("/code/workspaces"),
   createWorkspace: (payload: {
     name: string;

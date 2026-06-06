@@ -100,6 +100,73 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_projects_is_shared "
                     "ON projects(is_shared)"
                 )
+            # Prompt library tables — created by create_all on first
+            # boot, belt-and-suspenders here for older DBs.
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS prompts (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    code VARCHAR(60) NOT NULL UNIQUE,
+                    name VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    body TEXT NOT NULL,
+                    category VARCHAR(40),
+                    tags VARCHAR(200),
+                    is_shared BOOLEAN NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_prompts_user_id ON prompts(user_id)"
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_prompts_is_shared ON prompts(is_shared)"
+            )
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS prompt_role_access (
+                    prompt_id VARCHAR(36) NOT NULL,
+                    role_code VARCHAR(40) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (prompt_id, role_code)
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_prompt_role_access_role "
+                "ON prompt_role_access(role_code)"
+            )
+            # Workflows table — automation runs against prompt + optional
+            # RAG project on a schedule, producing chat sessions.
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS workflows (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    name VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    prompt_id VARCHAR(36) NOT NULL,
+                    prompt_vars TEXT,
+                    project_id VARCHAR(36),
+                    model VARCHAR(120),
+                    schedule_interval_minutes INTEGER NOT NULL DEFAULT 0,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    last_run_at DATETIME,
+                    last_run_status VARCHAR(20),
+                    last_session_id VARCHAR(36),
+                    last_error TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_workflows_user_id "
+                "ON workflows(user_id)"
+            )
             # role→project access table — created by create_all when
             # the model registers, but belt-and-suspenders for older
             # DBs so the chat auto-search join doesn't crash.
