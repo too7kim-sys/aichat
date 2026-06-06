@@ -129,6 +129,27 @@ class Settings(BaseSettings):
     # (default 9 = KST).
     rag_daily_refresh_hour: int = 3
     rag_tz_offset_hours: int = 9
+
+    # 회의록·강의 전사 (선택 기능). 의존성이 무거워서 기본 off.
+    # pip install faster-whisper pyannote.audio + HF 토큰 + 모델 다운로드
+    # 후 ENABLE_TRANSCRIPTION=true 로 켭니다.
+    enable_transcription: bool = False
+    # faster-whisper 모델: tiny | base | small | medium | large-v2 | large-v3
+    whisper_model: str = "large-v3"
+    # cuda | cpu | auto
+    whisper_device: str = "auto"
+    # float16 | int8_float16 | int8 (CPU 는 자동으로 int8)
+    whisper_compute_type: str = "float16"
+    # Whisper 모델 캐시 디렉토리 (모델 ~3GB)
+    whisper_model_dir: str = "./models/whisper"
+    # 화자 분리(pyannote.audio) — HF 토큰 + 모델 약관 동의 필요.
+    # 비활성화 시 전사만 진행하고 SPEAKER 라벨은 붙지 않습니다.
+    enable_diarization: bool = False
+    hf_token: str = ""
+    # 업로드 오디오 최대 크기 (MB). 한 시간 mp3 ~60MB.
+    transcription_max_upload_mb: int = 200
+    # 요약 시 사용할 모델 — 비우면 OLLAMA_MODEL 폴백.
+    transcription_summary_model: str = ""
     database_url: str = "sqlite+aiosqlite:///./aichat.db"
     # Auth — change JWT_SECRET in .env for any non-local deployment.
     jwt_secret: str = "dev-only-change-me"

@@ -1,5 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { api, type Prompt, type Workflow } from "../api/client";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  api,
+  type Prompt,
+  type Transcript,
+  type Workflow,
+} from "../api/client";
 import { queueAttachment } from "../state/attachQueue";
 import { useWorkspaces } from "../state/WorkspacesContext";
 import type { Session } from "../types";
@@ -388,23 +393,154 @@ function CoworkPane({
   onSessionRefresh?: () => Promise<void> | void;
   onOpenSession: (id: string) => void;
 }) {
-  const [tab, setTab] = useState<"prompts" | "workflows">("workflows");
+  const [tab, setTab] = useState<"meetings" | "workflows" | "prompts">("meetings");
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  // MediaRecorder state for the live record button.
+  const [recording, setRecording] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const [recordStartedAt, setRecordStartedAt] = useState<number | null>(null);
+  const [recordElapsedSec, setRecordElapsedSec] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function refreshAll() {
     try {
-      const [p, w] = await Promise.all([
+      const [p, w, t] = await Promise.all([
         api.listPrompts(),
         api.listWorkflows(),
+        api.listTranscripts().catch(() => [] as Transcript[]),
       ]);
       setPrompts(p);
       setWorkflows(w);
+      setTranscripts(t);
     } catch {
       /* unauthorized — empty */
     }
   }
+
+  // Record-time tick.
+  useEffect(() => {
+    if (!recording || recordStartedAt === null) return;
+    const id = window.setInterval(() => {
+      setRecordElapsedSec(
+        Math.floor((Date.now() - recordStartedAt) / 1000),
+      );
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [recording, recordStartedAt]);
+
+  // Poll while any transcript is mid-pipeline so progress / status
+  // bubble up to the UI in near-real-time. Stops as soon as nothing
+  // is in flight.
+  useEffect(() => {
+    const inFlight = transcripts.some(
+      (t) => !["ok", "failed"].includes(t.status),
+    );
+    if (!inFlight) return;
+    const id = window.setInterval(async () => {
+      const next = await api.listTranscripts().catch(() => null);
+      if (next) {
+        setTranscripts(next);
+        const stillInFlight = next.some(
+          (t) => !["ok", "failed"].includes(t.status),
+        );
+        if (!stillInFlight) {
+          await onSessionRefresh?.();
+        }
+      }
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [transcripts, onSessionRefresh]);
+
+  async function startRecording() {
+    if (recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      recordChunksRef.current = [];
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data);
+      };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordChunksRef.current, {
+          type: recordChunksRef.current[0]?.type || "audio/webm",
+        });
+        recordChunksRef.current = [];
+        await uploadBlob(blob, `녹음-${new Date().toISOString().slice(0, 16)}.webm`);
+      };
+      rec.start(1000);
+      recorderRef.current = rec;
+      setRecording(true);
+      setRecordStartedAt(Date.now());
+      setRecordElapsedSec(0);
+    } catch (e) {
+      window.alert(
+        `마이크 접근 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  function stopRecording() {
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") rec.stop();
+    recorderRef.current = null;
+    setRecording(false);
+    setRecordStartedAt(null);
+  }
+
+  async function uploadBlob(blob: Blob, filename: string) {
+    if (uploading) return;
+    setUploading(true);
+    try {
+      await api.uploadTranscript(blob, filename);
+      await refreshAll();
+    } catch (e) {
+      window.alert(
+        `업로드 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function onFilePick(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    await uploadBlob(files[0], files[0].name);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function deleteTranscript(t: Transcript) {
+    if (!window.confirm("이 전사 기록을 삭제할까요?")) return;
+    setBusyId(t.id);
+    try {
+      await api.deleteTranscript(t.id);
+      await refreshAll();
+    } catch (e) {
+      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function formatDuration(s: number): string {
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, "0");
+    return `${m}:${ss}`;
+  }
+
+  const STATUS_LABEL: Record<Transcript["status"], string> = {
+    pending: "대기",
+    transcribing: "전사 중",
+    diarizing: "화자 분리 중",
+    summarizing: "요약 중",
+    ok: "완료",
+    failed: "실패",
+  };
 
   useEffect(() => {
     refreshAll();
@@ -448,6 +584,15 @@ function CoworkPane({
         <button
           type="button"
           role="tab"
+          aria-selected={tab === "meetings"}
+          className={`cowork-tab${tab === "meetings" ? " active" : ""}`}
+          onClick={() => setTab("meetings")}
+        >
+          <IconFileText size={13} /> 회의록
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === "workflows"}
           className={`cowork-tab${tab === "workflows" ? " active" : ""}`}
           onClick={() => setTab("workflows")}
@@ -464,6 +609,117 @@ function CoworkPane({
           <IconSparkles size={13} /> 프롬프트
         </button>
       </div>
+
+      {tab === "meetings" && (
+        <div className="sidebar-sessions">
+          <div className="sidebar-actions">
+            {recording ? (
+              <button className="primary recording" onClick={stopRecording}>
+                ● {formatDuration(recordElapsedSec)} · 중지
+              </button>
+            ) : (
+              <button
+                className="primary"
+                onClick={startRecording}
+                disabled={uploading}
+              >
+                ● 녹음 시작
+              </button>
+            )}
+            <button
+              type="button"
+              className="cowork-upload-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || recording}
+              title="오디오 파일 업로드 (mp3, wav, m4a, webm 등)"
+            >
+              파일 업로드
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*,video/mp4,.webm,.ogg,.opus,.m4a,.mp3,.wav,.flac"
+              style={{ display: "none" }}
+              onChange={(e) => onFilePick(e.target.files)}
+            />
+          </div>
+          <div className="session-section">최근 전사</div>
+          {uploading && (
+            <div className="sidebar-empty">업로드 중…</div>
+          )}
+          {transcripts.length === 0 && !uploading ? (
+            <div className="sidebar-empty">
+              회의나 강의를 녹음하거나 오디오 파일을 업로드하면 자동으로
+              전사·요약해서 새 채팅 세션으로 저장합니다.
+              {(!recording && transcripts.length === 0) && (
+                <>
+                  <br />
+                  <small style={{ display: "block", marginTop: 6 }}>
+                    백엔드에 <code>faster-whisper</code> 와 <code>ENABLE_TRANSCRIPTION=true</code> 설정 필요.
+                  </small>
+                </>
+              )}
+            </div>
+          ) : (
+            <ul className="cowork-list">
+              {transcripts.map((t) => (
+                <li
+                  key={t.id}
+                  className={`cowork-item status-${t.status}`}
+                >
+                  <div className="cowork-item-head">
+                    <span
+                      className="cowork-item-name"
+                      title={t.source_filename}
+                    >
+                      {t.source_filename}
+                    </span>
+                    <button
+                      type="button"
+                      className="cowork-item-run"
+                      onClick={() => deleteTranscript(t)}
+                      disabled={busyId === t.id}
+                      title="삭제"
+                    >
+                      <IconX size={13} />
+                    </button>
+                  </div>
+                  <div className="cowork-item-meta">
+                    <span>
+                      {STATUS_LABEL[t.status]}
+                      {typeof t.progress === "number" && t.status === "transcribing"
+                        ? ` ${Math.round(t.progress * 100)}%`
+                        : ""}
+                      {t.duration_sec
+                        ? ` · ${formatDuration(Math.round(t.duration_sec))}`
+                        : ""}
+                    </span>
+                    {t.status === "ok" && t.session_id ? (
+                      <button
+                        type="button"
+                        className="cowork-run-badge ok"
+                        onClick={() =>
+                          t.session_id && onOpenSession(t.session_id)
+                        }
+                        title="결과 세션 열기"
+                      >
+                        <IconCheckCircle size={11} /> 보기
+                      </button>
+                    ) : t.status === "failed" ? (
+                      <span
+                        className="cowork-run-badge failed"
+                        title={t.error ?? "실패"}
+                      >
+                        실패
+                      </span>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {tab === "workflows" && (
         <div className="sidebar-sessions">

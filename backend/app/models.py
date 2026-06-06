@@ -380,6 +380,43 @@ class ProjectSnapshot(Base):
     )
 
 
+class Transcript(Base):
+    """Audio file transcribed (+ optionally diarized) into a chat
+    Session. Tracks the pipeline stage so the UI can show a meaningful
+    progress label while the heavy work runs in the background."""
+    __tablename__ = "transcripts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    source_filename: Mapped[str] = mapped_column(String(255))
+    # Bytes on disk so the UI can show "10.4 MB".
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    duration_sec: Mapped[float | None] = mapped_column(
+        nullable=True
+    )
+    # pending | transcribing | diarizing | summarizing | ok | failed
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", index=True
+    )
+    # 0..1 progress within the active stage (Whisper exposes segment-
+    # level callbacks we average here). NULL until first update.
+    progress: Mapped[float | None] = mapped_column(nullable=True)
+    language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    diarized: Mapped[bool] = mapped_column(Boolean, default=False)
+    session_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Workflow(Base):
     """Automated chat — a prompt + variable values + optional RAG
     project + optional schedule. Each run creates a new chat session

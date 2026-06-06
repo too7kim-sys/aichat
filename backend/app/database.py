@@ -139,6 +139,34 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_prompt_role_access_role "
                 "ON prompt_role_access(role_code)"
             )
+            # Transcripts table — audio file transcription/diarization jobs.
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS transcripts (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    source_filename VARCHAR(255) NOT NULL,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    duration_sec REAL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    progress REAL,
+                    language VARCHAR(8),
+                    diarized BOOLEAN NOT NULL DEFAULT 0,
+                    session_id VARCHAR(36),
+                    error TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_transcripts_user_id "
+                "ON transcripts(user_id)"
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_transcripts_status "
+                "ON transcripts(status)"
+            )
             # Workflows table — automation runs against prompt + optional
             # RAG project on a schedule, producing chat sessions.
             await conn.exec_driver_sql(

@@ -165,6 +165,24 @@ class PromptUpdate(BaseModel):
     role_codes: list[str] | None = Field(default=None, max_length=50)
 
 
+class TranscriptOut(BaseModel):
+    id: str
+    source_filename: str
+    size_bytes: int
+    duration_sec: float | None = None
+    status: str
+    progress: float | None = None
+    language: str | None = None
+    diarized: bool = False
+    session_id: str | None = None
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class WorkflowOut(BaseModel):
     id: str
     name: str

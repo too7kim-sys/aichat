@@ -452,6 +452,21 @@ export interface Workflow {
   updated_at: string;
 }
 
+export interface Transcript {
+  id: string;
+  source_filename: string;
+  size_bytes: number;
+  duration_sec: number | null;
+  status: "pending" | "transcribing" | "diarizing" | "summarizing" | "ok" | "failed";
+  progress: number | null;
+  language: string | null;
+  diarized: boolean;
+  session_id: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -767,6 +782,29 @@ export const api = {
     json<void>(`/workflows/${id}`, { method: "DELETE" }),
   runWorkflow: (id: string) =>
     json<Workflow>(`/workflows/${id}/run`, { method: "POST" }),
+
+  // Transcripts (회의록/강의 전사 + 요약)
+  listTranscripts: () => json<Transcript[]>("/transcripts"),
+  uploadTranscript: async (file: File | Blob, filename?: string): Promise<Transcript> => {
+    const fd = new FormData();
+    fd.append("file", file, filename || (file instanceof File ? file.name : "녹음.webm"));
+    const res = await fetch(`${BASE}/transcripts`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).detail ?? body;
+      } catch { /* not JSON */ }
+      throw new Error(detail || `${res.status}`);
+    }
+    return (await res.json()) as Transcript;
+  },
+  deleteTranscript: (id: string) =>
+    json<void>(`/transcripts/${id}`, { method: "DELETE" }),
 
   listWorkspaces: () => json<Workspace[]>("/code/workspaces"),
   createWorkspace: (payload: {

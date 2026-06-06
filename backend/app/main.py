@@ -10,7 +10,7 @@ from .database import init_db
 from .providers.registry import all_providers
 from .routers import (
     admin, auth, chat, code, files, ollama, prompts, search,
-    sessions, workflows,
+    sessions, transcripts, workflows,
 )
 
 # RAG router pulls in qdrant-client. Import lazily so a missing
@@ -131,6 +131,7 @@ app.include_router(code.router)
 app.include_router(admin.router)
 app.include_router(prompts.router)
 app.include_router(workflows.router)
+app.include_router(transcripts.router)
 app.include_router(search.router)
 if _RAG_AVAILABLE and _projects_router is not None:
     app.include_router(_projects_router.router)
