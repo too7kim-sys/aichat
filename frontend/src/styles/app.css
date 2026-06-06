@@ -663,15 +663,20 @@ body {
 .composer-notice-action:hover:not(:disabled) { background: #fef08a; }
 .composer-notice-action:disabled { opacity: 0.6; cursor: not-allowed; }
 .attachment-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px 6px 12px;
-  background: var(--accent-soft);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  padding: 6px 10px 6px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   font-size: 12px;
-  max-width: 320px;
+  max-width: 240px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.attachment-chip:hover {
+  border-color: var(--border-strong);
 }
 .attachment-chip.uploading {
   color: var(--text-muted);
@@ -680,37 +685,73 @@ body {
 .attachment-chip.image {
   padding-left: 4px;
 }
+.attachment-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  /* Slight nudge down so the emoji sits visually centered against
+     the two-line text block. */
+  margin-top: 1px;
+}
 .attachment-thumb {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  border: 1px solid var(--border);
   flex-shrink: 0;
 }
+.attachment-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
 .attachment-name {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 170px;
 }
-.attachment-meta {
+.attachment-type {
   color: var(--text-muted);
+  font-size: 10.5px;
   white-space: nowrap;
 }
 .attachment-remove {
-  background: none;
-  border: none;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
   color: var(--text-muted);
+  border-radius: 50%;
   cursor: pointer;
-  font-size: 16px;
-  padding: 0 2px;
+  font-size: 13px;
+  padding: 0;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Hover-reveal — matches Claude's pattern where the × only
+     materialises when the user is actually targeting the chip. */
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
-.attachment-remove:hover { color: var(--danger); }
-.attachment-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+.attachment-chip:hover .attachment-remove,
+.attachment-chip:focus-within .attachment-remove {
+  opacity: 1;
+}
+.attachment-remove:hover {
+  color: white;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.attachment-remove:disabled { opacity: 0.4 !important; cursor: not-allowed; }
 
 .attach-btn {
   padding: 6px 12px;

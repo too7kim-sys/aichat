@@ -37,6 +37,94 @@ export interface ChatPanelHandle {
   addAttachmentFromText: (filename: string, text: string) => void;
 }
 
+/** Concise type label rendered below the filename in the attachment
+ *  chip. Mirrors Claude's compact "PDF / Word / Image" style instead
+ *  of the verbose "ocr · 12,345자" we used to show. */
+function attachmentTypeLabel(filename: string, isImage: boolean): string {
+  if (isImage) return "이미지";
+  const lower = filename.toLowerCase();
+  const ext = lower.slice(lower.lastIndexOf(".") + 1);
+  const map: Record<string, string> = {
+    pdf: "PDF",
+    docx: "Word",
+    doc: "Word",
+    xlsx: "Excel",
+    xls: "Excel",
+    pptx: "PowerPoint",
+    ppt: "PowerPoint",
+    hwpx: "한글",
+    hwp: "한글",
+    md: "Markdown",
+    markdown: "Markdown",
+    txt: "텍스트",
+    log: "로그",
+    csv: "CSV",
+    tsv: "TSV",
+    json: "JSON",
+    yaml: "YAML",
+    yml: "YAML",
+    xml: "XML",
+    html: "HTML",
+    htm: "HTML",
+    py: "Python",
+    js: "JavaScript",
+    ts: "TypeScript",
+    tsx: "TSX",
+    jsx: "JSX",
+    java: "Java",
+    kt: "Kotlin",
+    rs: "Rust",
+    go: "Go",
+    c: "C",
+    cpp: "C++",
+    h: "C 헤더",
+    hpp: "C++ 헤더",
+    cs: "C#",
+    rb: "Ruby",
+    php: "PHP",
+    sh: "Shell",
+    sql: "SQL",
+    css: "CSS",
+    scss: "SCSS",
+    toml: "TOML",
+    ini: "INI",
+    cfg: "Config",
+    env: "환경 변수",
+  };
+  return map[ext] || (ext ? ext.toUpperCase() : "파일");
+}
+
+/** Icon prefix for non-image attachments. Image chips show the
+ *  thumbnail instead. Stays inside the existing emoji vocabulary the
+ *  rest of the composer uses (📎 / 🔗). */
+function attachmentIcon(filename: string): string {
+  const lower = filename.toLowerCase();
+  const ext = lower.slice(lower.lastIndexOf(".") + 1);
+  if (["pdf"].includes(ext)) return "📕";
+  if (["docx", "doc"].includes(ext)) return "📘";
+  if (["xlsx", "xls", "csv", "tsv"].includes(ext)) return "📗";
+  if (["pptx", "ppt"].includes(ext)) return "📙";
+  if (["hwpx", "hwp"].includes(ext)) return "📜";
+  if (
+    [
+      "py", "js", "ts", "tsx", "jsx", "java", "kt", "rs", "go",
+      "c", "cpp", "h", "hpp", "cs", "rb", "php", "sh", "sql",
+      "css", "scss", "html", "htm", "xml", "json", "yaml", "yml",
+      "toml", "ini", "cfg", "env",
+    ].includes(ext)
+  ) return "📄";
+  return "📄";
+}
+
+/** Drop the leading workspace/project prefix from a path so the chip
+ *  shows the actual file basename. Workspace files come in as
+ *  "<workspace>/path/to/file.py"; clipboard pastes as
+ *  "clipboard-2026-06-06.png" (no path). */
+function attachmentBasename(filename: string): string {
+  const slash = filename.lastIndexOf("/");
+  return slash >= 0 ? filename.slice(slash + 1) : filename;
+}
+
 /** Parse a merge slash-command from the composer prompt.
  *
  * Accepted forms (case-insensitive on the keywords):
@@ -914,24 +1002,38 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                     : a.filename.toLowerCase().endsWith(".gif")
                     ? "image/gif"
                     : "image/jpeg";
+                  const basename = attachmentBasename(a.filename);
+                  const typeLabel = attachmentTypeLabel(a.filename, isImage);
+                  // Full path + extraction stats land on the tooltip
+                  // so the chip stays one glanceable line per file
+                  // while power users can still hover for detail.
+                  const tooltip =
+                    a.filename +
+                    (a.method ? `\n${a.method}` : "") +
+                    (a.char_count
+                      ? ` · ${a.char_count.toLocaleString()}자`
+                      : "");
                   return (
                     <div
                       key={i}
                       className={`attachment-chip${isImage ? " image" : ""}`}
+                      title={tooltip}
                     >
-                      {isImage && (
+                      {isImage ? (
                         <img
                           className="attachment-thumb"
                           src={`data:${guessMime};base64,${a.image_b64}`}
                           alt=""
                           loading="lazy"
                         />
+                      ) : (
+                        <span className="attachment-icon" aria-hidden="true">
+                          {attachmentIcon(a.filename)}
+                        </span>
                       )}
-                      <span className="attachment-name" title={a.filename}>
-                        {a.filename}
-                      </span>
-                      <span className="attachment-meta">
-                        {a.method} · {a.char_count.toLocaleString()}자
+                      <span className="attachment-info">
+                        <span className="attachment-name">{basename}</span>
+                        <span className="attachment-type">{typeLabel}</span>
                       </span>
                       <button
                         type="button"
