@@ -129,15 +129,23 @@ class Settings(BaseSettings):
     # Per-project file limits (separate from the git/folder upload
     # caps because the corpus is meant to be larger).
     rag_max_files: int = 5000
-    rag_max_bytes_per_file: int = 1024 * 1024
+    # Per-file size cap the indexer enforces during the corpus walk —
+    # files larger than this are skipped entirely (no chunks, no
+    # embeddings). The default lands at 50 MB so typical PDF /
+    # DOCX manuals fit; bump it for atlases / e-books / huge log
+    # files. Note this also covers code / api / db corpora which
+    # rarely need anything close to this much per file.
+    rag_max_bytes_per_file: int = 50 * 1024 * 1024
     # Where the "upload" document source stores user-supplied files —
     # one subdirectory per project, written by the upload endpoint and
     # walked by the indexer like a regular folder source.
     rag_upload_dir: str = "./rag_uploads"
-    # Per-upload file cap (bytes). Bigger than max_upload_bytes which
-    # is meant for chat attachments — knowledge-base files are typically
-    # PDFs / DOCX / reports that easily exceed 5 MB.
-    rag_upload_max_bytes: int = 50 * 1024 * 1024
+    # Per-upload file cap (bytes). Matched to rag_max_bytes_per_file
+    # by default — letting a user upload a 200 MB file that the
+    # indexer would immediately skip just wastes bandwidth + disk.
+    # Set this BELOW rag_max_bytes_per_file when you want to allow
+    # only certain admins to push huge files via a server folder.
+    rag_upload_max_bytes: int = 200 * 1024 * 1024
     # Auto-refresh scheduling. Sub-day intervals fire on wall-clock
     # boundaries (e.g. a 60-min interval runs at :00 every hour, a
     # 30-min one at :00 and :30) instead of drifting from the last
