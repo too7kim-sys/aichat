@@ -369,9 +369,14 @@ def format_workspace_tree_text(root: Path, max_lines: int = _TREE_LINE_CAP) -> s
 # the LLM sees every file the user can click in the tree — no more
 # "this controller exists in the tree but its body wasn't attached".
 # The tier-rank logic kicks in only on huge monorepos.
-_BULK_MAX_FILES = 300
-_BULK_MAX_BYTES_PER_FILE = 300 * 1024
-_BULK_MAX_TOTAL_BYTES = 8 * 1024 * 1024
+# Bulk-attach budget for chat auto-injection. Defaults stay conservative so
+# small workspaces don't blow context windows on quiet models, but each cap
+# is overrideable from .env — a 그룹웨어 repo with ~400 files and ~1MB of
+# real source easily warrants raising WORKSPACE_BUNDLE_MAX_FILES while
+# leaving the byte budget alone.
+_BULK_MAX_FILES = settings.workspace_bundle_max_files
+_BULK_MAX_BYTES_PER_FILE = settings.workspace_bundle_max_bytes_per_file
+_BULK_MAX_TOTAL_BYTES = settings.workspace_bundle_max_total_bytes
 
 # Higher tier wins. The match is "first tier whose set contains the
 # extension". Anything outside every tier still inside _TEXT_EXTS is

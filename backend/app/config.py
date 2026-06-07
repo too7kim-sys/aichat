@@ -77,6 +77,16 @@ class Settings(BaseSettings):
     workspace_max_size_mb: int = 500
     workspace_max_files: int = 5000
     workspace_clone_depth: int = 50
+    # Chat auto-attach budget — every code-focused turn re-walks the
+    # workspace and stuffs the top-ranked files (controllers + DAOs +
+    # configs first, tests / examples last) into the prompt. The
+    # walker stops once any of the three caps is hit. Defaults: 300
+    # files / 300 KB per file / 8 MB total — comfortable for a
+    # mid-size monorepo on a 32K-context model. Bump these for
+    # bigger projects on a model with a larger context window.
+    workspace_bundle_max_files: int = 300
+    workspace_bundle_max_bytes_per_file: int = 300 * 1024
+    workspace_bundle_max_total_bytes: int = 8 * 1024 * 1024
     # Comma-separated allow-list of root directories the "local folder"
     # workspace source can register paths under. Empty = the feature is
     # disabled (creating a local-folder workspace will return a clear

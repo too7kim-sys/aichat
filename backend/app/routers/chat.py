@@ -888,21 +888,43 @@ async def chat_single(
                     )
                 )
             elif bundle["truncated"]:
+                # Tell the user *which* cap clipped the bundle so the
+                # right knob (file count / per-file size / total
+                # bytes) is obvious to tune via .env.
+                missing = (
+                    bundle['total_files_in_repo'] - bundle['total_files']
+                )
+                reasons: list[str] = []
+                if bundle["total_files"] >= settings.workspace_bundle_max_files:
+                    reasons.append(
+                        f"파일 개수 한도(WORKSPACE_BUNDLE_MAX_FILES="
+                        f"{settings.workspace_bundle_max_files}) 도달 — "
+                        f"실제 코드 바이트는 {bundle['total_size']:,} (한도 "
+                        f"{settings.workspace_bundle_max_total_bytes:,})로 여유가 있을 수 있음"
+                    )
+                if (
+                    bundle['total_size']
+                    >= settings.workspace_bundle_max_total_bytes
+                    - settings.workspace_bundle_max_bytes_per_file
+                ):
+                    reasons.append(
+                        f"전체 바이트 한도(WORKSPACE_BUNDLE_MAX_TOTAL_BYTES="
+                        f"{settings.workspace_bundle_max_total_bytes:,}) 임계 도달"
+                    )
+                if bundle.get("skipped_too_large", 0) > 0:
+                    reasons.append(
+                        f"단일 파일 {bundle['skipped_too_large']}개가 "
+                        f"WORKSPACE_BUNDLE_MAX_BYTES_PER_FILE="
+                        f"{settings.workspace_bundle_max_bytes_per_file:,} 초과"
+                    )
+                why = "\n  · " + "\n  · ".join(reasons) if reasons else ""
                 manifest = (
                     f"# {ws.name} — workspace manifest\n"
                     f"전체 파일: {bundle['total_files_in_repo']}\n"
-                    f"채팅에 포함: {bundle['total_files']} "
-                    "(텍스트 파일, 작은 것 우선)\n"
-                    f"미포함: {bundle['total_files_in_repo'] - bundle['total_files']}개"
-                )
-                if bundle.get("skipped_too_large", 0) > 0:
-                    manifest += (
-                        f"\n300KB 초과로 본문 제외: "
-                        f"{bundle['skipped_too_large']}개"
-                    )
-                manifest += (
-                    "\n\n필요한 파일이 위에 없으면 사용자에게 정확한 "
-                    "경로를 요청하세요."
+                    f"채팅에 포함: {bundle['total_files']} (텍스트, 작은 것 우선)\n"
+                    f"총 본문 바이트: {bundle['total_size']:,}\n"
+                    f"미포함: {missing}개{why}\n\n"
+                    "필요한 파일이 위에 없으면 사용자에게 정확한 경로를 요청하세요."
                 )
                 auto_workspace_attachments.append(
                     schemas.AttachmentIn(
