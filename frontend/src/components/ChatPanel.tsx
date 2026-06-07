@@ -1017,10 +1017,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             />
           )}
           {liveStream?.ragChunks && liveStream.ragChunks.length > 0 && (
-            <RagChunksBox
-              chunks={liveStream.ragChunks}
-              streaming={streaming}
-            />
+            <RagChunksBox chunks={liveStream.ragChunks} />
           )}
         </div>
       </div>
@@ -1419,19 +1416,13 @@ function SourcesBox({
 
 function RagChunksBox({
   chunks,
-  streaming,
 }: {
   chunks: import("../api/client").RagChunk[];
-  // Same collapse-after-streaming behaviour as SourcesBox so the
-  // chunk list doesn't keep dominating the bottom of the chat once
-  // the answer is finished.
-  streaming?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  useEffect(() => {
-    if (streaming) setExpanded(true);
-    else setExpanded(false);
-  }, [streaming]);
+  // Collapsed by default — users open it when they want to inspect
+  // which chunks fed the answer, otherwise the list pushes the
+  // generated text off-screen during long answers.
+  const [expanded, setExpanded] = useState(false);
 
   if (!expanded) {
     return (
