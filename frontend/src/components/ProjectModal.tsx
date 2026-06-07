@@ -154,6 +154,107 @@ const _UPLOAD_EXTENSIONS = new Set([
   ".tsv",
 ]);
 
+/** Marker glyph + tooltip for one uploaded file's index_status,
+ *  shaped like the code workspace tree's ✓ / ⊘ scheme so users get
+ *  the same legend in both places. */
+function uploadStatusMarker(f: RagUploadedFile): {
+  glyph: string;
+  cls: string;
+  title: string;
+} {
+  switch (f.index_status) {
+    case "indexed":
+      return {
+        glyph: "✓",
+        cls: "ws-mark-ok",
+        title: `인덱스 반영됨${f.chunk_count ? ` · ${f.chunk_count} 청크` : ""}`,
+      };
+    case "pending":
+      return {
+        glyph: "…",
+        cls: "ws-mark-warn",
+        title:
+          "업로드되었지만 아직 인덱싱되지 않음 — 재인덱싱 버튼을 누르세요.",
+      };
+    case "oversize":
+      return {
+        glyph: "⊘",
+        cls: "ws-mark-bad",
+        title:
+          "파일이 RAG_MAX_BYTES_PER_FILE 한도를 초과해 본문이 제외됐습니다.",
+      };
+    case "unsupported-ext":
+      return {
+        glyph: "⊘",
+        cls: "ws-mark-bad",
+        title:
+          "이 코퍼스가 지원하지 않는 확장자입니다. 다른 코퍼스로 등록하거나 파일을 변환하세요.",
+      };
+    case "empty":
+      return { glyph: "⊘", cls: "ws-mark-bad", title: "빈 파일" };
+    case "no-snapshot":
+      return {
+        glyph: "·",
+        cls: "ws-mark-skip",
+        title: "프로젝트가 아직 인덱싱된 적이 없습니다.",
+      };
+    default:
+      return { glyph: "·", cls: "ws-mark-skip", title: f.index_status };
+  }
+}
+
+/** Top-of-list summary chip — "전부 반영" / "N개 보류 / M개 제외".
+ *  Lets the user spot a partial index at a glance without scanning
+ *  every row's marker. */
+function UploadStatusLegend({ files }: { files: RagUploadedFile[] }) {
+  const counts = files.reduce(
+    (acc, f) => {
+      acc[f.index_status] = (acc[f.index_status] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+  const ok = counts["indexed"] ?? 0;
+  const pending = counts["pending"] ?? 0;
+  const skipped =
+    (counts["oversize"] ?? 0)
+    + (counts["unsupported-ext"] ?? 0)
+    + (counts["empty"] ?? 0);
+  const noSnap = counts["no-snapshot"] ?? 0;
+  const total = files.length;
+  const tone =
+    noSnap === total
+      ? "warn"
+      : skipped > 0
+      ? "warn"
+      : pending > 0
+      ? "warn"
+      : "ok";
+  return (
+    <div className={`pm-upload-legend ${tone}`}>
+      <span>
+        <b>{ok.toLocaleString()}</b>
+        <span> / {total.toLocaleString()} 인덱스 반영</span>
+      </span>
+      {pending > 0 && (
+        <span title="업로드는 됐지만 아직 인덱스에 들어가지 않음">
+          … 보류 {pending}
+        </span>
+      )}
+      {skipped > 0 && (
+        <span title="확장자·크기 등의 사유로 인덱스에서 제외됨">
+          ⊘ 제외 {skipped}
+        </span>
+      )}
+      {noSnap > 0 && (
+        <span title="프로젝트가 아직 인덱싱된 적이 없습니다">
+          · 인덱싱 필요 {noSnap}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Hide credentials when rendering a project's source_ref. Both
  *  the DB connection string and SFTP URL embed user:password in the
  *  authority; replace the password section with "***". */
@@ -1395,37 +1496,55 @@ function UploadFilesPanel({
       {loading && files == null ? (
         <div className="pm-help">불러오는 중…</div>
       ) : files && files.length > 0 ? (
-        <ul className="pm-upload-list">
-          {files.map((f) => (
-            <li key={f.filename} className="pm-upload-item">
-              <span className="pm-upload-item-name" title={f.filename}>
-                {f.filename}
-              </span>
-              <span className="pm-upload-item-size">{fmtBytes(f.size)}</span>
-              <button
-                type="button"
-                className="pm-upload-item-download"
-                onClick={() => downloadFile(f.filename)}
-                aria-label="다운로드"
-                title="다운로드"
-              >
-                <IconDownload size={12} />
-              </button>
-              {!readOnly && (
-                <button
-                  type="button"
-                  className="pm-upload-item-remove"
-                  onClick={() => removeFile(f.filename)}
-                  disabled={busy}
-                  aria-label="삭제"
-                  title="삭제"
-                >
-                  <IconX size={12} />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          <UploadStatusLegend files={files} />
+          <ul className="pm-upload-list">
+            {files.map((f) => {
+              const mark = uploadStatusMarker(f);
+              return (
+                <li key={f.filename} className="pm-upload-item">
+                  <span
+                    className={`pm-upload-status ${mark.cls}`}
+                    title={mark.title}
+                    aria-label={mark.title}
+                  >
+                    {mark.glyph}
+                  </span>
+                  <span className="pm-upload-item-name" title={f.filename}>
+                    {f.filename}
+                  </span>
+                  {f.chunk_count != null && f.chunk_count > 0 && (
+                    <span className="pm-upload-item-chunks">
+                      {f.chunk_count.toLocaleString()} 청크
+                    </span>
+                  )}
+                  <span className="pm-upload-item-size">{fmtBytes(f.size)}</span>
+                  <button
+                    type="button"
+                    className="pm-upload-item-download"
+                    onClick={() => downloadFile(f.filename)}
+                    aria-label="다운로드"
+                    title="다운로드"
+                  >
+                    <IconDownload size={12} />
+                  </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="pm-upload-item-remove"
+                      onClick={() => removeFile(f.filename)}
+                      disabled={busy}
+                      aria-label="삭제"
+                      title="삭제"
+                    >
+                      <IconX size={12} />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
       ) : (
         <div className="pm-help">
           {readOnly

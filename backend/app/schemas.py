@@ -146,6 +146,17 @@ class RagUploadedFile(BaseModel):
     filename: str
     size: int
     modified_at: datetime
+    # Per-file indexing status — same shape the code workspace tree
+    # uses so the UI can render ✓ / ⊘ markers next to each row.
+    # `index_status` is one of:
+    #   "indexed"               body is in the current snapshot's index
+    #   "pending"               uploaded but not yet indexed (or stale snapshot)
+    #   "oversize"              skipped — file > rag_max_bytes_per_file
+    #   "unsupported-ext"       skipped — extension not in the corpus allowlist
+    #   "empty"                 0-byte file (chunker has nothing to do)
+    #   "no-snapshot"           project has never been indexed
+    index_status: str = "pending"
+    chunk_count: int | None = None
 
 
 class ProjectCreate(BaseModel):

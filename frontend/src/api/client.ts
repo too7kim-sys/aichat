@@ -368,6 +368,16 @@ export interface RagUploadedFile {
   filename: string;
   size: number;
   modified_at: string;
+  /** Per-file indexing outcome shown as a ✓ / ⊘ marker in the
+   *  upload list. Mirrors the code workspace tree's status markers. */
+  index_status:
+    | "indexed"
+    | "pending"
+    | "oversize"
+    | "unsupported-ext"
+    | "empty"
+    | "no-snapshot";
+  chunk_count: number | null;
 }
 
 export interface DbDriverInfo {

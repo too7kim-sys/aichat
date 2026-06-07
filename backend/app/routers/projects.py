@@ -214,6 +214,91 @@ def _project_upload_dir(project_id: str) -> Path:
     return root / project_id
 
 
+async def _list_uploaded_files_with_status(
+    db: AsyncSession, project: models.Project,
+) -> list[schemas.RagUploadedFile]:
+    """Walk the project's upload directory and annotate each file
+    with its indexing outcome — same ✓ / ⊘ shape the code workspace
+    tree uses so "어떤 문서가 인덱스에 들어갔는지" reads at a glance.
+
+    Joins the on-disk listing against the IndexedFile inventory for
+    the current snapshot. A file landed in the index → "indexed";
+    excluded by the walker (oversize / unsupported ext / empty) →
+    the matching reason; not yet seen by any snapshot → "pending"
+    (or "no-snapshot" when the project hasn't been indexed at all).
+    """
+    from ..rag.indexer import _EXTS_BY_TYPE
+
+    upload_dir = _project_upload_dir(project.id)
+    if not upload_dir.is_dir():
+        return []
+    allowed_exts = _EXTS_BY_TYPE.get(project.corpus_type or "document", set())
+    cap_bytes = settings.rag_max_bytes_per_file
+
+    # Pull the per-file inventory for the active snapshot in one query
+    # so we don't N+1 the listing on a folder with 400 files.
+    indexed: dict[str, int] = {}
+    if project.current_snapshot_id:
+        rows = (
+            await db.execute(
+                select(
+                    models.IndexedFile.filename,
+                    models.IndexedFile.chunk_count,
+                ).where(
+                    models.IndexedFile.snapshot_id
+                    == project.current_snapshot_id,
+                )
+            )
+        ).all()
+        indexed = {fn: cnt for fn, cnt in rows}
+
+    out: list[schemas.RagUploadedFile] = []
+    upload_root = upload_dir.resolve()
+    for p in sorted(upload_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        try:
+            rel = p.resolve().relative_to(upload_root).as_posix()
+            st = p.stat()
+        except (OSError, ValueError):
+            continue
+
+        # Determine the file's indexing fate. Order matters — the
+        # walker's own short-circuits run in this sequence.
+        if rel in indexed:
+            status = "indexed"
+            chunks: int | None = int(indexed[rel] or 0)
+        elif not project.current_snapshot_id:
+            status = "no-snapshot"
+            chunks = None
+        elif st.st_size == 0:
+            status = "empty"
+            chunks = None
+        elif st.st_size > cap_bytes:
+            status = "oversize"
+            chunks = None
+        elif p.suffix.lower() not in allowed_exts:
+            status = "unsupported-ext"
+            chunks = None
+        else:
+            # Eligible but not in the inventory — was added after
+            # the last reindex (or chunking failed silently). UI
+            # nudges the user to re-run indexing.
+            status = "pending"
+            chunks = None
+
+        out.append(
+            schemas.RagUploadedFile(
+                filename=rel,
+                size=st.st_size,
+                modified_at=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc),
+                index_status=status,
+                chunk_count=chunks,
+            )
+        )
+    return out
+
+
 def _upload_dir_size_bytes(upload_dir: Path) -> int:
     """Walk the upload tree and sum file sizes so the delete response
     can report how many bytes the user is freeing — covers the
@@ -896,30 +981,7 @@ async def list_uploaded_files(
         raise HTTPException(403, "권한이 없습니다")
     if project.source_type != "upload":
         raise HTTPException(409, "업로드 소스 프로젝트가 아닙니다")
-    upload_dir = _project_upload_dir(project.id)
-    if not upload_dir.is_dir():
-        return []
-    # Walk recursively so files uploaded as part of a folder selection
-    # (webkitdirectory) come back with their relative POSIX path
-    # instead of just the basename — the UI groups them by directory.
-    out: list[schemas.RagUploadedFile] = []
-    upload_root = upload_dir.resolve()
-    for p in sorted(upload_dir.rglob("*")):
-        if not p.is_file():
-            continue
-        try:
-            rel = p.resolve().relative_to(upload_root).as_posix()
-            st = p.stat()
-        except (OSError, ValueError):
-            continue
-        out.append(
-            schemas.RagUploadedFile(
-                filename=rel,
-                size=st.st_size,
-                modified_at=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc),
-            )
-        )
-    return out
+    return await _list_uploaded_files_with_status(db, project)
 
 
 @router.post(
@@ -1014,25 +1076,9 @@ async def append_uploaded_files(
         accepted.append(target)
 
     # Return the full updated listing so the UI can re-render without a
-    # follow-up GET. Walks recursively so nested files show up too.
-    upload_root = upload_dir.resolve()
-    out_list: list[schemas.RagUploadedFile] = []
-    for p in sorted(upload_dir.rglob("*")):
-        if not p.is_file():
-            continue
-        try:
-            rel = p.resolve().relative_to(upload_root).as_posix()
-            st = p.stat()
-        except (OSError, ValueError):
-            continue
-        out_list.append(
-            schemas.RagUploadedFile(
-                filename=rel,
-                size=st.st_size,
-                modified_at=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc),
-            )
-        )
-    return out_list
+    # follow-up GET — including the per-file index status so the new
+    # rows immediately show "pending" until the next reindex lands.
+    return await _list_uploaded_files_with_status(db, project)
 
 
 @router.get("/{project_id}/uploads/{filename:path}/download")
