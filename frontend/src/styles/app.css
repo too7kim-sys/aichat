@@ -5813,6 +5813,49 @@ body {
 }
 .cowork-item.status-running { border-color: var(--accent); }
 .cowork-item.status-failed { border-color: #fca5a5; }
+/* Click-to-edit affordance — workflow rows + owned prompt rows
+ * become clickable; the run / open-result buttons stop propagation
+ * so the row click only triggers when the user hits whitespace. */
+.cowork-item-clickable { cursor: pointer; }
+.cowork-item-clickable:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+/* Two-up field row inside edit modals — used by the workflow form
+ * for (project | model) and the prompt form for (category | tags). */
+.pm-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .pm-field-row { grid-template-columns: 1fr; }
+}
+/* Workflow {var} key/value editor — one row per detected placeholder
+ * with the variable name pinned to the left so the operator can scan
+ * what still needs a value. */
+.wf-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wf-vars-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.wf-vars-name {
+  font: 12px ui-monospace, monospace;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-sidebar);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cowork-item-head {
   display: flex;
   justify-content: space-between;

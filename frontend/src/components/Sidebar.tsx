@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   api,
+  type Project,
   type Prompt,
   type Transcript,
   type Workflow,
 } from "../api/client";
 import { queueAttachment } from "../state/attachQueue";
+import { useAuth } from "../auth/AuthContext";
 import { useWorkspaces } from "../state/WorkspacesContext";
 import type { ChatProject, Session } from "../types";
 import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
 import { ChatProjectEditModal } from "./ChatProjectEditModal";
+import { PromptEditModal } from "./PromptEditModal";
+import { WorkflowEditModal } from "./WorkflowEditModal";
 import {
   IconBookOpen,
   IconChat,
@@ -909,6 +913,18 @@ function CoworkPane({
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
+  // Projects + auth feed the workflow editor — the prompt dropdown
+  // wants RAG bases for the optional retrieval pin, the prompt
+  // editor needs the admin flag for the share toggle.
+  const [projects, setProjects] = useState<Project[]>([]);
+  const { user: me } = useAuth();
+  const isAdmin = me?.role === "admin";
+  // Edit modals — "new" sentinel opens an empty form, an instance
+  // opens the editor seeded from that row.
+  const [promptEdit, setPromptEdit] = useState<Prompt | "new" | null>(null);
+  const [workflowEdit, setWorkflowEdit] = useState<Workflow | "new" | null>(
+    null,
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   // MediaRecorder state for the live record button.
@@ -921,14 +937,16 @@ function CoworkPane({
 
   async function refreshAll() {
     try {
-      const [p, w, t] = await Promise.all([
+      const [p, w, t, pr] = await Promise.all([
         api.listPrompts(),
         api.listWorkflows(),
         api.listTranscripts().catch(() => [] as Transcript[]),
+        api.listProjects().catch(() => [] as Project[]),
       ]);
       setPrompts(p);
       setWorkflows(w);
       setTranscripts(t);
+      setProjects(pr);
     } catch {
       /* unauthorized — empty */
     }
@@ -1234,6 +1252,14 @@ function CoworkPane({
 
       {tab === "workflows" && (
         <div className="sidebar-sessions">
+          <div className="sidebar-actions">
+            <button
+              className="primary"
+              onClick={() => setWorkflowEdit("new")}
+            >
+              <IconPlus size={14} /> 새 워크플로
+            </button>
+          </div>
           <div className="session-section">자동화 워크플로</div>
           {workflows.length === 0 ? (
             <div className="sidebar-empty">
@@ -1243,7 +1269,11 @@ function CoworkPane({
           ) : (
             <ul className="cowork-list">
               {workflows.map((w) => (
-                <li key={w.id} className={`cowork-item status-${w.last_run_status ?? "idle"}`}>
+                <li
+                  key={w.id}
+                  className={`cowork-item status-${w.last_run_status ?? "idle"} cowork-item-clickable`}
+                  onClick={() => setWorkflowEdit(w)}
+                >
                   <div className="cowork-item-head">
                     <span className="cowork-item-name" title={w.description ?? undefined}>
                       {w.name}
@@ -1251,7 +1281,10 @@ function CoworkPane({
                     <button
                       type="button"
                       className="cowork-item-run"
-                      onClick={() => runWorkflow(w)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        runWorkflow(w);
+                      }}
                       disabled={
                         busyId === w.id || w.last_run_status === "running"
                       }
@@ -1264,6 +1297,16 @@ function CoworkPane({
                     <span>
                       {w.prompt_name ?? "?"}
                       {w.project_name ? ` · ${w.project_name}` : ""}
+                      {w.schedule_interval_minutes > 0
+                        ? ` · ${
+                            w.schedule_interval_minutes >= 1440
+                              ? "매일"
+                              : w.schedule_interval_minutes >= 60
+                              ? `${w.schedule_interval_minutes / 60}시간`
+                              : `${w.schedule_interval_minutes}분`
+                          }`
+                        : " · 수동"}
+                      {!w.enabled && " · 비활성"}
                     </span>
                     {w.last_run_status === "running" ? (
                       <span className="cowork-run-badge running">실행 중…</span>
@@ -1271,10 +1314,10 @@ function CoworkPane({
                       <button
                         type="button"
                         className="cowork-run-badge ok"
-                        onClick={() =>
-                          w.last_session_id &&
-                          onOpenSession(w.last_session_id)
-                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          w.last_session_id && onOpenSession(w.last_session_id);
+                        }}
                         title="마지막 결과 열기"
                       >
                         <IconCheckCircle size={11} /> 보기
@@ -1292,25 +1335,19 @@ function CoworkPane({
               ))}
             </ul>
           )}
-          <div className="cowork-foot">
-            <a
-              href="#admin-knowledge"
-              className="cowork-foot-hint"
-              onClick={(e) => {
-                e.preventDefault();
-                window.alert(
-                  "워크플로 생성/편집은 권한 관리 → 워크플로 탭에서 합니다.",
-                );
-              }}
-            >
-              워크플로 추가는 권한 관리 메뉴에서
-            </a>
-          </div>
         </div>
       )}
 
       {tab === "prompts" && (
         <div className="sidebar-sessions">
+          <div className="sidebar-actions">
+            <button
+              className="primary"
+              onClick={() => setPromptEdit("new")}
+            >
+              <IconPlus size={14} /> 새 프롬프트
+            </button>
+          </div>
           <div className="session-section">프롬프트 라이브러리</div>
           {prompts.length === 0 ? (
             <div className="sidebar-empty">
@@ -1320,7 +1357,12 @@ function CoworkPane({
           ) : (
             <ul className="cowork-list">
               {prompts.map((p) => (
-                <li key={p.id} className="cowork-item">
+                <li
+                  key={p.id}
+                  className={`cowork-item${p.owned ? " cowork-item-clickable" : ""}`}
+                  onClick={() => p.owned && setPromptEdit(p)}
+                  title={p.owned ? "클릭해서 편집" : "공유 프롬프트 — 읽기 전용"}
+                >
                   <div className="cowork-item-head">
                     <span className="cowork-item-name" title={p.description ?? undefined}>
                       {p.name}
@@ -1382,6 +1424,39 @@ function CoworkPane({
             />
           )}
         </div>
+      )}
+
+      {promptEdit !== null && (
+        <PromptEditModal
+          prompt={promptEdit === "new" ? null : promptEdit}
+          isAdmin={isAdmin}
+          onClose={() => setPromptEdit(null)}
+          onSaved={async () => {
+            setPromptEdit(null);
+            await refreshAll();
+          }}
+          onDeleted={async () => {
+            setPromptEdit(null);
+            await refreshAll();
+          }}
+        />
+      )}
+
+      {workflowEdit !== null && (
+        <WorkflowEditModal
+          workflow={workflowEdit === "new" ? null : workflowEdit}
+          prompts={prompts}
+          projects={projects}
+          onClose={() => setWorkflowEdit(null)}
+          onSaved={async () => {
+            setWorkflowEdit(null);
+            await refreshAll();
+          }}
+          onDeleted={async () => {
+            setWorkflowEdit(null);
+            await refreshAll();
+          }}
+        />
       )}
     </>
   );
