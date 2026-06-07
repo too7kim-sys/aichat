@@ -214,6 +214,40 @@ def _project_upload_dir(project_id: str) -> Path:
     return root / project_id
 
 
+def _upload_dir_size_bytes(upload_dir: Path) -> int:
+    """Walk the upload tree and sum file sizes so the delete response
+    can report how many bytes the user is freeing — covers the
+    indexer-collection bytes (Qdrant) AND the original files we
+    wrote here ourselves. Returns 0 on missing dir / IO errors."""
+    if not upload_dir.is_dir():
+        return 0
+    total = 0
+    try:
+        for p in upload_dir.rglob("*"):
+            if p.is_file():
+                try:
+                    total += p.stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
+def _wipe_project_upload_dir(project_id: str) -> int:
+    """Remove the per-project upload directory and report how many
+    bytes were freed. Idempotent — safe to call when the project
+    never had an upload source (returns 0 immediately on a missing
+    dir). Called from every code path that destroys a project so a
+    leftover folder never lingers on disk after the DB row is gone."""
+    upload_dir = _project_upload_dir(project_id)
+    if not upload_dir.is_dir():
+        return 0
+    freed = _upload_dir_size_bytes(upload_dir)
+    shutil.rmtree(upload_dir, ignore_errors=True)
+    return freed
+
+
 def _sanitize_upload_name(name: str) -> str:
     """Reduce an uploaded file's filename to something safe to write
     under the per-project upload directory. Drops everything but the
@@ -707,21 +741,33 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    project = await _project_with_snapshots(db, project_id, user.id)
+    """Owner-initiated delete — admins also get an escape hatch so a
+    shared knowledge base another admin uploaded can still be
+    retired from the dashboard. Always wipes the per-project upload
+    directory + every snapshot's Qdrant collection."""
+    project = await db.scalar(
+        select(models.Project)
+        .where(models.Project.id == project_id)
+        .options(selectinload(models.Project.snapshots))
+    )
     if not project:
         raise HTTPException(404, "project not found")
-    # Each snapshot has its own collection; drop them all + capture the
-    # total bytes reclaimed so the UI can show a meaningful number.
+    is_owner = project.user_id == user.id
+    is_admin = await _is_admin(db, user)
+    if not (is_owner or is_admin):
+        raise HTTPException(403, "권한이 없습니다")
+    # Each snapshot has its own Qdrant collection; drop them all +
+    # capture the total bytes reclaimed so the UI can show a
+    # meaningful number.
     freed_total = 0
     for snap in project.snapshots:
         freed_total += drop_collection(snap.id)
-    # Wipe the per-project upload directory if the source kept user
-    # files on local disk (the upload source). Folder / git / sftp
-    # sources read from elsewhere and shouldn't be touched here.
-    if project.source_type == "upload":
-        upload_dir = _project_upload_dir(project.id)
-        if upload_dir.is_dir():
-            shutil.rmtree(upload_dir, ignore_errors=True)
+    # Wipe the per-project upload directory unconditionally — the
+    # helper noops when the project never used the upload source, so
+    # we don't need to branch on source_type here. Bytes recovered
+    # land in the same freed_bytes total so the user sees a single
+    # number that includes both the vector store and the originals.
+    freed_total += _wipe_project_upload_dir(project.id)
     await db.delete(project)
     await db.commit()
     return {"freed_bytes": freed_total}

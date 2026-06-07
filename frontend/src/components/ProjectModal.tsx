@@ -923,12 +923,16 @@ function ProjectCard({
             {editing ? <IconX size={15} /> : <IconCode size={15} />}
           </button>
         )}
-        {p.owned ? (
+        {p.owned || adminMode ? (
           <button
             type="button"
             className="pm-icon-btn danger"
             onClick={onDelete}
-            title="삭제"
+            title={
+              p.owned
+                ? "삭제"
+                : "공유 지식베이스 삭제 (관리자) — 서버 파일도 함께 제거"
+            }
             aria-label="삭제"
           >
             <IconTrash size={15} />
