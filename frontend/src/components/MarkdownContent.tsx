@@ -103,40 +103,69 @@ function FileDownload({ path, body }: { path: string; body: string }) {
   );
 }
 
-/** Combined action: write the file into the workspace clone on the
- *  backend AND trigger the browser download in one click. Only
- *  rendered when the chat is bound to a workspace — without one
- *  there's nowhere to apply, so the standalone Download button is
- *  enough. Lets the user say "다운받게 해줘" and walk away with both
- *  the file on their machine and the workspace folder updated. */
-function FileSaveAndDownload({
-  path,
-  body,
-}: {
-  path: string;
-  body: string;
-}) {
-  const { workspaceId, onPatchApplied } = useChatWorkspace();
+/** "Finalize" action that branches on the workspace's source type so
+ *  the same button does the right thing in each case:
+ *    - git clone   → apply + git commit + git push  ("Git에 반영")
+ *    - local folder → apply + browser download       ("저장 + 다운로드")
+ *  Only rendered when the chat is bound to a workspace — without one
+ *  there's nowhere to apply / commit. */
+function FileFinalize({ path, body }: { path: string; body: string }) {
+  const { workspaceId, sourceType, onPatchApplied } = useChatWorkspace();
   const [state, setState] = useState<
     "idle" | "busy" | "done" | "error"
   >("idle");
   const [error, setError] = useState<string | null>(null);
+  // Cap the success-state hold time so the row settles back to a
+  // usable button after a regen / second attempt.
+  const DONE_HOLD_MS = 2200;
 
-  if (!workspaceId) return null;
+  if (!workspaceId || !sourceType) return null;
 
   async function run() {
     if (!workspaceId) return;
     setState("busy");
     setError(null);
     try {
-      // Apply first — if the server rejects (path traversal, etc.)
-      // we'd rather not hand the user a file that didn't actually
-      // make it into the workspace.
+      // Apply first — if the server rejects (path traversal,
+      // collision with .git, …) we don't go any further.
       await api.applyWorkspaceFile(workspaceId, path, body);
-      downloadAsFile(body, path);
+      if (sourceType === "git") {
+        // Stage + commit + push in one round trip. The message is
+        // a sensible default; users who want a custom message use
+        // the standalone Commit panel later.
+        const result = await api.commitWorkspace(workspaceId, {
+          message: `AI generated: ${path}`,
+          paths: [path],
+          push: true,
+        });
+        if (!result.commit.committed) {
+          // "Nothing to commit" lands here when the apply produced
+          // an identical file — surface that as a soft success
+          // rather than an error.
+          setState("done");
+          window.setTimeout(() => setState("idle"), DONE_HOLD_MS);
+          onPatchApplied?.();
+          return;
+        }
+        if (result.push && !result.push.pushed) {
+          setError(
+            `커밋은 됐지만 푸시 실패: ${result.push.error ?? "원인 불명"}`,
+          );
+          setState("error");
+          window.setTimeout(() => setState("idle"), 3500);
+          onPatchApplied?.();
+          return;
+        }
+      } else {
+        // local-folder source — file is already on disk where the
+        // user wanted it (the registered path), so the "download"
+        // here is a regular browser download in case they're on a
+        // different machine than the backend.
+        downloadAsFile(body, path);
+      }
       onPatchApplied?.();
       setState("done");
-      window.setTimeout(() => setState("idle"), 2000);
+      window.setTimeout(() => setState("idle"), DONE_HOLD_MS);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setState("error");
@@ -144,17 +173,27 @@ function FileSaveAndDownload({
     }
   }
 
+  const isGit = sourceType === "git";
+  const idleLabel = isGit ? "🚀 저장 + Git 반영" : "📦 저장 + 다운로드";
+  const busyLabel = isGit ? "⏳ commit + push…" : "⏳ 저장 중…";
+  const doneLabel = isGit
+    ? "✓ commit + push 완료"
+    : "✓ 저장 + 다운로드 완료";
+  const idleTitle = isGit
+    ? `${path}를 워크스페이스에 저장한 뒤 git commit + push`
+    : `${path}를 워크스페이스 폴더에 저장한 뒤 브라우저로 다운로드`;
+
   if (state === "busy") {
     return (
       <button type="button" className="code-apply busy" disabled>
-        ⏳ 저장 중…
+        {busyLabel}
       </button>
     );
   }
   if (state === "done") {
     return (
       <button type="button" className="code-apply done" disabled>
-        ✓ 저장 + 다운로드 완료
+        {doneLabel}
       </button>
     );
   }
@@ -175,9 +214,9 @@ function FileSaveAndDownload({
       type="button"
       className="code-apply"
       onClick={run}
-      title={`${path}를 워크스페이스에 저장한 뒤 브라우저로 다운로드`}
+      title={idleTitle}
     >
-      📦 저장 + 다운로드
+      {idleLabel}
     </button>
   );
 }
@@ -346,9 +385,7 @@ function CollapsibleCode({
         </button>
         <div className="code-header-actions">
           {file && <FileApply path={file.path} body={file.body} />}
-          {file && (
-            <FileSaveAndDownload path={file.path} body={file.body} />
-          )}
+          {file && <FileFinalize path={file.path} body={file.body} />}
           {file && <FileDownload path={file.path} body={file.body} />}
           <button
             type="button"

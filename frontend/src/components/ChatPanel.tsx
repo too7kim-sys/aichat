@@ -23,6 +23,7 @@ import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { ChatWorkspaceProvider } from "../state/ChatWorkspaceContext";
+import { useWorkspaces } from "../state/WorkspacesContext";
 import { useModels } from "../state/ModelContext";
 import { drainAttachments } from "../state/attachQueue";
 import { streamStore, useLiveStream } from "../state/streamStore";
@@ -296,6 +297,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     window.addEventListener("chat:attach-file", ingest);
     return () => window.removeEventListener("chat:attach-file", ingest);
   }, []);
+
+  // Look up the workspace's source_type so the code-block action chips
+  // can pick the right "save" flow — git workspaces get commit+push,
+  // local-folder workspaces just save to the registered path.
+  const { workspaces } = useWorkspaces();
+  const sessionWorkspace = session?.workspace_id
+    ? workspaces.find((w) => w.id === session.workspace_id) ?? null
+    : null;
+  const workspaceSourceType =
+    (sessionWorkspace?.source_type as "git" | "local" | undefined) ?? null;
 
   // Subscribe to the (possibly in-flight) stream for this session.
   const liveStream = useLiveStream(sessionId);
@@ -919,6 +930,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
       <ChatWorkspaceProvider
         workspaceId={session.workspace_id ?? null}
+        sourceType={workspaceSourceType}
         onPatchApplied={() => setChangesRefreshKey((k) => k + 1)}
       >
       <div className="chat-body">

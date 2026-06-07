@@ -6,6 +6,11 @@ import { createContext, useContext, type ReactNode } from "react";
  * having to plumb the workspace id through every prop. */
 interface ChatWorkspaceValue {
   workspaceId: string | null;
+  /** Which kind of backing source this workspace has — git clones get
+   *  the commit+push action chip alongside save+download; local-folder
+   *  workspaces just save into the registered path. null when no
+   *  workspace is attached. */
+  sourceType: "git" | "local" | null;
   /** Triggered by the markdown renderer after a successful patch
    * apply — lets a parent panel refresh its dirty-files view. */
   onPatchApplied?: () => void;
@@ -13,15 +18,19 @@ interface ChatWorkspaceValue {
 
 const ChatWorkspaceCtx = createContext<ChatWorkspaceValue>({
   workspaceId: null,
+  sourceType: null,
 });
 
 export function ChatWorkspaceProvider({
   workspaceId,
+  sourceType,
   onPatchApplied,
   children,
 }: ChatWorkspaceValue & { children: ReactNode }) {
   return (
-    <ChatWorkspaceCtx.Provider value={{ workspaceId, onPatchApplied }}>
+    <ChatWorkspaceCtx.Provider
+      value={{ workspaceId, sourceType, onPatchApplied }}
+    >
       {children}
     </ChatWorkspaceCtx.Provider>
   );
