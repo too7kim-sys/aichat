@@ -195,9 +195,26 @@ export function ProjectModal({
   initialProjectId = null,
   initialSnapshotsOpen = false,
 }: Props) {
-  const { projects, storageBytes, create, remove, reindex, refresh } =
-    useProjects();
+  const { projects, create, remove, reindex, refresh } = useProjects();
   const [addOpen, setAddOpen] = useState(false);
+  // Sidebar collapse — the master-detail layout can hide the list so
+  // the form / card on the right gets the full modal width. Persisted
+  // in localStorage so it survives reopens. Mobile auto-collapses via
+  // a media query (see CSS) regardless of the saved value.
+  const [sideCollapsed, setSideCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("pm:sideCollapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("pm:sideCollapsed", sideCollapsed ? "1" : "0");
+    } catch {
+      /* private mode, etc. — fine to skip */
+    }
+  }, [sideCollapsed]);
   // Role catalog for the admin share-grant UI. Only fetched in admin
   // mode; non-admins can't hit /admin/roles anyway.
   const [roles, setRoles] = useState<Role[]>([]);
@@ -269,120 +286,144 @@ export function ProjectModal({
   if (!open) return null;
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  // Embedded mode (admin "지식베이스" panel) drops the modal backdrop
-  // + header chrome and renders the body inline inside the admin
-  // shell — same pattern as the roles panel. Standalone mode keeps
-  // the full modal for the sidebar entry point.
+  // Unified layout — both 추가 and 수정 use the master-detail split
+  // so the chrome is identical: same sidebar with the project list +
+  // "새 RAG 추가" CTA on the left, the form / card on the right. The
+  // sidebar slides out / in via a handle on its right edge.
   const body = (
-    <>
-
-        {addOpen ? (
-          // Add-only view — the modal's own ✕ closes it; no separate
-          // back-to-list affordance since the parent page already
-          // shows the list directly.
-          <div className="pm-body pm-body-add">
-            <div className="pm-add-header">
-              <h4>새 RAG 프로젝트 추가</h4>
-            </div>
-            <div className="pm-add-wrap">
-              <AddProjectForm
-                compact={projects.length > 0}
-                adminMode={adminMode}
-                roles={roles}
-                onCancel={
-                  projects.length > 0 ? () => setAddOpen(false) : undefined
-                }
-                onSubmit={async (payload) => {
-                  const created = await create(payload);
-                  setAddOpen(false);
-                  return created;
-                }}
-              />
-            </div>
+    <div
+      className={`pm-body pm-body-browse${sideCollapsed ? " side-collapsed" : ""}`}
+    >
+      <aside className="pm-side">
+        <button
+          type="button"
+          className={`pm-add-cta pm-side-add${addOpen ? " active" : ""}`}
+          onClick={() => setAddOpen(true)}
+        >
+          <IconPlus size={14} />
+          <span>새 RAG 추가</span>
+        </button>
+        {projects.length === 0 ? (
+          <div className="pm-empty">
+            <IconBookOpen size={28} />
+            <p>아직 추가된 프로젝트가 없습니다.</p>
           </div>
         ) : (
-          // ── Browse view ── master-detail (list left, single card right)
-          <div className="pm-body pm-body-browse">
-            <aside className="pm-side">
-              <button
-                type="button"
-                className="pm-add-cta pm-side-add"
-                onClick={() => setAddOpen(true)}
-              >
-                <IconPlus size={14} />
-                <span>새 프로젝트 추가</span>
-              </button>
-              {projects.length === 0 ? (
-                <div className="pm-empty">
-                  <IconBookOpen size={28} />
-                  <p>아직 추가된 프로젝트가 없습니다.</p>
-                </div>
-              ) : (
-                <ul className="pm-side-list">
-                  {projects.map((p) => (
-                    <ProjectListItem
-                      key={p.id}
-                      project={p}
-                      active={p.id === activeProjectId}
-                      linked={linkedProjectId === p.id}
-                      onSelect={() => setActiveProjectId(p.id)}
-                    />
-                  ))}
-                </ul>
-              )}
-            </aside>
+          <ul className="pm-side-list">
+            {projects.map((p) => (
+              <ProjectListItem
+                key={p.id}
+                project={p}
+                active={!addOpen && p.id === activeProjectId}
+                linked={linkedProjectId === p.id}
+                onSelect={() => {
+                  setAddOpen(false);
+                  setActiveProjectId(p.id);
+                }}
+              />
+            ))}
+          </ul>
+        )}
+      </aside>
 
-            <main className="pm-detail">
-              {activeProject ? (
-                <ProjectCard
-                  project={activeProject}
-                  adminMode={adminMode}
-                  allRoles={roles}
-                  initialSnapshotsOpen={initialSnapshotsOpen}
-                  linkable={!!linkSessionId}
-                  linked={linkedProjectId === activeProject.id}
-                  onLink={() =>
-                    onLinkChange?.(
-                      linkedProjectId === activeProject.id
-                        ? null
-                        : activeProject.id,
-                    )
-                  }
-                  onReindex={() => reindex(activeProject.id)}
-                  onDelete={async () => {
-                    if (
-                      !window.confirm(
-                        `"${activeProject.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
-                      )
-                    )
-                      return;
-                    if (linkedProjectId === activeProject.id)
-                      onLinkChange?.(null);
-                    try {
-                      const { freedBytes } = await remove(activeProject.id);
-                      if (freedBytes > 0) {
-                        console.info(
-                          `[RAG] "${activeProject.name}" 삭제 — ${fmtBytes(freedBytes)} 회수`,
-                        );
-                      }
-                      // After deletion, refresh() runs in the hook;
-                      // the effect above will pick a new active id.
-                    } catch (e) {
-                      window.alert(
-                        `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
-                      );
-                    }
-                  }}
-                />
-              ) : (
-                <div className="pm-detail-empty">
-                  왼쪽에서 프로젝트를 선택하세요.
-                </div>
+      {/* Slide handle — pinned to the modal edge, drags the sidebar
+       *  in / out. The chevron flips direction based on state so the
+       *  affordance reads as "show list" / "hide list". */}
+      <button
+        type="button"
+        className="pm-side-toggle"
+        onClick={() => setSideCollapsed((v) => !v)}
+        aria-label={sideCollapsed ? "목록 펼치기" : "목록 접기"}
+        aria-expanded={!sideCollapsed}
+        title={sideCollapsed ? "목록 펼치기" : "목록 접기"}
+      >
+        {sideCollapsed ? (
+          <IconChevronRight size={14} />
+        ) : (
+          <IconChevronDown
+            size={14}
+            style={{ transform: "rotate(90deg)" }}
+          />
+        )}
+      </button>
+
+      <main className="pm-detail">
+        {addOpen ? (
+          <div className="pm-add-wrap">
+            <div className="pm-add-header">
+              <h4>새 RAG 프로젝트 추가</h4>
+              {projects.length > 0 && (
+                <button
+                  type="button"
+                  className="pm-back-btn"
+                  onClick={() => setAddOpen(false)}
+                >
+                  목록으로
+                </button>
               )}
-            </main>
+            </div>
+            <AddProjectForm
+              compact={projects.length > 0}
+              adminMode={adminMode}
+              roles={roles}
+              onCancel={
+                projects.length > 0 ? () => setAddOpen(false) : undefined
+              }
+              onSubmit={async (payload) => {
+                const created = await create(payload);
+                setAddOpen(false);
+                return created;
+              }}
+            />
+          </div>
+        ) : activeProject ? (
+          <ProjectCard
+            project={activeProject}
+            adminMode={adminMode}
+            allRoles={roles}
+            initialSnapshotsOpen={initialSnapshotsOpen}
+            linkable={!!linkSessionId}
+            linked={linkedProjectId === activeProject.id}
+            onLink={() =>
+              onLinkChange?.(
+                linkedProjectId === activeProject.id
+                  ? null
+                  : activeProject.id,
+              )
+            }
+            onReindex={() => reindex(activeProject.id)}
+            onDelete={async () => {
+              if (
+                !window.confirm(
+                  `"${activeProject.name}"을(를) 삭제할까요?\n인덱스도 함께 사라지고 디스크 공간이 회수됩니다.`,
+                )
+              )
+                return;
+              if (linkedProjectId === activeProject.id)
+                onLinkChange?.(null);
+              try {
+                const { freedBytes } = await remove(activeProject.id);
+                if (freedBytes > 0) {
+                  console.info(
+                    `[RAG] "${activeProject.name}" 삭제 — ${fmtBytes(freedBytes)} 회수`,
+                  );
+                }
+                // After deletion, refresh() runs in the hook;
+                // the effect above will pick a new active id.
+              } catch (e) {
+                window.alert(
+                  `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
+            }}
+          />
+        ) : (
+          <div className="pm-detail-empty">
+            왼쪽에서 프로젝트를 선택하거나 "새 RAG 추가"를 누르세요.
           </div>
         )}
-    </>
+      </main>
+    </div>
   );
 
   if (embedded) {

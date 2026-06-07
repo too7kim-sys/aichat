@@ -3504,14 +3504,15 @@ body {
 .pm-add-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-sidebar);
+  padding: 4px 0 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
 }
 .pm-add-header h4 {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
 }
@@ -3530,15 +3531,17 @@ body {
 }
 .pm-back-btn:disabled { opacity: 0.45; cursor: default; }
 .pm-add-wrap {
-  flex: 1;
-  overflow: auto;
-  padding: 20px clamp(20px, 6vw, 80px);
+  /* Sits inside .pm-detail now (not the dedicated body-add view), so
+   * it inherits the detail pane's scroll + padding. We just centre
+   * the form column so the add UI matches the card column width. */
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
 }
 .pm-add-wrap > .pm-add {
   width: 100%;
-  max-width: 640px;
 }
 .pm-empty {
   display: flex;
@@ -3551,7 +3554,11 @@ body {
 }
 .pm-empty p { margin: 0; }
 
-/* Browse view — master-detail split (list left, single card right) */
+/* Browse view — master-detail split (list left, single card right).
+ * Both 추가 and 수정 share this layout; the right pane swaps between
+ * the AddProjectForm (when addOpen) and the ProjectCard. Sidebar
+ * collapses to ~0px via the `.side-collapsed` modifier so the form /
+ * card has the full modal width when the user doesn't need the list. */
 .pm-body-browse {
   padding: 0;
   display: grid;
@@ -3559,6 +3566,11 @@ body {
   gap: 0;
   flex: 1;
   min-height: 0;
+  position: relative;
+  transition: grid-template-columns 0.22s ease;
+}
+.pm-body-browse.side-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr);
 }
 .pm-side {
   border-right: 1px solid var(--border);
@@ -3567,7 +3579,50 @@ body {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  transition: opacity 0.18s ease;
 }
+.pm-body-browse.side-collapsed .pm-side {
+  opacity: 0;
+  pointer-events: none;
+  border-right-color: transparent;
+}
+
+/* Toggle handle pinned to the seam between sidebar and detail. Sits
+ * absolutely so it floats on top of the grid edge regardless of
+ * scroll, and shifts with the column width via translateX. */
+.pm-side-toggle {
+  position: absolute;
+  top: 14px;
+  left: 260px;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 4;
+  transition: left 0.22s ease, color 0.12s, border-color 0.12s,
+              background 0.12s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.pm-body-browse.side-collapsed .pm-side-toggle {
+  left: 0;
+  transform: translateX(0);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+}
+.pm-side-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.pm-side-toggle svg { display: block; }
 .pm-side-add {
   margin: 12px;
   flex-shrink: 0;
@@ -4658,6 +4713,15 @@ body {
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 .pm-add-cta:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+/* "추가" CTA in the sidebar lights up with the accent when the right
+ * pane is showing the add form, mirroring how the project list shows
+ * an active row when editing. */
+.pm-add-cta.active {
+  border-style: solid;
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-soft);
@@ -6101,8 +6165,20 @@ body {
 
   /* ProjectModal master-detail grid same treatment. */
   .pm-body-browse { grid-template-columns: 1fr; }
+  .pm-body-browse.side-collapsed { grid-template-columns: 1fr; }
   .pm-side { border-right: none; border-bottom: 1px solid var(--border); }
   .pm-side-list { max-height: 38vh; }
+  /* Mobile: the sidebar slide-out becomes an overlay rather than a
+   * grid column — fold the toggle into a normal-looking handle. */
+  .pm-side-toggle {
+    top: 6px;
+    left: auto !important;
+    right: 8px;
+    transform: none !important;
+  }
+  .pm-body-browse.side-collapsed .pm-side {
+    display: none;
+  }
 
   /* SFTP form: the 5 fields fit ridiculously badly in a 2-col grid
    * on a phone — collapse to a single column so each label and
