@@ -8,11 +8,24 @@ into them directly."""
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from ..config import settings
+
+
+def _apply_offline_env() -> None:
+    """When running on a closed network, block all HuggingFace hub
+    network calls so a missing model fails fast with a clear message
+    instead of hanging on a connection timeout. Also auto-enabled when
+    WHISPER_MODEL points at a local directory that already exists."""
+    model_is_local_path = Path(settings.whisper_model).expanduser().is_dir()
+    if settings.transcription_offline or model_is_local_path:
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+        os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 log = logging.getLogger("uvicorn.error")
 
@@ -46,6 +59,7 @@ def _load_model():
     global _MODEL
     if _MODEL is not None:
         return _MODEL
+    _apply_offline_env()
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:  # pragma: no cover
@@ -54,18 +68,33 @@ def _load_model():
             "`pip install faster-whisper` 후 다시 시도하세요."
         ) from exc
     device, compute_type = _select_device()
+    # WHISPER_MODEL may be a name ("large-v3") that downloads from the
+    # hub, OR an absolute path to a pre-downloaded CTranslate2 model
+    # directory (the closed-network case). faster-whisper accepts both.
+    model_ref = settings.whisper_model
     log.info(
-        "loading whisper model=%s device=%s compute=%s",
-        settings.whisper_model, device, compute_type,
+        "loading whisper model=%s device=%s compute=%s offline=%s",
+        model_ref, device, compute_type,
+        os.environ.get("HF_HUB_OFFLINE", "0"),
     )
     model_dir = Path(settings.whisper_model_dir).expanduser()
     model_dir.mkdir(parents=True, exist_ok=True)
-    _MODEL = WhisperModel(
-        settings.whisper_model,
-        device=device,
-        compute_type=compute_type,
-        download_root=str(model_dir),
-    )
+    try:
+        _MODEL = WhisperModel(
+            model_ref,
+            device=device,
+            compute_type=compute_type,
+            download_root=str(model_dir),
+        )
+    except Exception as exc:  # noqa: BLE001
+        if os.environ.get("HF_HUB_OFFLINE") == "1":
+            raise RuntimeError(
+                f"오프라인 모드에서 Whisper 모델을 찾지 못했습니다 "
+                f"(model={model_ref!r}). 인터넷 PC에서 모델을 받아 "
+                f"WHISPER_MODEL 에 로컬 폴더 경로를 지정하세요. "
+                f"원인: {type(exc).__name__}: {exc}"
+            ) from exc
+        raise
     return _MODEL
 
 

@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     whisper_compute_type: str = "float16"
     # Whisper 모델 캐시 디렉토리 (모델 ~3GB)
     whisper_model_dir: str = "./models/whisper"
+    # 폐쇄망(오프라인) 모드 — true 면 HF 허브 접속을 차단하고 로컬에
+    # 미리 받아둔 모델만 사용합니다. 인터넷 되는 PC에서 모델을 받아
+    # WHISPER_MODEL 에 로컬 폴더 경로를 지정한 뒤 이 값을 켜세요.
+    transcription_offline: bool = False
     # 화자 분리(pyannote.audio) — HF 토큰 + 모델 약관 동의 필요.
     # 비활성화 시 전사만 진행하고 SPEAKER 라벨은 붙지 않습니다.
     enable_diarization: bool = False

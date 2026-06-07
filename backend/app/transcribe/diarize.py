@@ -44,6 +44,10 @@ def _load_pipeline():
     global _PIPELINE
     if _PIPELINE is not None:
         return _PIPELINE
+    # Apply the same offline guard as Whisper so a closed-network box
+    # uses the locally-cached pyannote models instead of trying the hub.
+    from .whisper import _apply_offline_env
+    _apply_offline_env()
     try:
         from pyannote.audio import Pipeline
     except ImportError as exc:  # pragma: no cover
