@@ -605,6 +605,10 @@ async def delete_role(
 
 
 async def _load_target(db: AsyncSession, user_id: str) -> models.User:
+    """Look up a user row for the admin endpoints to mutate. Returns
+    the live SQLAlchemy ORM instance so callers can flip status /
+    role and commit — they then run the result through
+    `_serialize_admin_user` themselves to build the response."""
     user = (
         await db.execute(
             select(models.User).where(models.User.id == user_id)
@@ -612,7 +616,7 @@ async def _load_target(db: AsyncSession, user_id: str) -> models.User:
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(404, "사용자를 찾을 수 없습니다")
-    return await _serialize_admin_user(db, user)
+    return user
 
 
 @router.get("/pending-count")
