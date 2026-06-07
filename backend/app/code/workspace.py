@@ -452,15 +452,57 @@ def collect_workspace_files(root: Path) -> dict:
     The result is what gets stuffed into the chat as attachments on
     every turn of a code-focused session, so the priority directly
     drives whether vulnerability questions touch real code or fall
-    back to generic boilerplate."""
+    back to generic boilerplate.
+
+    Returned dict carries `total_files` / `total_size` / `truncated`
+    plus diagnostic counters (`skipped_unsupported_ext`,
+    `skipped_too_large`, `walk_error`) so the caller can tell why
+    zero files came back when the directory clearly has content."""
+    # Defence — if the path doesn't exist or isn't a directory, bail
+    # with a clearly-marked empty bundle so the caller can surface
+    # the failure instead of silently sending an empty manifest.
+    if not root.exists():
+        log.warning("collect_workspace_files: root missing %s", root)
+        return {
+            "files": [],
+            "truncated": False,
+            "total_files": 0,
+            "total_size": 0,
+            "total_files_in_repo": 0,
+            "skipped_unsupported_ext": 0,
+            "skipped_too_large": 0,
+            "walk_error": f"경로가 존재하지 않습니다: {root}",
+        }
+    if not root.is_dir():
+        log.warning("collect_workspace_files: root not a dir %s", root)
+        return {
+            "files": [],
+            "truncated": False,
+            "total_files": 0,
+            "total_size": 0,
+            "total_files_in_repo": 0,
+            "skipped_unsupported_ext": 0,
+            "skipped_too_large": 0,
+            "walk_error": f"디렉토리가 아닙니다: {root}",
+        }
+
     all_candidates: list[tuple[int, int, int, Path]] = []
     total_files_in_repo = 0
+    skipped_unsupported_ext = 0
+    skipped_too_large = 0
+    walk_errors: list[str] = []
 
     def visit(d: Path) -> None:
-        nonlocal total_files_in_repo
+        nonlocal total_files_in_repo, skipped_unsupported_ext, skipped_too_large
         try:
             entries = list(d.iterdir())
-        except OSError:
+        except OSError as exc:
+            # The original code swallowed this silently — keep the
+            # tree-walk alive but capture the first few failures so
+            # the caller can show "X 폴더 읽기 실패" instead of a
+            # mysteriously empty bundle.
+            if len(walk_errors) < 5:
+                walk_errors.append(f"{d}: {exc}")
             return
         for entry in entries:
             if entry.is_symlink():
@@ -478,18 +520,18 @@ def collect_workspace_files(root: Path) -> dict:
             except OSError:
                 continue
             if size == 0 or size > _BULK_MAX_BYTES_PER_FILE:
+                if size > _BULK_MAX_BYTES_PER_FILE:
+                    skipped_too_large += 1
                 continue
             ext = entry.suffix.lower()
             if ext not in _TEXT_EXTS:
+                skipped_unsupported_ext += 1
                 continue
             try:
                 rel = entry.relative_to(root).as_posix()
             except ValueError:
                 continue
             tier = _tier_of(ext) + _name_boost(rel)
-            # Bigger source files inside the same tier rank higher —
-            # they're more likely to hold the actual logic the
-            # reviewer needs to see.
             inv_size = -size
             all_candidates.append((tier, inv_size, size, entry))
 
@@ -524,12 +566,23 @@ def collect_workspace_files(root: Path) -> dict:
         files.append({"path": rel, "text": text, "size": size})
         total_bytes += size
 
+    log.info(
+        "collect_workspace_files root=%s repo_files=%d bundled=%d "
+        "bytes=%d unsupported_ext_skipped=%d too_large_skipped=%d "
+        "walk_errors=%d",
+        root, total_files_in_repo, len(files), total_bytes,
+        skipped_unsupported_ext, skipped_too_large, len(walk_errors),
+    )
+
     return {
         "files": files,
         "truncated": len(files) < total_files_in_repo,
         "total_files": len(files),
         "total_size": total_bytes,
         "total_files_in_repo": total_files_in_repo,
+        "skipped_unsupported_ext": skipped_unsupported_ext,
+        "skipped_too_large": skipped_too_large,
+        "walk_error": "; ".join(walk_errors) if walk_errors else None,
     }
 
 

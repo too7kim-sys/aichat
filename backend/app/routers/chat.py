@@ -760,7 +760,29 @@ async def chat_single(
             )
         except Exception:  # noqa: BLE001
             ws = None
-        if ws and ws.status == "ready":
+        if ws and ws.status != "ready":
+            # Workspace exists but isn't usable — surface the reason
+            # so the model can tell the user instead of pretending to
+            # have the code. Common case: a local-folder workspace
+            # whose path went away between clone and chat.
+            auto_workspace_attachments.append(
+                schemas.AttachmentIn(
+                    filename=f"{ws.name}/_WORKSPACE_NOT_READY.txt",
+                    text=(
+                        f"# {ws.name} — 워크스페이스 준비 안 됨\n"
+                        f"상태: {ws.status}\n"
+                        f"오류: {ws.error or '없음'}\n"
+                        f"경로: {ws.local_path or '없음'}\n\n"
+                        "코드 내용을 가져올 수 없습니다. 사용자에게 "
+                        "워크스페이스 재동기화(↻) 또는 경로 재확인을 안내하세요."
+                    ),
+                )
+            )
+            log.warning(
+                "chat workspace not ready session=%s ws=%s status=%s",
+                session.id, ws.id, ws.status,
+            )
+        elif ws and ws.status == "ready":
             from pathlib import Path as _PathForWs
 
             from ..code.workspace import (
@@ -771,12 +793,16 @@ async def chat_single(
             bundle = await asyncio.get_running_loop().run_in_executor(
                 None, collect_workspace_files, root
             )
+            log.info(
+                "chat workspace bundle session=%s ws=%s root=%s "
+                "files=%d/%d truncated=%s walk_error=%s",
+                session.id, ws.id, root,
+                bundle["total_files"], bundle["total_files_in_repo"],
+                bundle["truncated"], bundle.get("walk_error"),
+            )
             # Always inject the directory tree FIRST so structure /
             # architecture questions don't have to fish through file
-            # contents to figure out what the project looks like. The
-            # tree is small, cheap, and the only thing that lets the
-            # model answer "이 프로젝트의 모듈 구성을 설명해줘" with
-            # actual paths instead of generic examples.
+            # contents to figure out what the project looks like.
             tree_text = await asyncio.get_running_loop().run_in_executor(
                 None, format_workspace_tree_text, root
             )
@@ -800,14 +826,83 @@ async def chat_single(
                 )
                 for f in bundle["files"]
             )
-            if bundle["truncated"]:
+            # Diagnostics: when the bundle came back empty (or much
+            # smaller than the user might expect for a real project),
+            # surface a system note so the model can tell the user
+            # what's wrong instead of pretending to analyse code it
+            # never actually received.
+            if bundle.get("walk_error"):
+                auto_workspace_attachments.append(
+                    schemas.AttachmentIn(
+                        filename=f"{ws.name}/_WORKSPACE_ERROR.txt",
+                        text=(
+                            f"# {ws.name} — 워크스페이스 읽기 실패\n"
+                            f"경로: {root}\n"
+                            f"원인: {bundle['walk_error']}\n\n"
+                            "분석을 시작하기 전에 사용자에게 다음을 알려주세요:\n"
+                            "1) 위 경로가 백엔드 서버에서 읽을 수 있는지 확인 필요\n"
+                            "2) 권한·존재 여부·마운트 상태 점검\n"
+                            "코드 내용을 알 수 없으므로 추측 답변은 하지 마세요."
+                        ),
+                    )
+                )
+            elif bundle["total_files"] == 0 and bundle["total_files_in_repo"] == 0:
+                auto_workspace_attachments.append(
+                    schemas.AttachmentIn(
+                        filename=f"{ws.name}/_WORKSPACE_EMPTY.txt",
+                        text=(
+                            f"# {ws.name} — 분석 가능한 파일이 없습니다\n"
+                            f"경로: {root}\n"
+                            "이 디렉토리는 비어 있거나 SKIP 대상(.git/node_modules 등)만 포함합니다.\n"
+                            "사용자에게 올바른 소스 경로를 다시 안내하고 추측 답변은 하지 마세요."
+                        ),
+                    )
+                )
+            elif bundle["total_files"] == 0 and bundle["total_files_in_repo"] > 0:
+                # Files exist but none made it into the bundle —
+                # almost always because every file is too big OR has
+                # an extension outside _TEXT_EXTS (e.g. compiled jars).
+                hints: list[str] = []
+                if bundle.get("skipped_too_large", 0) > 0:
+                    hints.append(
+                        f"{bundle['skipped_too_large']}개가 300KB 한도 초과로 제외됨"
+                    )
+                if bundle.get("skipped_unsupported_ext", 0) > 0:
+                    hints.append(
+                        f"{bundle['skipped_unsupported_ext']}개가 지원하지 않는 확장자로 제외됨"
+                    )
+                hint_text = " / ".join(hints) if hints else "원인 불명"
+                auto_workspace_attachments.append(
+                    schemas.AttachmentIn(
+                        filename=f"{ws.name}/_WORKSPACE_FILTERED.txt",
+                        text=(
+                            f"# {ws.name} — 파일은 있으나 본문이 첨부되지 않음\n"
+                            f"전체 파일: {bundle['total_files_in_repo']}\n"
+                            f"본문 첨부: 0\n"
+                            f"제외 사유: {hint_text}\n\n"
+                            "사용자에게 다음을 알려주세요:\n"
+                            "- 분석 대상 폴더가 컴파일 산출물(jar/class/war)만 있는지\n"
+                            "- 대용량 단일 파일이라면 분할 또는 부분 경로 지정이 필요\n"
+                            "추측 답변은 하지 말고 어떤 파일을 보고 싶은지 물어보세요."
+                        ),
+                    )
+                )
+            elif bundle["truncated"]:
                 manifest = (
                     f"# {ws.name} — workspace manifest\n"
                     f"전체 파일: {bundle['total_files_in_repo']}\n"
                     f"채팅에 포함: {bundle['total_files']} "
                     "(텍스트 파일, 작은 것 우선)\n"
-                    f"미포함: {bundle['total_files_in_repo'] - bundle['total_files']}개\n\n"
-                    "필요한 파일이 위에 없으면 사용자에게 정확한 경로를 요청하세요."
+                    f"미포함: {bundle['total_files_in_repo'] - bundle['total_files']}개"
+                )
+                if bundle.get("skipped_too_large", 0) > 0:
+                    manifest += (
+                        f"\n300KB 초과로 본문 제외: "
+                        f"{bundle['skipped_too_large']}개"
+                    )
+                manifest += (
+                    "\n\n필요한 파일이 위에 없으면 사용자에게 정확한 "
+                    "경로를 요청하세요."
                 )
                 auto_workspace_attachments.append(
                     schemas.AttachmentIn(
