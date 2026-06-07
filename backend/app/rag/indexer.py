@@ -48,7 +48,7 @@ _EXTS_DOCUMENT = {
     ".log", ".csv", ".tsv",
 }
 _EXTS_API = {
-    ".json", ".yaml", ".yml", ".md", ".markdown",
+    ".json", ".yaml", ".yml", ".md", ".markdown", ".xml",
 }
 _EXTS_DB = {
     ".sql", ".ddl", ".md", ".markdown",
@@ -259,21 +259,19 @@ def _fetch_url_to_dir(url: str, dest: Path) -> None:
         ext = ".yaml"
     elif "markdown" in ctype or ctype.startswith("text/md"):
         ext = ".md"
+    elif "xml" in ctype:
+        ext = ".xml"
     elif "json" in ctype:
         ext = ".json"
     else:
-        # No clear hint — peek at the first byte and default to .json
-        # (the API chunker handles arbitrary JSON-ish payloads).
-        head = body.lstrip()[:1]
-        if head == b"<":
-            # Sniffs as XML/HTML — surface a clear error rather than
-            # silently embedding markup that the walker would skip.
-            raise RuntimeError(
-                "응답이 JSON/YAML/Markdown 이 아닙니다 "
-                f"(Content-Type={ctype or '없음'}). API 코퍼스는 "
-                "OpenAPI 스펙이나 JSON 응답을 기대합니다."
-            )
-        ext = ".json"
+        # No clear Content-Type hint — sniff the body. XML starts with
+        # '<' (declaration or root element); arbitrary JSON gets the
+        # .json default the API chunker tolerates.
+        head = body.lstrip()[:5]
+        if head.startswith(b"<?xml") or head[:1] == b"<":
+            ext = ".xml"
+        else:
+            ext = ".json"
 
     # Use the URL's last path segment as the basename so debug logs
     # still tie the file back to its endpoint.

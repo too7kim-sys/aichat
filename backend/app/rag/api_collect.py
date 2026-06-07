@@ -28,6 +28,89 @@ class ApiCollectError(RuntimeError):
     pass
 
 
+def _strip_ns(tag: str) -> str:
+    """ElementTree prefixes tags with `{namespace}` — drop that so the
+    detail-key lookup sees the bare element name like the user wrote
+    it in the form."""
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _xml_to_dict(elem):
+    """Convert an ElementTree element into a JSON-like dict.
+    Attributes are prefixed with @, the text content lives under
+    #text when the element also has children. Elements with multiple
+    same-tag siblings become a list under that tag."""
+    children = list(elem)
+    if not children:
+        text = (elem.text or "").strip()
+        if elem.attrib:
+            out = {f"@{k}": v for k, v in elem.attrib.items()}
+            if text:
+                out["#text"] = text
+            return out
+        return text or None
+
+    result: dict = {f"@{k}": v for k, v in elem.attrib.items()}
+    if (elem.text or "").strip():
+        result["#text"] = elem.text.strip()
+    for child in children:
+        tag = _strip_ns(child.tag)
+        sub = _xml_to_dict(child)
+        if tag in result:
+            cur = result[tag]
+            if isinstance(cur, list):
+                cur.append(sub)
+            else:
+                result[tag] = [cur, sub]
+        else:
+            result[tag] = sub
+    return result
+
+
+def _find_xml_list(elem) -> list | None:
+    """Locate the first node whose children are 2+ same-tag siblings —
+    that's the list of items in most XML APIs (RSS <item>, Atom
+    <entry>, custom <article>, etc.). Returns the converted-to-dict
+    items, or None if no list-shaped node exists."""
+    children = list(elem)
+    if len(children) >= 2:
+        tags = {_strip_ns(c.tag) for c in children}
+        if len(tags) == 1:
+            return [_xml_to_dict(c) for c in children]
+    for c in children:
+        found = _find_xml_list(c)
+        if found is not None:
+            return found
+    return None
+
+
+def _parse_response(body: bytes, ctype: str) -> tuple[object | None, bool]:
+    """Return (parsed, is_xml). Tries JSON first, then XML."""
+    if not body:
+        return None, False
+    if "xml" not in ctype:
+        # JSON is the common case — try it before falling through.
+        try:
+            return json.loads(body), False
+        except Exception:  # noqa: BLE001
+            pass
+    # XML path — sniff or content-type hint.
+    head = body.lstrip()[:5]
+    if "xml" in ctype or head.startswith(b"<?xml") or head[:1] == b"<":
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(body)
+        except Exception:  # noqa: BLE001
+            return None, True
+        items = _find_xml_list(root)
+        if items is not None:
+            return items, True
+        # No list shape found — return the whole document as a single
+        # dict so _extract_array can still wrap it as "1 item".
+        return {_strip_ns(root.tag): _xml_to_dict(root)}, True
+    return None, False
+
+
 def _extract_array(body: Any) -> list:
     """Find the list of items in a parsed JSON body. Accepts a bare
     top-level array, or an object that wraps it under a common key."""
@@ -124,12 +207,14 @@ def collect_api_details(
             raise ApiCollectError(f"목록 fetch HTTP {r.status_code}")
         if len(r.content) > _LIST_MAX_BYTES:
             raise ApiCollectError("목록 응답이 너무 큽니다")
-        try:
-            body = r.json()
-        except Exception as exc:  # noqa: BLE001
-            raise ApiCollectError(f"목록 JSON 파싱 실패: {exc}") from exc
-
-        array = _extract_array(body)
+        list_ctype = (r.headers.get("content-type") or "").lower()
+        parsed, _is_xml = _parse_response(r.content, list_ctype)
+        if parsed is None:
+            raise ApiCollectError(
+                f"목록 응답 파싱 실패 (Content-Type={list_ctype or '없음'}). "
+                "JSON 또는 XML 응답을 기대합니다."
+            )
+        array = _extract_array(parsed)
         total = len(array)
         cap = min(limit, total)
         records: list[dict] = []
@@ -157,9 +242,11 @@ def collect_api_details(
                      "_body": {"error": "상세 응답이 너무 큽니다"}}
                 )
                 continue
-            try:
-                dbody = dr.json()
-            except Exception:  # noqa: BLE001
+            detail_ctype = (dr.headers.get("content-type") or "").lower()
+            dbody, _ = _parse_response(dr.content, detail_ctype)
+            if dbody is None:
+                # Last resort — keep the raw text so the embedder
+                # still sees something instead of a stub.
                 dbody = dr.text
             records.append({"_key": kv, "_url": url, "_body": dbody})
     return records, total
