@@ -234,6 +234,26 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_project_role_access_role "
                 "ON project_role_access(role_code)"
             )
+            # Many-to-many user-roles join — additional roles beyond
+            # the primary one in users.role. See models.UserRole.
+            await conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS user_roles (
+                    user_id    VARCHAR(36) NOT NULL,
+                    role_code  VARCHAR(40) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, role_code)
+                )
+                """
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_user_roles_user_id "
+                "ON user_roles(user_id)"
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_user_roles_role_code "
+                "ON user_roles(role_code)"
+            )
             if pexisting and "sql_query" not in pexisting:
                 # Per-project SELECT for the connection source — see
                 # models.Project.sql_query for the indexer flow.

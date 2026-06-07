@@ -11,8 +11,9 @@ import {
   type UserStatus,
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { IconCheck, IconX } from "../components/Icon";
+import { IconCheck, IconPlus, IconX } from "../components/Icon";
 import { ProjectModal } from "../components/ProjectModal";
+import { RolePickerModal } from "../components/RolePickerModal";
 import { useProjects } from "../state/ProjectsContext";
 
 interface Props {
@@ -208,6 +209,23 @@ export function AdminPage({ onBack }: Props) {
       const updated = await admin.setRole(u.id, role);
       patchUser(updated);
     });
+  }
+
+  /** Open the additional-roles picker for a user. Tracked at page
+   *  level so the modal sits outside the table row (which would
+   *  re-render on every patch). */
+  const [rolesPickerFor, setRolesPickerFor] = useState<AdminUser | null>(null);
+  async function saveExtraRoles(roleCodes: string[]) {
+    if (!rolesPickerFor) return;
+    const u = rolesPickerFor;
+    await withBusy(u.id, async () => {
+      // Strip the primary role server-side too, but pre-filter so the
+      // payload doesn't pretend to grant it twice.
+      const extras = roleCodes.filter((c) => c !== u.role);
+      const updated = await admin.setUserRoles(u.id, extras);
+      patchUser(updated);
+    });
+    setRolesPickerFor(null);
   }
 
   async function suspend(u: AdminUser) {
@@ -453,44 +471,63 @@ export function AdminPage({ onBack }: Props) {
                   </span>
                 </td>
                 <td>
-                  {isAdmin && u.id !== me?.id ? (
-                    <select
-                      className="admin-role-select"
-                      value={u.role}
-                      onChange={(e) => setRole(u, e.target.value as UserRole)}
-                      disabled={
-                        busyId === u.id ||
-                        // Last active admin: their role dropdown stays
-                        // anchored to "admin" so a stray click can't
-                        // strip the system of its only operator. The
-                        // backend rejects this too, but pre-blocking
-                        // avoids the round-trip error flash.
-                        wouldLeaveZeroAdmins(u)
-                      }
-                      title={
-                        wouldLeaveZeroAdmins(u)
-                          ? "마지막 관리자입니다. 먼저 다른 사용자를 관리자로 승격하세요."
-                          : undefined
-                      }
-                    >
-                      {roles.length === 0 ? (
-                        <>
-                          <option value="user">일반</option>
-                          <option value="moderator">운영자</option>
-                          <option value="admin">관리자</option>
-                        </>
-                      ) : (
-                        roles.map((r) => (
-                          <option key={r.code} value={r.code}>
-                            {r.name}
-                            {!r.is_system ? ` (${r.code})` : ""}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  ) : (
-                    <span>{roleLabel(u.role)}</span>
-                  )}
+                  <div className="role-chip-stack">
+                    {isAdmin && u.id !== me?.id ? (
+                      <select
+                        className="admin-role-select"
+                        value={u.role}
+                        onChange={(e) =>
+                          setRole(u, e.target.value as UserRole)
+                        }
+                        disabled={
+                          busyId === u.id || wouldLeaveZeroAdmins(u)
+                        }
+                        title={
+                          wouldLeaveZeroAdmins(u)
+                            ? "마지막 관리자입니다. 먼저 다른 사용자를 관리자로 승격하세요."
+                            : "기본 역할"
+                        }
+                      >
+                        {roles.length === 0 ? (
+                          <>
+                            <option value="user">일반</option>
+                            <option value="moderator">운영자</option>
+                            <option value="admin">관리자</option>
+                          </>
+                        ) : (
+                          roles.map((r) => (
+                            <option key={r.code} value={r.code}>
+                              {r.name}
+                              {!r.is_system ? ` (${r.code})` : ""}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    ) : (
+                      <span className="role-chip primary">
+                        {roleLabel(u.role)}
+                      </span>
+                    )}
+                    {(u.extra_roles ?? []).map((code) => (
+                      <span key={code} className="role-chip">
+                        {roleLabel(code)}
+                      </span>
+                    ))}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        className="role-chip-edit"
+                        onClick={() => setRolesPickerFor(u)}
+                        disabled={busyId === u.id}
+                        title="추가 역할 편집"
+                      >
+                        <IconPlus size={10} />
+                        {(u.extra_roles ?? []).length > 0
+                          ? "편집"
+                          : "역할 추가"}
+                      </button>
+                    )}
+                  </div>
                 </td>
                 <td className="admin-cell-muted">
                   {new Date(u.created_at).toLocaleDateString()}
@@ -622,6 +659,19 @@ export function AdminPage({ onBack }: Props) {
         </table>
       )}
       </>
+      )}
+
+      {rolesPickerFor && (
+        <RolePickerModal
+          roles={roles}
+          initial={rolesPickerFor.extra_roles ?? []}
+          pinned={[rolesPickerFor.role]}
+          multiple
+          title={`${rolesPickerFor.name || rolesPickerFor.email} 의 역할`}
+          description="기본 역할(고정) 외에 부여할 추가 역할을 선택하세요. 사용자는 모든 선택된 역할의 권한을 함께 가집니다."
+          onClose={() => setRolesPickerFor(null)}
+          onSave={saveExtraRoles}
+        />
       )}
     </div>
   );

@@ -26,6 +26,50 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 _VALID_STATUS = {"pending", "approved", "rejected", "suspended"}
 
 
+async def _serialize_admin_user(
+    db: AsyncSession, user: models.User
+) -> schemas.AdminUserOut:
+    """Pack a User row + its additional role grants from the
+    user_roles join table so the admin dashboard renders the full
+    chip set without an N+1 follow-up. Sorted code list keeps the
+    UI deterministic across reloads."""
+    out = schemas.AdminUserOut.model_validate(user)
+    extras = (
+        await db.execute(
+            select(models.UserRole.role_code).where(
+                models.UserRole.user_id == user.id,
+            )
+        )
+    ).scalars().all()
+    out.extra_roles = sorted(extras)
+    return out
+
+
+async def _serialize_admin_users(
+    db: AsyncSession, users: list[models.User]
+) -> list[schemas.AdminUserOut]:
+    """Bulk version of the above — fans the user_roles lookup out in
+    one IN query so a 200-user list stays a single round trip."""
+    if not users:
+        return []
+    ids = [u.id for u in users]
+    rows = (
+        await db.execute(
+            select(models.UserRole.user_id, models.UserRole.role_code)
+            .where(models.UserRole.user_id.in_(ids))
+        )
+    ).all()
+    bucket: dict[str, list[str]] = {}
+    for uid, code in rows:
+        bucket.setdefault(uid, []).append(code)
+    out: list[schemas.AdminUserOut] = []
+    for u in users:
+        o = schemas.AdminUserOut.model_validate(u)
+        o.extra_roles = sorted(bucket.get(u.id, []))
+        out.append(o)
+    return out
+
+
 async def _is_admin_tier(db: AsyncSession, role_code: str) -> bool:
     """A role is admin-tier when its base_role resolves to "admin".
     Covers the built-in `admin` row and any operator-defined role
@@ -115,7 +159,7 @@ async def list_users(
     ).limit(limit)
 
     rows = (await db.execute(stmt)).scalars().all()
-    return rows
+    return await _serialize_admin_users(db, list(rows))
 
 
 @router.get("/users/{user_id}", response_model=schemas.AdminUserOut)
@@ -131,7 +175,7 @@ async def get_user(
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(404, "사용자를 찾을 수 없습니다")
-    return user
+    return await _serialize_admin_user(db, user)
 
 
 @router.post(
@@ -149,7 +193,7 @@ async def approve_user(
         # Idempotent — already approved is a no-op rather than 400,
         # so a double-click in the dashboard doesn't flash a red
         # error.
-        return user
+        return await _serialize_admin_user(db, user)
     if user.id == actor.id:
         raise HTTPException(400, "본인 계정은 직접 승인할 수 없습니다")
     user.status = "approved"
@@ -166,7 +210,7 @@ async def approve_user(
         await send_account_approved_email(user.email, user.name)
     except Exception:
         pass
-    return user
+    return await _serialize_admin_user(db, user)
 
 
 @router.post(
@@ -213,7 +257,7 @@ async def reject_user(
         )
     except Exception:
         pass
-    return user
+    return await _serialize_admin_user(db, user)
 
 
 @router.post(
@@ -273,7 +317,61 @@ async def change_role(
     )
     await db.commit()
     await db.refresh(user)
-    return user
+    return await _serialize_admin_user(db, user)
+
+
+@router.patch(
+    "/users/{user_id}/roles",
+    response_model=schemas.AdminUserOut,
+)
+async def set_user_roles(
+    user_id: str,
+    payload: schemas.UserRolesUpdateRequest,
+    request: Request,
+    actor: models.User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the user's *additional* role grants with `role_codes`.
+    The primary role (users.role) is left alone — change that via
+    the /role endpoint. Unknown codes are silently dropped after
+    validation against the roles table, and the primary code is also
+    filtered out so it doesn't redundantly appear in both places."""
+    user = await _load_target(db, user_id)
+    # Validate every code against the roles table in one go — anything
+    # the operator passed that doesn't exist gets quietly discarded
+    # rather than 400'ing so a stale UI doesn't lose the whole save.
+    requested = [c for c in payload.role_codes if c != user.role]
+    valid = set()
+    if requested:
+        valid = set(
+            (
+                await db.execute(
+                    select(models.Role.code).where(
+                        models.Role.code.in_(requested),
+                    )
+                )
+            ).scalars().all()
+        )
+    # Replace all rows for this user in a single statement (delete +
+    # re-insert is fine — the join table is tiny).
+    existing = (
+        await db.execute(
+            select(models.UserRole).where(
+                models.UserRole.user_id == user_id,
+            )
+        )
+    ).scalars().all()
+    for row in existing:
+        await db.delete(row)
+    for code in valid:
+        db.add(models.UserRole(user_id=user_id, role_code=code))
+    await audit.record(
+        db, request, "user_roles_changed", user_id=actor.id,
+        detail=f"target={user.email} extra={sorted(valid)}",
+    )
+    await db.commit()
+    await db.refresh(user)
+    return await _serialize_admin_user(db, user)
 
 
 @router.post(
@@ -297,7 +395,7 @@ async def suspend_user(
     if user.status == "suspended":
         # Idempotent — already suspended is a no-op so a double-click
         # in the dashboard doesn't flash an error.
-        return user
+        return await _serialize_admin_user(db, user)
     if user.status != "approved":
         raise HTTPException(
             400,
@@ -329,7 +427,7 @@ async def suspend_user(
     )
     await db.commit()
     await db.refresh(user)
-    return user
+    return await _serialize_admin_user(db, user)
 
 
 @router.post(
@@ -349,7 +447,7 @@ async def unsuspend_user(
     if user.status != "suspended":
         # Idempotent if the row is already active.
         if user.status == "approved":
-            return user
+            return await _serialize_admin_user(db, user)
         raise HTTPException(
             400,
             f"정지 상태인 사용자만 해제할 수 있습니다 (현재: {user.status})",
@@ -364,7 +462,7 @@ async def unsuspend_user(
     )
     await db.commit()
     await db.refresh(user)
-    return user
+    return await _serialize_admin_user(db, user)
 
 
 # ── Role definitions (custom + system) ────────────────────────────
@@ -514,7 +612,7 @@ async def _load_target(db: AsyncSession, user_id: str) -> models.User:
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(404, "사용자를 찾을 수 없습니다")
-    return user
+    return await _serialize_admin_user(db, user)
 
 
 @router.get("/pending-count")

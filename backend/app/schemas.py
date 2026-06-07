@@ -492,12 +492,22 @@ class AdminUserOut(UserOut):
     suspended_at: datetime | None = None
     suspended_by_id: str | None = None
     updated_at: datetime
+    # Additional roles beyond `role` (the primary). Sorted by code so
+    # the dashboard's chip row is deterministic across reloads.
+    extra_roles: list[str] = []
 
 
 class RoleUpdateRequest(BaseModel):
     # Free-form code so an admin can assign any role defined in the
     # roles table — server-side validation rejects unknown codes.
     role: str = Field(min_length=1, max_length=40)
+
+
+class UserRolesUpdateRequest(BaseModel):
+    """PATCH /admin/users/{id}/roles body. Replaces the user's
+    additional role grants with `role_codes`. The primary role
+    (users.role) is not touched — that stays on its own endpoint."""
+    role_codes: list[str] = Field(default_factory=list, max_length=200)
 
 
 class RejectRequest(BaseModel):

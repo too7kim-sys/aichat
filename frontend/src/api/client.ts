@@ -189,6 +189,9 @@ export interface AdminUser extends AuthUser {
   suspended_at: string | null;
   suspended_by_id: string | null;
   updated_at: string;
+  /** Additional roles beyond `role` (the primary). Editable from
+   *  the role-picker popup in the user table. */
+  extra_roles: string[];
 }
 export interface AuthResponse {
   user: AuthUser;
@@ -297,6 +300,14 @@ export const admin = {
     json<AdminUser>(`/admin/users/${userId}/role`, {
       method: "POST",
       body: JSON.stringify({ role }),
+    }),
+  /** Replace the user's *additional* role grants (everything beyond
+   *  the primary role) with `roleCodes`. Pass an empty array to
+   *  clear all extras. */
+  setUserRoles: (userId: string, roleCodes: string[]) =>
+    json<AdminUser>(`/admin/users/${userId}/roles`, {
+      method: "PATCH",
+      body: JSON.stringify({ role_codes: roleCodes }),
     }),
   suspend: (userId: string, reason: string) =>
     json<AdminUser>(`/admin/users/${userId}/suspend`, {

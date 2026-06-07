@@ -429,6 +429,252 @@ body {
   max-width: 560px;
   width: 100%;
 }
+
+/* ── Role picker popup ──────────────────────────────────────
+ * Replaces flat checkbox grids when the role catalog grows past
+ * ~10 entries. Search + scroll + grouped layout so 100 codes
+ * still navigate quickly. */
+.role-picker-modal {
+  max-width: 640px;
+  width: 100%;
+}
+.role-picker-body {
+  padding: 14px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.role-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+}
+.role-picker-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  min-width: 0;
+}
+.role-picker-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+}
+.role-picker-search-clear:hover { color: var(--text); }
+.role-picker-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.role-picker-clear {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.role-picker-clear:hover { background: var(--accent-soft); }
+.role-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.role-picker-row { padding: 0; }
+.role-picker-row-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+}
+.role-picker-row-btn:hover:not(:disabled) {
+  background: var(--bg-sidebar);
+}
+.role-picker-row.selected .role-picker-row-btn {
+  background: var(--accent-soft);
+}
+.role-picker-row.pinned .role-picker-row-btn {
+  background: rgba(204, 120, 92, 0.04);
+  cursor: default;
+}
+.role-picker-check {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-card);
+  color: var(--accent);
+  transition: border-color 0.12s, background 0.12s;
+}
+.role-picker-check.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+.role-picker-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.role-picker-row-name {
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.role-picker-pinned {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.role-picker-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+.role-picker-row-meta code {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-sidebar);
+}
+.role-picker-tier {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-sidebar);
+}
+.role-picker-desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+.role-picker-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+.role-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ── Inline role chip stack (used in admin user table + share
+ *    summaries). Clicking the chip opens the picker. */
+.role-chip-stack {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 280px;
+}
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-sidebar);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+.role-chip.primary {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.role-chip-edit {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.role-chip-edit:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Compact summary row used in the RAG share section — "역할 선택"
+ * button on the left, picked chips inline on the right. Replaces
+ * the older flat checkbox grid that scaled poorly past ~10 roles. */
+.pm-share-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.pm-share-summary .role-chip-stack {
+  max-width: none;
+  flex: 1;
+}
 .cp-edit-body {
   padding: 18px 22px 22px;
   display: flex;

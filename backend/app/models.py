@@ -105,6 +105,35 @@ class Role(Base):
     )
 
 
+class UserRole(Base):
+    """Additional roles assigned to a user beyond the primary one
+    stored in `users.role`. Lets the operator grant multiple roles
+    per person — e.g. a member of both "법무" and "재무" sees shared
+    knowledge bases mapped to either code — without changing the
+    primary-role semantics auth.require_role() already builds on.
+
+    The primary role is NOT mirrored in this table; the effective
+    role set the access layer computes is `{user.role} ∪ user_roles`.
+    """
+    __tablename__ = "user_roles"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    role_code: Mapped[str] = mapped_column(
+        String(40),
+        ForeignKey("roles.code", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
 class AppSetting(Base):
     """Tiny key/value store for runtime-toggleable app settings — the
     admin dashboard reads/writes through here so operators can flip

@@ -21,22 +21,38 @@ from .. import models
 
 
 async def _role_codes_for_user(db: AsyncSession, user: models.User) -> set[str]:
-    """The set of role codes a user effectively holds: their own code
-    plus their role's base_role (built-in tier). Both are matched
-    against project_role_access so admins can grant either the
-    specific custom code or the broad tier."""
+    """The set of role codes a user effectively holds: their primary
+    code (users.role) + every additional code from the user_roles
+    join table + each of those rows' base_role (built-in tier).
+
+    Both the specific code and the broad tier are matched against
+    project_role_access so admins can grant either, and a user with
+    "법무" + "재무" sees everything granted to either code or to the
+    base tier they map to."""
     codes: set[str] = {user.role}
-    role = (
+    # Additional roles assigned via the many-to-many table.
+    extras = (
         await db.execute(
-            select(models.Role).where(models.Role.code == user.role)
+            select(models.UserRole.role_code).where(
+                models.UserRole.user_id == user.id,
+            )
         )
-    ).scalar_one_or_none()
-    if role is not None:
-        codes.add(role.base_role)
-    else:
-        # user.role is itself a built-in tier (admin/moderator/user)
-        # with no row — it still matches grants made to that tier.
-        codes.add(user.role)
+    ).scalars().all()
+    codes.update(extras)
+
+    # Expand every concrete code into its base_role tier so a grant
+    # against "moderator" reaches everyone whose role inherits from it.
+    rows = (
+        await db.execute(
+            select(models.Role.base_role).where(
+                models.Role.code.in_(codes),
+            )
+        )
+    ).scalars().all()
+    codes.update(rows)
+    # Any code with no row in the roles table is itself a built-in
+    # tier (admin/moderator/user) — keep as-is so grants made to that
+    # tier still match.
     return codes
 
 

@@ -110,17 +110,33 @@ def require_role(*roles: str):
     ) -> models.User:
         if user.role in allowed:
             return user
-        # Built-in roles match themselves; only custom codes need a
-        # base_role lookup to determine effective tier.
-        if user.role in {"admin", "moderator", "user"}:
-            raise HTTPException(403, "권한이 없습니다")
-        role = (
+        # Effective role set = primary + additional (user_roles join)
+        # so a user assigned multiple roles passes if any one of them
+        # — or its base_role tier — matches `allowed`.
+        codes: set[str] = {user.role}
+        extras = (
             await db.execute(
-                select(models.Role).where(models.Role.code == user.role)
+                select(models.UserRole.role_code).where(
+                    models.UserRole.user_id == user.id,
+                )
             )
-        ).scalar_one_or_none()
-        if role is not None and role.base_role in allowed:
+        ).scalars().all()
+        codes.update(extras)
+        if codes & allowed:
             return user
+        # Built-in roles match themselves; custom codes need a
+        # base_role lookup to resolve their effective tier.
+        custom = [c for c in codes if c not in {"admin", "moderator", "user"}]
+        if custom:
+            bases = (
+                await db.execute(
+                    select(models.Role.base_role).where(
+                        models.Role.code.in_(custom),
+                    )
+                )
+            ).scalars().all()
+            if set(bases) & allowed:
+                return user
         raise HTTPException(403, "권한이 없습니다")
 
     return _check

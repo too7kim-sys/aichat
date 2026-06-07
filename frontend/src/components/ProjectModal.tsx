@@ -17,6 +17,7 @@ import type {
   SqlPreviewResult,
 } from "../api/client";
 import { useProjects } from "../state/ProjectsContext";
+import { RolePickerModal } from "./RolePickerModal";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -582,6 +583,10 @@ function ProjectCard({
   // clicks 편집. Save = PATCH, then refresh; cancel reverts.
   const [editing, setEditing] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
+  // Role picker popup — opened by the "역할 선택" button in the share
+  // section. Selecting through a modal keeps the panel usable when
+  // the role catalog grows past a flat checkbox grid (~10 entries).
+  const [editRolesPickerOpen, setEditRolesPickerOpen] = useState(false);
   const [editErr, setEditErr] = useState<string | null>(null);
   const [eName, setEName] = useState(p.name);
   const [eSourceRef, setESourceRef] = useState(p.source_ref);
@@ -1093,26 +1098,11 @@ function ProjectCard({
               </label>
               {eShared && (
                 <div className="pm-share-roles">
-                  <div className="pm-share-role-grid">
-                    {allRoles.map((r) => (
-                      <label key={r.code} className="pm-share-role-chip">
-                        <input
-                          type="checkbox"
-                          checked={eRoles.has(r.code)}
-                          onChange={(e) =>
-                            setERoles((prev) => {
-                              const next = new Set(prev);
-                              if (e.target.checked) next.add(r.code);
-                              else next.delete(r.code);
-                              return next;
-                            })
-                          }
-                          disabled={editBusy}
-                        />
-                        <span>{r.name}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <RoleSummaryRow
+                    roles={allRoles}
+                    selected={eRoles}
+                    onOpenPicker={() => setEditRolesPickerOpen(true)}
+                  />
                 </div>
               )}
             </div>
@@ -1175,7 +1165,63 @@ function ProjectCard({
           </div>
         </div>
       )}
+
+      {editRolesPickerOpen && (
+        <RolePickerModal
+          roles={allRoles}
+          initial={Array.from(eRoles)}
+          multiple
+          title="역할 선택"
+          description="이 지식베이스에 접근할 수 있는 역할을 선택하세요. 선택된 역할의 사용자는 채팅에서 자동으로 검색에 활용됩니다."
+          onClose={() => setEditRolesPickerOpen(false)}
+          onSave={(codes) => {
+            setERoles(new Set(codes));
+            setEditRolesPickerOpen(false);
+          }}
+        />
+      )}
     </article>
+  );
+}
+
+/** Inline summary chip row for a set of selected role codes plus
+ *  an "역할 선택" button that opens the full picker. Keeps the share
+ *  section compact when only a few roles are mapped, while the
+ *  popup handles the long-list case. */
+function RoleSummaryRow({
+  roles,
+  selected,
+  onOpenPicker,
+}: {
+  roles: Role[];
+  selected: Set<string>;
+  onOpenPicker: () => void;
+}) {
+  const codeToName = new Map(roles.map((r) => [r.code, r.name]));
+  const codes = Array.from(selected);
+  return (
+    <div className="pm-share-summary">
+      <button
+        type="button"
+        className="pm-btn-secondary"
+        onClick={onOpenPicker}
+      >
+        역할 선택 ({codes.length})
+      </button>
+      <div className="role-chip-stack">
+        {codes.length === 0 ? (
+          <span className="pm-help" style={{ margin: 0 }}>
+            아직 선택된 역할이 없습니다.
+          </span>
+        ) : (
+          codes.map((c) => (
+            <span key={c} className="role-chip">
+              {codeToName.get(c) ?? c}
+            </span>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1544,6 +1590,7 @@ function AddProjectForm({
   // are shared by intent; the operator unchecks for a private one.
   const [isShared, setIsShared] = useState(adminMode);
   const [shareRoles, setShareRoles] = useState<Set<string>>(new Set());
+  const [addRolesPickerOpen, setAddRolesPickerOpen] = useState(false);
   // API list→detail collection (url source). Empty = plain spec fetch.
   const [apiDetailKey, setApiDetailKey] = useState("");
   const [apiDetailUrl, setApiDetailUrl] = useState("");
@@ -2602,30 +2649,30 @@ function AddProjectForm({
               {roles.length === 0 ? (
                 <div className="pm-help">역할 목록을 불러오는 중…</div>
               ) : (
-                <div className="pm-share-role-grid">
-                  {roles.map((r) => (
-                    <label key={r.code} className="pm-share-role-chip">
-                      <input
-                        type="checkbox"
-                        checked={shareRoles.has(r.code)}
-                        onChange={(e) =>
-                          setShareRoles((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(r.code);
-                            else next.delete(r.code);
-                            return next;
-                          })
-                        }
-                        disabled={submitting}
-                      />
-                      <span>{r.name}</span>
-                    </label>
-                  ))}
-                </div>
+                <RoleSummaryRow
+                  roles={roles}
+                  selected={shareRoles}
+                  onOpenPicker={() => setAddRolesPickerOpen(true)}
+                />
               )}
             </div>
           )}
         </div>
+      )}
+
+      {addRolesPickerOpen && (
+        <RolePickerModal
+          roles={roles}
+          initial={Array.from(shareRoles)}
+          multiple
+          title="역할 선택"
+          description="이 지식베이스에 접근할 수 있는 역할을 선택하세요. 선택된 역할의 사용자는 채팅에서 자동으로 검색에 활용됩니다."
+          onClose={() => setAddRolesPickerOpen(false)}
+          onSave={(codes) => {
+            setShareRoles(new Set(codes));
+            setAddRolesPickerOpen(false);
+          }}
+        />
       )}
 
       {error && (
