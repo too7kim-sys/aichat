@@ -351,6 +351,54 @@ async def workspace_tree(
     return {"tree": tree, "file_count": file_count, "size_bytes": total}
 
 
+@router.get("/workspaces/{workspace_id}/bundle-status")
+async def workspace_bundle_status(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Per-file inclusion status the chat side panel uses to mark
+    each row in the tree with ✓ (첨부됨) / ⊘ (제외됨, 이유와 함께).
+    Re-runs collect_workspace_files so the result reflects the
+    exact same selection the next chat turn will see — handy for
+    "왜 이 파일은 분석 안 됐어요?" troubleshooting before the user
+    even asks a question."""
+    ws = await db.scalar(
+        select(models.CodeWorkspace).where(
+            models.CodeWorkspace.id == workspace_id,
+            models.CodeWorkspace.user_id == user.id,
+        )
+    )
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    if ws.status != "ready":
+        raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
+    from ..code.workspace import collect_workspace_files
+    from ..code import workspace as ws_module
+
+    root = Path(ws.local_path)
+    bundle = await asyncio.get_running_loop().run_in_executor(
+        None, collect_workspace_files, root,
+    )
+    return {
+        "total_files_in_repo": bundle["total_files_in_repo"],
+        "bundled_files": bundle["total_files"],
+        "bundled_bytes": bundle["total_size"],
+        "skipped_too_large": bundle.get("skipped_too_large", 0),
+        "skipped_unsupported_ext": bundle.get("skipped_unsupported_ext", 0),
+        "walk_error": bundle.get("walk_error"),
+        # Per-file reason map — keys are POSIX paths, values are the
+        # raw status string (ok / oversize:N / over-file-cap / …).
+        # Frontend turns those into icons + tooltips.
+        "file_status": bundle.get("file_status") or {},
+        "caps": {
+            "max_files": ws_module._BULK_MAX_FILES,
+            "max_total_bytes": ws_module._BULK_MAX_TOTAL_BYTES,
+            "max_bytes_per_file": ws_module._BULK_MAX_BYTES_PER_FILE,
+        },
+    }
+
+
 @router.post("/workspaces/{workspace_id}/start-chat")
 async def start_chat_from_workspace(
     workspace_id: str,

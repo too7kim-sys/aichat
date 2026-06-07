@@ -326,9 +326,21 @@ _TREE_LINE_CAP = 600
 _TREE_DIR_CHILD_CAP = 40
 
 
-def format_workspace_tree_text(root: Path, max_lines: int = _TREE_LINE_CAP) -> str:
+def format_workspace_tree_text(
+    root: Path,
+    max_lines: int = _TREE_LINE_CAP,
+    *,
+    file_status: dict[str, str] | None = None,
+) -> str:
     """Render the workspace tree as plain ASCII so the LLM can answer
     structure / architecture questions directly instead of guessing.
+
+    When `file_status` is supplied the function appends a per-file
+    marker so the same tree doubles as the "어떤 파일이 첨부됐고 안
+    됐는지" view. Map keys are POSIX paths relative to the workspace
+    root (the same shape `bundle["files"]` reports), values are the
+    short marker string ("✓ 첨부", "⊘ 한도 초과", etc.). Files absent
+    from the map are rendered plain.
 
     Each line is one entry, indented by depth. Directories end with
     `/`. The output is capped at `max_lines` and `_TREE_DIR_CHILD_CAP`
@@ -339,7 +351,7 @@ def format_workspace_tree_text(root: Path, max_lines: int = _TREE_LINE_CAP) -> s
     lines: list[str] = []
     truncated = False
 
-    def render(items: list[dict], depth: int) -> None:
+    def render(items: list[dict], depth: int, parent_path: str) -> None:
         nonlocal truncated
         for i, item in enumerate(items):
             if i >= _TREE_DIR_CHILD_CAP:
@@ -349,12 +361,26 @@ def format_workspace_tree_text(root: Path, max_lines: int = _TREE_LINE_CAP) -> s
             if len(lines) >= max_lines:
                 truncated = True
                 return
-            name = item["name"] + ("/" if item["kind"] == "dir" else "")
-            lines.append("  " * depth + name)
-            if item["kind"] == "dir" and item.get("children"):
-                render(item["children"], depth + 1)
+            is_dir = item["kind"] == "dir"
+            name = item["name"] + ("/" if is_dir else "")
+            line = "  " * depth + name
+            if not is_dir and file_status:
+                rel = (
+                    f"{parent_path}/{item['name']}"
+                    if parent_path else item["name"]
+                )
+                marker = file_status.get(rel)
+                if marker:
+                    line = f"{line}  {marker}"
+            lines.append(line)
+            if is_dir and item.get("children"):
+                sub_parent = (
+                    f"{parent_path}/{item['name']}"
+                    if parent_path else item["name"]
+                )
+                render(item["children"], depth + 1, sub_parent)
 
-    render(tree, 0)
+    render(tree, 0, "")
     body = "\n".join(lines)
     if truncated:
         body += "\n\n[tree truncated — ask for `_WORKSPACE_TREE.txt` deeper if you need it]"
@@ -491,21 +517,22 @@ def collect_workspace_files(root: Path) -> dict:
             "walk_error": f"디렉토리가 아닙니다: {root}",
         }
 
-    all_candidates: list[tuple[int, int, int, Path]] = []
+    all_candidates: list[tuple[int, int, int, Path, str]] = []
     total_files_in_repo = 0
     skipped_unsupported_ext = 0
     skipped_too_large = 0
     walk_errors: list[str] = []
+    # Per-file exclusion reason, keyed by POSIX relative path. Anything
+    # ending up in `files` overwrites this with "ok"; the leftover
+    # entries surface in the tree manifest so the user sees *which*
+    # files were excluded, not just a bucket count.
+    file_status: dict[str, str] = {}
 
     def visit(d: Path) -> None:
         nonlocal total_files_in_repo, skipped_unsupported_ext, skipped_too_large
         try:
             entries = list(d.iterdir())
         except OSError as exc:
-            # The original code swallowed this silently — keep the
-            # tree-walk alive but capture the first few failures so
-            # the caller can show "X 폴더 읽기 실패" instead of a
-            # mysteriously empty bundle.
             if len(walk_errors) < 5:
                 walk_errors.append(f"{d}: {exc}")
             return
@@ -521,40 +548,49 @@ def collect_workspace_files(root: Path) -> dict:
                 continue
             total_files_in_repo += 1
             try:
+                rel = entry.relative_to(root).as_posix()
+            except ValueError:
+                rel = entry.name
+            try:
                 size = entry.stat().st_size
             except OSError:
+                file_status[rel] = "read-error"
                 continue
-            if size == 0 or size > _BULK_MAX_BYTES_PER_FILE:
-                if size > _BULK_MAX_BYTES_PER_FILE:
-                    skipped_too_large += 1
+            if size == 0:
+                file_status[rel] = "empty"
+                continue
+            if size > _BULK_MAX_BYTES_PER_FILE:
+                skipped_too_large += 1
+                file_status[rel] = f"oversize:{size}"
                 continue
             ext = entry.suffix.lower()
             if ext not in _TEXT_EXTS:
                 skipped_unsupported_ext += 1
-                continue
-            try:
-                rel = entry.relative_to(root).as_posix()
-            except ValueError:
+                file_status[rel] = f"unsupported-ext:{ext or '없음'}"
                 continue
             tier = _tier_of(ext) + _name_boost(rel)
             inv_size = -size
-            all_candidates.append((tier, inv_size, size, entry))
+            all_candidates.append((tier, inv_size, size, entry, rel))
 
     visit(root)
     all_candidates.sort(key=lambda x: (x[0], x[1]))
 
     files: list[dict] = []
     total_bytes = 0
-    for _tier, _inv, size, path in all_candidates:
+    for _tier, _inv, size, path, rel in all_candidates:
         if len(files) >= _BULK_MAX_FILES:
-            break
+            file_status[rel] = "over-file-cap"
+            continue
         if total_bytes + size > _BULK_MAX_TOTAL_BYTES:
-            continue  # try smaller files later in the loop
+            file_status[rel] = "over-byte-cap"
+            continue
         try:
             blob = path.read_bytes()
         except OSError:
+            file_status[rel] = "read-error"
             continue
         if b"\x00" in blob[:8192]:
+            file_status[rel] = "binary"
             continue
         for enc in ("utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"):
             try:
@@ -564,11 +600,8 @@ def collect_workspace_files(root: Path) -> dict:
                 continue
         else:
             text = blob.decode("utf-8", errors="replace")
-        try:
-            rel = path.relative_to(root).as_posix()
-        except ValueError:
-            continue
         files.append({"path": rel, "text": text, "size": size})
+        file_status[rel] = "ok"
         total_bytes += size
 
     log.info(
@@ -588,6 +621,10 @@ def collect_workspace_files(root: Path) -> dict:
         "skipped_unsupported_ext": skipped_unsupported_ext,
         "skipped_too_large": skipped_too_large,
         "walk_error": "; ".join(walk_errors) if walk_errors else None,
+        # Full per-file status — chat.py builds a short visual marker
+        # for each entry when rendering the tree manifest. Missing
+        # paths fall through to the plain (unmarked) format.
+        "file_status": file_status,
     }
 
 

@@ -2239,6 +2239,100 @@ body {
 }
 .ws-tn-bullet { display: inline-block; width: 11px; }
 
+/* Bundle-status marker — one glyph next to each file row in the
+ * chat side panel: ✓ attached / … hit a cap / ⊘ excluded for cause.
+ * Colours mirror the chat manifest the model sees so users and the
+ * model read the same legend. */
+.ws-tn-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  font-weight: 700;
+  font-size: 11px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.ws-mark-ok { color: #16a34a; }
+.ws-mark-warn { color: #ca8a04; }
+.ws-mark-bad { color: #dc2626; }
+.ws-mark-skip { color: var(--text-faint); }
+
+/* Pre-flight summary banner above the tree. Three tones — green
+ * "전부 첨부됨", amber "일부 미포함", red "읽기 실패" — let the user
+ * read the situation at a glance before asking a question. */
+.ws-bundle-banner {
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 10px 6px;
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid;
+}
+.ws-bundle-banner.ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #14532d;
+}
+.ws-bundle-banner.warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #78350f;
+}
+.ws-bundle-banner.err {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
+}
+.ws-bundle-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ws-bundle-banner-bytes {
+  color: inherit;
+  opacity: 0.8;
+  font-weight: 500;
+}
+.ws-bundle-banner-msg {
+  line-height: 1.5;
+}
+.ws-bundle-banner-legend {
+  font-size: 10.5px;
+  opacity: 0.85;
+}
+.ws-bundle-banner-legend .ws-mark-ok,
+.ws-bundle-banner-legend .ws-mark-warn,
+.ws-bundle-banner-legend .ws-mark-bad {
+  font-weight: 700;
+  padding: 0 1px;
+}
+.ws-bundle-caps {
+  margin-top: 4px;
+}
+.ws-bundle-caps summary {
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+.ws-bundle-caps ul {
+  list-style: disc;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 10.5px;
+}
+.ws-bundle-caps code {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
 /* === Workspace tabs (sidebar 상단, Claude 스타일) =================== */
 .workspace-tabs {
   display: flex;

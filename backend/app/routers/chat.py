@@ -800,17 +800,55 @@ async def chat_single(
                 bundle["total_files"], bundle["total_files_in_repo"],
                 bundle["truncated"], bundle.get("walk_error"),
             )
+            # Translate the bundle's per-file status into short
+            # visual markers the tree can show next to each file.
+            # Compact form (한 글자 + 짧은 이유) so even a 400-file
+            # tree stays readable for the model.
+            def _status_marker(status: str) -> str:
+                if status == "ok":
+                    return "✓ 첨부"
+                if status.startswith("oversize:"):
+                    try:
+                        kb = int(status.split(":", 1)[1]) // 1024
+                    except ValueError:
+                        kb = 0
+                    return f"⊘ 한도 초과 ({kb} KB)"
+                if status.startswith("unsupported-ext:"):
+                    ext = status.split(":", 1)[1]
+                    return f"⊘ 미지원 확장자 ({ext})"
+                if status == "over-file-cap":
+                    return "… 파일 개수 한도 초과"
+                if status == "over-byte-cap":
+                    return "… 합계 바이트 한도 초과"
+                if status == "binary":
+                    return "⊘ 바이너리"
+                if status == "empty":
+                    return "⊘ 빈 파일"
+                if status == "read-error":
+                    return "⊘ 읽기 실패"
+                return ""
+            file_status_map = {
+                rel: _status_marker(reason)
+                for rel, reason in (bundle.get("file_status") or {}).items()
+            }
             # Always inject the directory tree FIRST so structure /
             # architecture questions don't have to fish through file
             # contents to figure out what the project looks like.
             tree_text = await asyncio.get_running_loop().run_in_executor(
-                None, format_workspace_tree_text, root
+                None,
+                lambda: format_workspace_tree_text(
+                    root, file_status=file_status_map,
+                ),
             )
             tree_manifest = (
-                f"# {ws.name} — 디렉터리 구조 (소스 트리)\n"
+                f"# {ws.name} — 디렉터리 구조 + 첨부 현황\n"
                 f"이 트리는 워크스페이스의 실제 폴더 구조입니다. "
-                f"\"프로젝트 구조 설명\" / \"아키텍처\" / \"어떤 모듈이 있나\" "
-                f"같은 질문에는 이 파일을 1차 자료로 사용하세요.\n\n"
+                f"각 파일 우측에 첨부 상태가 표시됩니다:\n"
+                f"  · ✓ 첨부 — 본문이 이번 턴 컨텍스트에 포함됨\n"
+                f"  · ⊘ ... — 한도/확장자 등의 이유로 본문 제외 (트리에는 보임)\n"
+                f"  · … 한도 초과 — 같은 한도라도 우선순위가 낮아 잘림\n"
+                f"질문이 ⊘/… 파일에 대한 것이면 사용자에게 그 파일을 명시적으로 "
+                f"요청하라고 안내하세요.\n\n"
                 f"```\n{tree_text}\n```"
             )
             auto_workspace_attachments = [

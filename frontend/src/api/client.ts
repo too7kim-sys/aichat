@@ -992,6 +992,25 @@ export const api = {
       file_count: number;
       size_bytes: number;
     }>(`/code/workspaces/${id}/tree`),
+  /** Per-file bundle inclusion status the chat side panel uses to
+   *  mark each row in the tree with ✓ / ⊘ icons + tooltips. Runs
+   *  the exact same `collect_workspace_files` pass the next chat
+   *  turn will see so the markers are real, not stale stats. */
+  workspaceBundleStatus: (id: string) =>
+    json<{
+      total_files_in_repo: number;
+      bundled_files: number;
+      bundled_bytes: number;
+      skipped_too_large: number;
+      skipped_unsupported_ext: number;
+      walk_error: string | null;
+      file_status: Record<string, string>;
+      caps: {
+        max_files: number;
+        max_total_bytes: number;
+        max_bytes_per_file: number;
+      };
+    }>(`/code/workspaces/${id}/bundle-status`),
   workspaceFile: (id: string, path: string) =>
     json<WorkspaceFile>(
       `/code/workspaces/${id}/file?path=${encodeURIComponent(path)}`,
