@@ -1214,6 +1214,58 @@ body {
 }
 @keyframes blink { 50% { opacity: 0; } }
 
+/* Compact "코드 생성 중 · N줄" line shown in place of streaming
+ * code blocks. Same shape for both live (spinner) and done
+ * (checkmark) state so the eye doesn't have to track a layout
+ * shift when a fence closes mid-stream. */
+.code-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin: 6px 0;
+  border-radius: 6px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+  font-feature-settings: "tnum";
+  max-width: max-content;
+}
+.code-progress code {
+  background: var(--bg-card);
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 11.5px;
+  color: var(--text);
+}
+.code-progress.live {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.code-progress.done {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #14532d;
+}
+.code-progress-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: cp-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes cp-spin { to { transform: rotate(360deg); } }
+.code-progress-check {
+  font-weight: 700;
+  color: #16a34a;
+  font-size: 13px;
+}
+
 /* ── Sources box ─────────────────────────────────── */
 .sources-head {
   display: flex;

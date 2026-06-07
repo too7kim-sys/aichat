@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
+import { StreamingBody } from "./StreamingBody";
 
 // The LLM is asked to write each finding as:
 //   ### [HIGH] short title — path/to/file.ext:42
@@ -195,10 +196,14 @@ export function FindingsRender({
         const isLast = i === lastIdx && isLastInBubble;
         if (seg.kind === "text") {
           if (streaming) {
+            // During streaming, swap ``` code fences for a single
+            // "코드 생성 중 · N줄" line so the bubble doesn't get
+            // flooded with raw source as the model writes it. The
+            // finished render (below) restores the full collapsible
+            // code-block UI once the stream ends.
             return (
               <span key={i} className="stream-text">
-                {seg.body}
-                {isLast && <span className="cursor">▍</span>}
+                <StreamingBody body={seg.body} showCursor={isLast} />
               </span>
             );
           }
