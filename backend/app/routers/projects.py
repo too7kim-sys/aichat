@@ -227,6 +227,40 @@ def _sanitize_upload_name(name: str) -> str:
     return cleaned[:200]  # filesystem-friendly cap
 
 
+def _sanitize_upload_relpath(name: str) -> str:
+    """Same as `_sanitize_upload_name` but accepts a (possibly
+    nested) POSIX-style relative path — `webkitRelativePath` from a
+    folder picker. Each component is sanitised independently and
+    `..` / hidden segments are dropped; the result is the joined
+    relative path the backend can write under the upload directory."""
+    parts: list[str] = []
+    raw = (name or "").replace("\\", "/").strip("/")
+    for seg in raw.split("/"):
+        seg = seg.strip()
+        if not seg or seg in (".", ".."):
+            continue
+        seg = seg.lstrip(".")
+        cleaned = _FILENAME_SAFE_RE.sub("_", seg).strip("._ ")
+        if not cleaned:
+            continue
+        parts.append(cleaned[:200])
+    if not parts:
+        raise HTTPException(400, "파일 경로가 유효하지 않습니다")
+    return "/".join(parts)
+
+
+def _safe_join_upload(upload_dir: Path, relpath: str) -> Path:
+    """Resolve a sanitised relative path against the upload directory
+    and verify the result stays inside it — defence-in-depth against
+    a malicious `..` segment that slipped past the sanitiser."""
+    target = (upload_dir / relpath).resolve()
+    try:
+        target.relative_to(upload_dir.resolve())
+    except ValueError as exc:
+        raise HTTPException(400, "경로가 업로드 디렉토리를 벗어납니다") from exc
+    return target
+
+
 @router.post("", response_model=schemas.ProjectOut)
 async def create_project(
     payload: schemas.ProjectCreate,
@@ -721,17 +755,22 @@ async def list_uploaded_files(
     upload_dir = _project_upload_dir(project.id)
     if not upload_dir.is_dir():
         return []
+    # Walk recursively so files uploaded as part of a folder selection
+    # (webkitdirectory) come back with their relative POSIX path
+    # instead of just the basename — the UI groups them by directory.
     out: list[schemas.RagUploadedFile] = []
-    for p in sorted(upload_dir.iterdir()):
+    upload_root = upload_dir.resolve()
+    for p in sorted(upload_dir.rglob("*")):
         if not p.is_file():
             continue
         try:
+            rel = p.resolve().relative_to(upload_root).as_posix()
             st = p.stat()
-        except OSError:
+        except (OSError, ValueError):
             continue
         out.append(
             schemas.RagUploadedFile(
-                filename=p.name,
+                filename=rel,
                 size=st.st_size,
                 modified_at=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc),
             )
@@ -769,9 +808,10 @@ async def append_uploaded_files(
     cap_bytes = settings.rag_upload_max_bytes
     cap_files = settings.rag_max_files
 
-    # Count existing files so the per-project cap considers prior
-    # uploads, not just this batch.
-    existing = sum(1 for p in upload_dir.iterdir() if p.is_file())
+    # Count existing files (recursively) so the per-project cap
+    # considers prior uploads — including ones nested inside folders
+    # from a previous webkitdirectory pick.
+    existing = sum(1 for p in upload_dir.rglob("*") if p.is_file())
 
     accepted: list[Path] = []
     for f in files:
@@ -788,18 +828,24 @@ async def append_uploaded_files(
                 f"지원하지 않는 확장자: {ext or '없음'} "
                 f"({raw_name}). 허용: {', '.join(sorted(_DOCUMENT_EXTS))}",
             )
-        safe = _sanitize_upload_name(raw_name)
+        # The browser sends webkitRelativePath as the filename when the
+        # user picked a folder, so the value may contain forward slashes
+        # — sanitise per-component instead of treating it as one name.
+        safe_rel = _sanitize_upload_relpath(raw_name)
+        target = _safe_join_upload(upload_dir, safe_rel)
         # Collision-handle: append _2, _3, … rather than overwriting an
-        # earlier upload that happened to share a name.
-        target = upload_dir / safe
+        # earlier upload that happened to share a name within the same
+        # subdirectory.
         i = 2
         while target.exists():
-            stem, dot, suffix = safe.rpartition(".")
-            if dot:
-                target = upload_dir / f"{stem}_{i}.{suffix}"
-            else:
-                target = upload_dir / f"{safe}_{i}"
+            parent = target.parent
+            stem = target.stem
+            suffix = target.suffix
+            target = parent / f"{stem}_{i}{suffix}"
             i += 1
+        # Ensure the parent subdirectory exists; for top-level files
+        # this is the upload root, already created above.
+        target.parent.mkdir(parents=True, exist_ok=True)
         total = 0
         try:
             with target.open("wb") as out_f:
@@ -824,28 +870,41 @@ async def append_uploaded_files(
         accepted.append(target)
 
     # Return the full updated listing so the UI can re-render without a
-    # follow-up GET.
-    return [
-        schemas.RagUploadedFile(
-            filename=p.name,
-            size=p.stat().st_size,
-            modified_at=datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc),
+    # follow-up GET. Walks recursively so nested files show up too.
+    upload_root = upload_dir.resolve()
+    out_list: list[schemas.RagUploadedFile] = []
+    for p in sorted(upload_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        try:
+            rel = p.resolve().relative_to(upload_root).as_posix()
+            st = p.stat()
+        except (OSError, ValueError):
+            continue
+        out_list.append(
+            schemas.RagUploadedFile(
+                filename=rel,
+                size=st.st_size,
+                modified_at=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc),
+            )
         )
-        for p in sorted(upload_dir.iterdir())
-        if p.is_file()
-    ]
+    return out_list
 
 
-@router.delete("/{project_id}/uploads/{filename}")
+@router.delete("/{project_id}/uploads/{filename:path}")
 async def delete_uploaded_file(
     project_id: str,
     filename: str,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    """Remove a single file from the project's upload directory.
-    Doesn't touch the index — the user reindexes when they're done
-    editing the file set."""
+    """Remove a single file from the project's upload directory. The
+    `filename` path parameter uses FastAPI's `:path` converter so
+    forward slashes (nested folders from a webkitdirectory upload)
+    survive intact. Doesn't touch the index — the user reindexes when
+    they're done editing the file set. Empty parent directories that
+    fall out are cleaned up too so the index walker doesn't keep
+    seeing them."""
     project = await db.scalar(
         select(models.Project).where(models.Project.id == project_id)
     )
@@ -857,14 +916,27 @@ async def delete_uploaded_file(
         raise HTTPException(403, "권한이 없습니다")
     if project.source_type != "upload":
         raise HTTPException(409, "업로드 소스 프로젝트가 아닙니다")
-    safe = _sanitize_upload_name(filename)
-    target = _project_upload_dir(project.id) / safe
+    upload_dir = _project_upload_dir(project.id)
+    safe_rel = _sanitize_upload_relpath(filename)
+    target = _safe_join_upload(upload_dir, safe_rel)
     if not target.is_file():
         raise HTTPException(404, "파일을 찾을 수 없습니다")
     try:
         target.unlink()
     except OSError as exc:
         raise HTTPException(500, f"삭제 실패: {exc}") from exc
+    # Walk up and drop any empty parent directories so the upload
+    # tree doesn't accumulate leftover folders.
+    upload_root = upload_dir.resolve()
+    parent = target.parent
+    while parent != upload_root and parent.is_dir():
+        try:
+            if any(parent.iterdir()):
+                break
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
     return {"ok": True}
 
 

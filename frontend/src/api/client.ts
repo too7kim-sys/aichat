@@ -694,13 +694,21 @@ export const api = {
     json<RagUploadedFile[]>(`/projects/${id}/uploads`),
   /** Append one or more files to the project's upload directory. The
    *  caller decides when to trigger reindex — this endpoint doesn't
-   *  rebuild the index by itself. */
+   *  rebuild the index by itself. When a file came from a folder
+   *  picker (webkitdirectory), its `webkitRelativePath` is preserved
+   *  as the upload name so the backend can recreate the subdirectory
+   *  structure under the project's upload dir. */
   uploadProjectFiles: async (
     id: string,
     files: File[],
   ): Promise<RagUploadedFile[]> => {
     const fd = new FormData();
-    for (const f of files) fd.append("files", f, f.name);
+    for (const f of files) {
+      const rel =
+        (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
+        f.name;
+      fd.append("files", f, rel);
+    }
     const res = await fetch(`${BASE}/projects/${id}/uploads`, {
       method: "POST",
       body: fd,
@@ -718,11 +726,20 @@ export const api = {
     }
     return (await res.json()) as RagUploadedFile[];
   },
-  deleteProjectUpload: (id: string, filename: string) =>
-    json<{ ok: boolean }>(
-      `/projects/${id}/uploads/${encodeURIComponent(filename)}`,
-      { method: "DELETE" },
-    ),
+  /** Delete one file by its relative path under the project's upload
+   *  directory. The backend route uses `{filename:path}` so the slash
+   *  separators must NOT be percent-encoded — split on / and encode
+   *  each component instead so unusual characters in folder/file
+   *  names still survive. */
+  deleteProjectUpload: (id: string, filename: string) => {
+    const safe = filename
+      .split("/")
+      .map((seg) => encodeURIComponent(seg))
+      .join("/");
+    return json<{ ok: boolean }>(`/projects/${id}/uploads/${safe}`, {
+      method: "DELETE",
+    });
+  },
   deleteProject: (id: string) =>
     json<{ freed_bytes: number }>(`/projects/${id}`, { method: "DELETE" }),
   projectStorage: () =>

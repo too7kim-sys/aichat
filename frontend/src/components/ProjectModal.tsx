@@ -135,6 +135,24 @@ const SOURCE_META: Record<
   },
 };
 
+/** Document extensions accepted by the upload source. Mirrors
+ *  `_DOCUMENT_EXTS` in backend/app/routers/projects.py — kept in
+ *  sync by hand so the picker / drop-zone filters client-side too
+ *  (saves a round trip on rejected files). */
+const _UPLOAD_EXTENSIONS = new Set([
+  ".pdf",
+  ".docx",
+  ".md",
+  ".markdown",
+  ".txt",
+  ".html",
+  ".htm",
+  ".rtf",
+  ".log",
+  ".csv",
+  ".tsv",
+]);
+
 /** Hide credentials when rendering a project's source_ref. Both
  *  the DB connection string and SFTP URL embed user:password in the
  *  authority; replace the password section with "***". */
@@ -1105,6 +1123,7 @@ function UploadFilesPanel({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pickRef = useRef<HTMLInputElement | null>(null);
+  const folderPickRef = useRef<HTMLInputElement | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -1122,12 +1141,33 @@ function UploadFilesPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  async function addFiles(picked: File[]) {
+  async function addFiles(picked: File[], fromFolder: boolean) {
     if (picked.length === 0) return;
+    // Drop anything not in the document allow-list before hitting the
+    // network — folder picks routinely include README files / images
+    // we don't care about, and the backend would reject the whole
+    // batch on the first bad extension.
+    const filtered = picked.filter((f) => {
+      const name = (
+        (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
+        f.name
+      ).toLowerCase();
+      const dot = name.lastIndexOf(".");
+      if (dot < 0) return false;
+      return _UPLOAD_EXTENSIONS.has(name.slice(dot));
+    });
+    if (filtered.length === 0) {
+      if (!fromFolder) {
+        setErr(
+          `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
+        );
+      }
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
-      const updated = await api.uploadProjectFiles(projectId, picked);
+      const updated = await api.uploadProjectFiles(projectId, filtered);
       setFiles(updated);
       await onAfterChange();
     } catch (e) {
@@ -1167,6 +1207,15 @@ function UploadFilesPanel({
         >
           <IconPlus size={13} /> 파일 추가
         </button>
+        <button
+          type="button"
+          className="pm-btn-secondary pm-upload-panel-add"
+          onClick={() => folderPickRef.current?.click()}
+          disabled={busy}
+          title="폴더를 통째로 추가 (하위 폴더 구조 유지)"
+        >
+          <IconFolder size={13} /> 폴더 추가
+        </button>
         <input
           ref={pickRef}
           type="file"
@@ -1176,7 +1225,19 @@ function UploadFilesPanel({
           onChange={(e) => {
             const picked = Array.from(e.target.files ?? []);
             e.target.value = "";
-            addFiles(picked);
+            addFiles(picked, false);
+          }}
+        />
+        <input
+          ref={folderPickRef}
+          type="file"
+          multiple
+          style={{ display: "none" }}
+          {...{ webkitdirectory: "", directory: "" }}
+          onChange={(e) => {
+            const picked = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            addFiles(picked, true);
           }}
         />
       </div>
@@ -1401,9 +1462,60 @@ function AddProjectForm({
   // 내 문서 업로드 — files picked in the browser, staged in state, then
   // POSTed to the new project's upload endpoint after the project is
   // created. We hold the File objects (not extracted text) so the
-  // backend gets the original bytes for indexing.
+  // backend gets the original bytes for indexing. Two input refs so
+  // the user can pick individual files OR a whole folder (webkitdir),
+  // and the folder structure is preserved via webkitRelativePath.
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadFolderRef = useRef<HTMLInputElement | null>(null);
+
+  /** Stage a batch of picked files (file picker or folder picker),
+   *  filtering by the document extension allow-list and de-duping
+   *  against what's already queued. Folder picks lose unsupported
+   *  extensions silently — picking a project root + ignoring the
+   *  README is normal — but file picks that drop everything surface
+   *  as a hint so the user knows what went wrong. */
+  function addStagedUploads(picked: File[], fromFolder: boolean) {
+    if (picked.length === 0) return;
+    const filtered = picked.filter((f) => {
+      const name = (
+        (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
+        f.name
+      ).toLowerCase();
+      const dot = name.lastIndexOf(".");
+      if (dot < 0) return false;
+      return _UPLOAD_EXTENSIONS.has(name.slice(dot));
+    });
+    if (filtered.length === 0) {
+      if (!fromFolder) {
+        setError(
+          `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
+        );
+      }
+      return;
+    }
+    setUploadFiles((prev) => {
+      const seen = new Set(
+        prev.map((f) => {
+          const r =
+            (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
+            f.name;
+          return `${r}::${f.size}`;
+        }),
+      );
+      const next = [...prev];
+      for (const f of filtered) {
+        const r =
+          (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
+          f.name;
+        if (!seen.has(`${r}::${f.size}`)) {
+          next.push(f);
+          seen.add(`${r}::${f.size}`);
+        }
+      }
+      return next;
+    });
+  }
   // SFTP fields (5) — combined into a sftp:// URL on submit so the
   // backend sees the same shape as the rest of the source types.
   const [sftpHost, setSftpHost] = useState("");
@@ -1847,6 +1959,15 @@ function AddProjectForm({
             >
               <IconPlus size={14} /> 파일 선택
             </button>
+            <button
+              type="button"
+              className="pm-btn-secondary"
+              onClick={() => uploadFolderRef.current?.click()}
+              disabled={submitting}
+              title="폴더를 통째로 선택 (하위 폴더 구조 유지)"
+            >
+              <IconFolder size={14} /> 폴더 선택
+            </button>
             <span className="pm-help" style={{ margin: 0 }}>
               {uploadFiles.length > 0
                 ? `${uploadFiles.length}개 선택됨 (${fmtBytes(
@@ -1864,54 +1985,62 @@ function AddProjectForm({
             style={{ display: "none" }}
             onChange={(e) => {
               const picked = Array.from(e.target.files ?? []);
-              if (picked.length === 0) return;
-              setUploadFiles((prev) => {
-                // De-dupe by filename + size so a stray double-click
-                // doesn't enqueue the same PDF twice.
-                const seen = new Set(prev.map((f) => `${f.name}::${f.size}`));
-                const next = [...prev];
-                for (const f of picked) {
-                  if (!seen.has(`${f.name}::${f.size}`)) next.push(f);
-                }
-                return next;
-              });
-              // Allow picking the same file again later by clearing the
-              // input value (browsers won't fire change for the same
-              // selection twice in a row otherwise).
+              addStagedUploads(picked, false);
+              e.target.value = "";
+            }}
+          />
+          {/* Folder picker — webkitdirectory is non-standard so React's
+            * typings don't know about it. The HTML attribute survives
+            * because we spread the property; browsers that don't
+            * support it fall back to a normal file input. */}
+          <input
+            ref={uploadFolderRef}
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            {...{ webkitdirectory: "", directory: "" }}
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? []);
+              addStagedUploads(picked, true);
               e.target.value = "";
             }}
           />
           {uploadFiles.length > 0 && (
             <ul className="pm-upload-list">
-              {uploadFiles.map((f, i) => (
-                <li key={`${f.name}-${i}`} className="pm-upload-item">
-                  <span className="pm-upload-item-name" title={f.name}>
-                    {f.name}
-                  </span>
-                  <span className="pm-upload-item-size">
-                    {fmtBytes(f.size)}
-                  </span>
-                  <button
-                    type="button"
-                    className="pm-upload-item-remove"
-                    onClick={() =>
-                      setUploadFiles((prev) =>
-                        prev.filter((_, idx) => idx !== i),
-                      )
-                    }
-                    disabled={submitting}
-                    aria-label="제거"
-                    title="제거"
-                  >
-                    <IconX size={12} />
-                  </button>
-                </li>
-              ))}
+              {uploadFiles.map((f, i) => {
+                const rel =
+                  (f as File & { webkitRelativePath?: string })
+                    .webkitRelativePath || f.name;
+                return (
+                  <li key={`${rel}-${i}`} className="pm-upload-item">
+                    <span className="pm-upload-item-name" title={rel}>
+                      {rel}
+                    </span>
+                    <span className="pm-upload-item-size">
+                      {fmtBytes(f.size)}
+                    </span>
+                    <button
+                      type="button"
+                      className="pm-upload-item-remove"
+                      onClick={() =>
+                        setUploadFiles((prev) =>
+                          prev.filter((_, idx) => idx !== i),
+                        )
+                      }
+                      disabled={submitting}
+                      aria-label="제거"
+                      title="제거"
+                    >
+                      <IconX size={12} />
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
           <div className="pm-help">
-            선택한 파일은 백엔드의 프로젝트 전용 폴더로 업로드되고 즉시
-            인덱싱이 시작됩니다. 생성 후 관리 화면에서 추가/삭제할 수 있습니다.
+            파일 또는 폴더를 골라 올릴 수 있고, 폴더는 하위 구조를 그대로
+            유지합니다. 지원 확장자 외 파일은 자동으로 걸러집니다.
           </div>
         </div>
       ) : sourceType === "sftp" ? (
