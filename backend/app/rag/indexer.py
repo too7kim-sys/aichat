@@ -227,20 +227,16 @@ def _fetch_url_source_to_dir(
 
 def _fetch_url_to_dir(url: str, dest: Path) -> None:
     """HTTP GET the URL and stage the body as a single file in dest.
-    The filename is taken from the URL path so the chunker's file-type
-    routing still works (e.g. openapi.yaml stays a YAML doc)."""
+    The filename is decided from the response Content-Type (NOT the
+    URL path) so an endpoint like /api/data.aspx that returns JSON
+    still lands as data.json — otherwise the corpus walker would
+    filter it out because .aspx isn't in the API extension allowlist."""
     from urllib.parse import urlparse
     import httpx
 
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_URL_SCHEMES:
         raise RuntimeError(f"허용되지 않은 URL 스킴: {parsed.scheme}")
-    # Reuse the last path segment as the filename; fall back to spec.json
-    # for endpoints like https://api.example.com/openapi (no extension).
-    leaf = parsed.path.rsplit("/", 1)[-1] or "spec"
-    if "." not in leaf:
-        # Guess by content-type after fetch — for now default to .json.
-        leaf += ".json"
     try:
         with httpx.Client(timeout=_URL_FETCH_TIMEOUT, follow_redirects=True) as c:
             resp = c.get(url)
@@ -254,13 +250,36 @@ def _fetch_url_to_dir(url: str, dest: Path) -> None:
             f"URL 응답이 너무 큽니다: {len(body):,} bytes (limit "
             f"{_URL_FETCH_MAX_BYTES:,})"
         )
-    # Bias the extension toward what the server actually sent us when
-    # the URL itself didn't make it clear.
+
+    # Pick the extension from Content-Type so the corpus walker actually
+    # accepts what we just staged. URL paths with .aspx/.html/.xml
+    # would otherwise be dropped even when the body itself is JSON.
     ctype = (resp.headers.get("content-type") or "").lower()
-    if "yaml" in ctype and not leaf.endswith((".yaml", ".yml")):
-        leaf = leaf.rsplit(".", 1)[0] + ".yaml"
-    elif "json" in ctype and not leaf.endswith(".json"):
-        leaf = leaf.rsplit(".", 1)[0] + ".json"
+    if "yaml" in ctype:
+        ext = ".yaml"
+    elif "markdown" in ctype or ctype.startswith("text/md"):
+        ext = ".md"
+    elif "json" in ctype:
+        ext = ".json"
+    else:
+        # No clear hint — peek at the first byte and default to .json
+        # (the API chunker handles arbitrary JSON-ish payloads).
+        head = body.lstrip()[:1]
+        if head == b"<":
+            # Sniffs as XML/HTML — surface a clear error rather than
+            # silently embedding markup that the walker would skip.
+            raise RuntimeError(
+                "응답이 JSON/YAML/Markdown 이 아닙니다 "
+                f"(Content-Type={ctype or '없음'}). API 코퍼스는 "
+                "OpenAPI 스펙이나 JSON 응답을 기대합니다."
+            )
+        ext = ".json"
+
+    # Use the URL's last path segment as the basename so debug logs
+    # still tie the file back to its endpoint.
+    base = parsed.path.rsplit("/", 1)[-1]
+    base = base.rsplit(".", 1)[0] if "." in base else base
+    leaf = (base or "spec") + ext
     (dest / leaf).write_bytes(body)
 
 
