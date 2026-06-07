@@ -946,6 +946,21 @@ async def chat_single(
     if extra:
         history.insert(0, ChatMessage(role="system", content=extra))
 
+    # Per-chat-project instructions — the "Claude.ai Projects" pattern.
+    # When the session sits inside a folder, the folder's instructions
+    # field is prepended so the same domain context applies across
+    # every chat in that project without the user having to repeat it.
+    if session.chat_project_id:
+        cp = await db.scalar(
+            select(models.ChatProject).where(
+                models.ChatProject.id == session.chat_project_id,
+                models.ChatProject.user_id == user.id,
+            )
+        )
+        cp_instr = (cp.instructions or "").strip() if cp else ""
+        if cp_instr:
+            history.insert(0, ChatMessage(role="system", content=cp_instr))
+
     # Anti-hallucination ruleset. Inserted in front of any other system
     # message so the model reads it first.
     if settings.accuracy_strict:

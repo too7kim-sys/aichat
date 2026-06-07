@@ -53,6 +53,9 @@ class SessionOut(BaseModel):
     title: str
     workspace_id: str | None = None
     code_focused: bool = False
+    # Optional chat-project (folder) id this session belongs to. None
+    # = sits in the default ungrouped bucket on the sidebar.
+    chat_project_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -66,10 +69,44 @@ class SessionDetail(SessionOut):
 
 class SessionCreate(BaseModel):
     title: str = "New chat"
+    # When set, the new session is filed under this chat project so
+    # "+ 새 대화" inside a project folder lands in that folder.
+    chat_project_id: str | None = None
 
 
 class SessionUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+
+
+class SessionMove(BaseModel):
+    """PATCH /sessions/{id}/chat-project body. Pass `chat_project_id`
+    to move; null detaches the session from any project."""
+    chat_project_id: str | None = None
+
+
+class ChatProjectOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    instructions: str
+    session_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChatProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    instructions: str = Field(default="", max_length=8000)
+
+
+class ChatProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    instructions: str | None = Field(default=None, max_length=8000)
 
 
 class AttachmentIn(BaseModel):

@@ -68,6 +68,19 @@ async def init_db() -> None:
                     "ALTER TABLE sessions ADD COLUMN code_focused "
                     "BOOLEAN NOT NULL DEFAULT 0"
                 )
+            if "chat_project_id" not in existing:
+                # New "Chat projects" feature — organisational buckets
+                # for sessions, distinct from the RAG `projects` table.
+                # Nullable so existing sessions sit in the default
+                # "기타 대화" group until the user files them.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN chat_project_id "
+                    "VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_chat_project_id "
+                    "ON sessions(chat_project_id)"
+                )
             # Projects table may exist without corpus_type from the
             # original RAG ship — default existing rows to "code".
             pcols = await conn.exec_driver_sql("PRAGMA table_info(projects)")

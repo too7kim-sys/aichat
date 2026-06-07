@@ -29,7 +29,23 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    session = models.Session(title=payload.title, user_id=user.id)
+    # Validate the chat-project link, if any — silently dropping a
+    # bad id would scatter sessions outside the folder the user just
+    # picked from the sidebar.
+    if payload.chat_project_id is not None:
+        owned = await db.scalar(
+            select(models.ChatProject.id).where(
+                models.ChatProject.id == payload.chat_project_id,
+                models.ChatProject.user_id == user.id,
+            )
+        )
+        if not owned:
+            raise HTTPException(404, "chat project not found")
+    session = models.Session(
+        title=payload.title,
+        user_id=user.id,
+        chat_project_id=payload.chat_project_id,
+    )
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -66,6 +82,32 @@ async def update_session(
 ):
     session = await _load_owned(db, session_id, user.id)
     session.title = payload.title.strip()
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+@router.patch("/{session_id}/chat-project", response_model=schemas.SessionOut)
+async def move_session_to_chat_project(
+    session_id: str,
+    payload: schemas.SessionMove,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Move a session into a chat project (folder) or detach it
+    (pass `chat_project_id: null`). The frontend uses this from the
+    session row's "프로젝트로 이동" menu."""
+    session = await _load_owned(db, session_id, user.id)
+    if payload.chat_project_id is not None:
+        owned = await db.scalar(
+            select(models.ChatProject.id).where(
+                models.ChatProject.id == payload.chat_project_id,
+                models.ChatProject.user_id == user.id,
+            )
+        )
+        if not owned:
+            raise HTTPException(404, "chat project not found")
+    session.chat_project_id = payload.chat_project_id
     await db.commit()
     await db.refresh(session)
     return session

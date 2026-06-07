@@ -144,6 +144,279 @@ body {
   overflow-y: auto;
 }
 
+/* Per-row action cluster on each session row — the "프로젝트로 이동"
+ * folder icon button + the existing delete X. Sits on the right of
+ * the row; only the delete revealed on hover so the row stays calm. */
+.session-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+.session-row-move {
+  background: none;
+  border: none;
+  padding: 2px 3px;
+  cursor: pointer;
+  color: var(--text-faint);
+  opacity: 0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.session-list li:hover .session-row-move,
+.cp-children .cp-child:hover .session-row-move {
+  opacity: 1;
+}
+.session-row-move:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.session-row-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  max-width: 220px;
+  z-index: 5;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+}
+.session-row-menu-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  padding: 4px 8px 6px;
+}
+.session-row-menu-empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  padding: 4px 8px 6px;
+}
+.session-row-menu-item {
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.session-row-menu-item:hover { background: var(--accent-soft); }
+.session-row-menu-item.current { color: var(--accent); font-weight: 600; }
+.session-row-menu-item.detach {
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+/* ── Chat projects (sidebar folders) ─────────────────────────── */
+.cp-section {
+  padding: 6px 6px 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.cp-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+.cp-section-head:hover { background: var(--accent-soft); color: var(--accent); }
+.cp-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cp-section-count {
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: none;
+}
+.cp-section-add {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+}
+.cp-section-head:hover .cp-section-add { color: var(--accent); }
+.cp-section-empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  padding: 4px 12px 8px;
+  line-height: 1.5;
+}
+.cp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cp-item {
+  border-radius: 6px;
+}
+.cp-item.contains-active { background: rgba(204, 120, 92, 0.05); }
+.cp-item-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+}
+.cp-item-toggle {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  padding: 2px;
+  cursor: pointer;
+  display: inline-flex;
+  border-radius: 3px;
+}
+.cp-item-toggle:hover { color: var(--text); background: var(--bg-sidebar); }
+.cp-item-name {
+  flex: 1;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+.cp-item-name:hover { background: var(--accent-soft); color: var(--accent); }
+.cp-item-name svg { flex-shrink: 0; color: var(--text-muted); }
+.cp-item-name span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-item-count {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+  background: var(--bg-card);
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.cp-item-action {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.cp-item:hover .cp-item-action { opacity: 1; }
+.cp-item-action:hover { color: var(--accent); background: var(--accent-soft); }
+.cp-children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cp-child {
+  padding: 6px 10px !important;
+  font-size: 12.5px !important;
+  gap: 6px !important;
+}
+.cp-child-add { padding: 0 !important; }
+.cp-child-add-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11.5px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cp-child-add-btn:hover {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.cp-child-empty {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 4px 12px !important;
+}
+
+/* ── Chat project edit modal ───────────────────────────────── */
+.cp-edit-modal {
+  max-width: 560px;
+  width: 100%;
+}
+.cp-edit-body {
+  padding: 18px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cp-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+}
+.cp-edit-actions-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.cp-edit-delete {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.cp-edit-delete:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.08);
+}
+
 /* ── Main area ───────────────────────────────────── */
 .main {
   flex: 1;

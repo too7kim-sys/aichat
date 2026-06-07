@@ -7,19 +7,24 @@ import {
 } from "../api/client";
 import { queueAttachment } from "../state/attachQueue";
 import { useWorkspaces } from "../state/WorkspacesContext";
-import type { Session } from "../types";
+import type { ChatProject, Session } from "../types";
 import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
+import { ChatProjectEditModal } from "./ChatProjectEditModal";
 import {
   IconChat,
   IconCheckCircle,
+  IconChevronDown,
+  IconChevronRight,
   IconClock,
   IconCode,
+  IconEdit,
   IconFileText,
   IconFolder,
   IconGitBranch,
   IconPlus,
   IconRefresh,
   IconSparkles,
+  IconTrash,
   IconUsers,
   IconX,
 } from "./Icon";
@@ -34,8 +39,15 @@ interface Props {
   onWorkspaceChange: (w: Workspace) => void;
   sessions: Session[];
   activeId: string | null;
+  /** Sidebar folders that group related sessions. Optional — pre-API
+   *  backends just return an empty list and the pane falls back to
+   *  the flat date groups. */
+  chatProjects?: ChatProject[];
   onSelect: (id: string) => void;
-  onCreate: () => void;
+  /** Create a new session. When a chat project id is passed, the
+   *  session is filed under that folder (e.g. clicking "+ 새 대화"
+   *  inside a project header). */
+  onCreate: (chatProjectId?: string | null) => void;
   onDelete: (id: string) => void;
   /** Click on a Code workspace card → create a chat named after the
    *  workspace and pre-attach a representative slice of its files. */
@@ -44,6 +56,9 @@ interface Props {
    *  a workflow run completes so the freshly-created session appears
    *  in the sidebar without a page reload. */
   onSessionRefresh?: () => Promise<void> | void;
+  /** Refresh the chat-project list — called by ChatPane after a
+   *  create / rename / delete so counts + names stay live. */
+  onChatProjectsRefresh?: () => Promise<void> | void;
 }
 
 function groupByDate(sessions: Session[]) {
@@ -87,11 +102,13 @@ export function Sidebar({
   onWorkspaceChange,
   sessions,
   activeId,
+  chatProjects = [],
   onSelect,
   onCreate,
   onDelete,
   onStartChatFromWorkspace,
   onSessionRefresh,
+  onChatProjectsRefresh,
 }: Props) {
   return (
     <aside className={`sidebar${className ? " " + className : ""}`}>
@@ -117,9 +134,12 @@ export function Sidebar({
         <ChatPane
           sessions={sessions}
           activeId={activeId}
+          chatProjects={chatProjects}
           onSelect={onSelect}
           onCreate={onCreate}
           onDelete={onDelete}
+          onChatProjectsRefresh={onChatProjectsRefresh}
+          onSessionRefresh={onSessionRefresh}
         />
       )}
       {workspace === "cowork" && (
@@ -142,47 +162,326 @@ export function Sidebar({
 function ChatPane({
   sessions,
   activeId,
+  chatProjects,
   onSelect,
   onCreate,
   onDelete,
+  onChatProjectsRefresh,
+  onSessionRefresh,
 }: {
   sessions: Session[];
   activeId: string | null;
+  chatProjects: ChatProject[];
   onSelect: (id: string) => void;
-  onCreate: () => void;
+  onCreate: (chatProjectId?: string | null) => void;
   onDelete: (id: string) => void;
+  onChatProjectsRefresh?: () => Promise<void> | void;
+  onSessionRefresh?: () => Promise<void> | void;
 }) {
-  const groups = groupByDate(sessions);
+  // Unassigned sessions still fall into the date-bucketed groups so
+  // a brand-new install (no projects yet) looks unchanged.
+  const unassigned = sessions.filter((s) => !s.chat_project_id);
+  const groups = groupByDate(unassigned);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Restore the open/closed state across reloads — the user's mental
+  // map of which folder they're in shouldn't reset on refresh.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("chat:projectExpanded");
+      if (raw) setExpanded(JSON.parse(raw));
+    } catch {
+      /* private mode — fine */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("chat:projectExpanded", JSON.stringify(expanded));
+    } catch {
+      /* private mode — fine */
+    }
+  }, [expanded]);
+  const [editProject, setEditProject] = useState<ChatProject | "new" | null>(
+    null,
+  );
+
+  // Group filed sessions by project for O(1) lookup when rendering.
+  const sessionsByProject: Record<string, Session[]> = {};
+  for (const s of sessions) {
+    if (!s.chat_project_id) continue;
+    (sessionsByProject[s.chat_project_id] ||= []).push(s);
+  }
+
   return (
     <>
       <div className="sidebar-actions">
-        <button className="primary" onClick={onCreate}>
+        <button className="primary" onClick={() => onCreate(null)}>
           + 새 대화
         </button>
       </div>
       <div className="sidebar-sessions">
+        {/* Projects — sidebar folders. Each header expands to reveal
+          * its sessions plus a "+ 새 대화" affordance that creates a
+          * session pre-filed into that folder. The "+" on the section
+          * header opens the create / edit modal. */}
+        <div className="cp-section">
+          <button
+            type="button"
+            className="cp-section-head"
+            onClick={() => setEditProject("new")}
+            title="새 프로젝트 만들기"
+          >
+            <span className="cp-section-title">
+              <IconFolder size={12} /> 프로젝트{" "}
+              {chatProjects.length > 0 && (
+                <span className="cp-section-count">
+                  ({chatProjects.length})
+                </span>
+              )}
+            </span>
+            <span className="cp-section-add" aria-label="새 프로젝트">
+              <IconPlus size={12} />
+            </span>
+          </button>
+          {chatProjects.length === 0 ? (
+            <div className="cp-section-empty">
+              관련된 대화를 폴더로 묶어 정리하세요.
+            </div>
+          ) : (
+            <ul className="cp-list">
+              {chatProjects.map((p) => (
+                <ChatProjectRow
+                  key={p.id}
+                  project={p}
+                  expanded={!!expanded[p.id]}
+                  onToggle={() =>
+                    setExpanded((m) => ({ ...m, [p.id]: !m[p.id] }))
+                  }
+                  childSessions={sessionsByProject[p.id] ?? []}
+                  activeId={activeId}
+                  onSelect={onSelect}
+                  onCreate={() => onCreate(p.id)}
+                  onDelete={onDelete}
+                  onEdit={() => setEditProject(p)}
+                  onMoveSession={async (sid, targetId) => {
+                    try {
+                      await api.moveSessionToChatProject(sid, targetId);
+                    } catch (e) {
+                      window.alert(
+                        e instanceof Error ? e.message : String(e),
+                      );
+                      return;
+                    }
+                    await Promise.all([
+                      onChatProjectsRefresh?.(),
+                      onSessionRefresh?.(),
+                    ]);
+                  }}
+                  allProjects={chatProjects}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+
         <SessionGroup
           label="오늘"
           sessions={groups.today}
+          chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
+          onMoveSession={async (sid, targetId) => {
+            try {
+              await api.moveSessionToChatProject(sid, targetId);
+            } catch (e) {
+              window.alert(e instanceof Error ? e.message : String(e));
+              return;
+            }
+            await Promise.all([
+              onChatProjectsRefresh?.(),
+              onSessionRefresh?.(),
+            ]);
+          }}
         />
         <SessionGroup
           label="어제"
           sessions={groups.yesterday}
+          chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
+          onMoveSession={async (sid, targetId) => {
+            try {
+              await api.moveSessionToChatProject(sid, targetId);
+            } catch (e) {
+              window.alert(e instanceof Error ? e.message : String(e));
+              return;
+            }
+            await Promise.all([
+              onChatProjectsRefresh?.(),
+              onSessionRefresh?.(),
+            ]);
+          }}
         />
         <SessionGroup
           label="지난 7일"
           sessions={groups.lastWeek}
+          chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
+          onMoveSession={async (sid, targetId) => {
+            try {
+              await api.moveSessionToChatProject(sid, targetId);
+            } catch (e) {
+              window.alert(e instanceof Error ? e.message : String(e));
+              return;
+            }
+            await Promise.all([
+              onChatProjectsRefresh?.(),
+              onSessionRefresh?.(),
+            ]);
+          }}
         />
         <SessionGroup
           label="이전"
           sessions={groups.earlier}
+          chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
+          onMoveSession={async (sid, targetId) => {
+            try {
+              await api.moveSessionToChatProject(sid, targetId);
+            } catch (e) {
+              window.alert(e instanceof Error ? e.message : String(e));
+              return;
+            }
+            await Promise.all([
+              onChatProjectsRefresh?.(),
+              onSessionRefresh?.(),
+            ]);
+          }}
         />
       </div>
+
+      {editProject !== null && (
+        <ChatProjectEditModal
+          project={editProject === "new" ? null : editProject}
+          onClose={() => setEditProject(null)}
+          onSaved={async () => {
+            setEditProject(null);
+            await onChatProjectsRefresh?.();
+          }}
+          onDeleted={async () => {
+            setEditProject(null);
+            await Promise.all([
+              onChatProjectsRefresh?.(),
+              onSessionRefresh?.(),
+            ]);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+
+function ChatProjectRow({
+  project,
+  expanded,
+  onToggle,
+  childSessions,
+  activeId,
+  onSelect,
+  onCreate,
+  onDelete,
+  onEdit,
+  onMoveSession,
+  allProjects,
+}: {
+  project: ChatProject;
+  expanded: boolean;
+  onToggle: () => void;
+  childSessions: Session[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onCreate: () => void;
+  onDelete: (id: string) => void;
+  onEdit: () => void;
+  onMoveSession: (
+    sessionId: string,
+    targetProjectId: string | null,
+  ) => void | Promise<void>;
+  allProjects: ChatProject[];
+}) {
+  const containsActive =
+    !!activeId && childSessions.some((s) => s.id === activeId);
+  return (
+    <li className={`cp-item${containsActive ? " contains-active" : ""}`}>
+      <div className="cp-item-head">
+        <button
+          type="button"
+          className="cp-item-toggle"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={expanded ? "접기" : "펼치기"}
+        >
+          {expanded ? (
+            <IconChevronDown size={12} />
+          ) : (
+            <IconChevronRight size={12} />
+          )}
+        </button>
+        <button
+          type="button"
+          className="cp-item-name"
+          onClick={onToggle}
+          title={project.description || project.name}
+        >
+          <IconFolder size={12} />
+          <span>{project.name}</span>
+          <span className="cp-item-count">{childSessions.length}</span>
+        </button>
+        <button
+          type="button"
+          className="cp-item-action"
+          onClick={onEdit}
+          title="편집"
+          aria-label="편집"
+        >
+          <IconEdit size={11} />
+        </button>
+      </div>
+      {expanded && (
+        <ul className="cp-children">
+          <li className="cp-child cp-child-add">
+            <button
+              type="button"
+              className="cp-child-add-btn"
+              onClick={onCreate}
+            >
+              <IconPlus size={11} /> 새 대화
+            </button>
+          </li>
+          {childSessions.length === 0 ? (
+            <li className="cp-child-empty">아직 대화가 없습니다.</li>
+          ) : (
+            childSessions
+              .slice()
+              .sort(
+                (a, b) =>
+                  new Date(b.updated_at).getTime() -
+                  new Date(a.updated_at).getTime(),
+              )
+              .map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  active={s.id === activeId}
+                  onSelect={() => onSelect(s.id)}
+                  onDelete={() => onDelete(s.id)}
+                  chatProjects={allProjects}
+                  onMoveSession={onMoveSession}
+                  compact
+                />
+              ))
+          )}
+        </ul>
+      )}
+    </li>
   );
 }
 
@@ -344,14 +643,21 @@ function SessionGroup({
   label,
   sessions,
   activeId,
+  chatProjects,
   onSelect,
   onDelete,
+  onMoveSession,
 }: {
   label: string;
   sessions: Session[];
   activeId: string | null;
+  chatProjects: ChatProject[];
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onMoveSession: (
+    sessionId: string,
+    targetProjectId: string | null,
+  ) => void | Promise<void>;
 }) {
   if (sessions.length === 0) return null;
   return (
@@ -359,29 +665,129 @@ function SessionGroup({
       <div className="session-section">{label}</div>
       <ul className="session-list">
         {sessions.map((s) => (
-          <li
+          <SessionRow
             key={s.id}
-            className={s.id === activeId ? "active" : ""}
-            onClick={() => onSelect(s.id)}
-          >
-            <span className="session-emoji" aria-hidden="true">
-              <SessionIcon session={s} />
-            </span>
-            <span className="session-title">{s.title}</span>
-            <button
-              className="delete-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(s.id);
-              }}
-              aria-label="삭제"
-            >
-              ×
-            </button>
-          </li>
+            session={s}
+            active={s.id === activeId}
+            onSelect={() => onSelect(s.id)}
+            onDelete={() => onDelete(s.id)}
+            chatProjects={chatProjects}
+            onMoveSession={onMoveSession}
+          />
         ))}
       </ul>
     </>
+  );
+}
+
+
+/** One row in the sidebar session list. Used both at the top level
+ *  (date-grouped) and nested inside a chat project. Exposes a small
+ *  "프로젝트 변경" menu that lets the user file the session into a
+ *  folder (or detach it back to the date groups). */
+function SessionRow({
+  session: s,
+  active,
+  onSelect,
+  onDelete,
+  chatProjects,
+  onMoveSession,
+  compact = false,
+}: {
+  session: Session;
+  active: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  chatProjects: ChatProject[];
+  onMoveSession: (
+    sessionId: string,
+    targetProjectId: string | null,
+  ) => void | Promise<void>;
+  compact?: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [menuOpen]);
+  return (
+    <li
+      className={`${active ? "active" : ""}${compact ? " cp-child" : ""}`}
+      onClick={onSelect}
+    >
+      <span className="session-emoji" aria-hidden="true">
+        <SessionIcon session={s} />
+      </span>
+      <span className="session-title">{s.title}</span>
+      <div
+        className="session-row-actions"
+        ref={menuRef}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="session-row-move"
+          aria-label="프로젝트로 이동"
+          title="프로젝트로 이동"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <IconFolder size={11} />
+        </button>
+        {menuOpen && (
+          <div className="session-row-menu">
+            <div className="session-row-menu-title">프로젝트로 이동</div>
+            {chatProjects.length === 0 ? (
+              <div className="session-row-menu-empty">
+                프로젝트가 없습니다.
+              </div>
+            ) : (
+              chatProjects.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`session-row-menu-item${
+                    s.chat_project_id === p.id ? " current" : ""
+                  }`}
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    await onMoveSession(s.id, p.id);
+                  }}
+                >
+                  <IconFolder size={11} /> {p.name}
+                </button>
+              ))
+            )}
+            {s.chat_project_id && (
+              <button
+                type="button"
+                className="session-row-menu-item detach"
+                onClick={async () => {
+                  setMenuOpen(false);
+                  await onMoveSession(s.id, null);
+                }}
+              >
+                <IconX size={11} /> 프로젝트에서 빼기
+              </button>
+            )}
+          </div>
+        )}
+        <button
+          className="delete-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label="삭제"
+        >
+          ×
+        </button>
+      </div>
+    </li>
   );
 }
 

@@ -165,6 +165,15 @@ class Session(Base):
     project_id: Mapped[str | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Optional grouping into a chat-organisation "project" (distinct
+    # from the RAG `projects` table). Lets the sidebar collect related
+    # conversations under a named folder and apply shared per-project
+    # instructions on every turn. Nullable so a fresh chat sits in the
+    # default "기타" bucket until the user files it.
+    chat_project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_projects.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     # Code-focused mode: when this session was kicked off from a Code
     # workspace, the workspace is pinned so the chat router auto-
     # attaches the project files on EVERY turn (instead of relying on
@@ -186,6 +195,34 @@ class Session(Base):
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="Message.created_at",
+    )
+
+
+class ChatProject(Base):
+    """A named bucket the user files related chat sessions under.
+
+    Distinct from the RAG `projects` table — `ChatProject` is purely
+    an organisational folder for sessions in the sidebar. Optional
+    `instructions` field acts as a per-folder system prompt that the
+    chat router prepends on every turn for member sessions, so the
+    user gets the same "house style / domain rules" treatment Claude.ai
+    Projects offer without having to repeat it in each chat.
+    """
+    __tablename__ = "chat_projects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    # Optional system-prompt-style instructions injected on every chat
+    # in this folder. Capped at a few KB so it can't blow the context
+    # window on a long run of attached chunks.
+    instructions: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )
 
 

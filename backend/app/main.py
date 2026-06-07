@@ -9,7 +9,7 @@ from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
 from .routers import (
-    admin, auth, chat, code, files, ollama, prompts, search,
+    admin, auth, chat, chat_projects, code, files, ollama, prompts, search,
     sessions, transcripts, workflows,
 )
 
@@ -124,6 +124,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(auth.me_router)
 app.include_router(sessions.router)
+app.include_router(chat_projects.router)
 app.include_router(chat.router)
 app.include_router(files.router)
 app.include_router(ollama.router)

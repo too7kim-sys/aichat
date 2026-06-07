@@ -1,5 +1,5 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import type { ProviderInfo, Session, SessionDetail } from "../types";
+import type { ChatProject, ProviderInfo, Session, SessionDetail } from "../types";
 
 const BASE = "/api";
 const TOKEN_KEY = "chat:access_token";
@@ -528,10 +528,14 @@ export const api = {
   listOllamaModels: () => json<OllamaModelList>("/ollama/models"),
   listSessions: () => json<Session[]>("/sessions"),
   getSession: (id: string) => json<SessionDetail>(`/sessions/${id}`),
-  createSession: (title: string) =>
+  /** Create a session, optionally pre-filed under a chat project. */
+  createSession: (title: string, chatProjectId?: string | null) =>
     json<Session>("/sessions", {
       method: "POST",
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({
+        title,
+        chat_project_id: chatProjectId ?? null,
+      }),
     }),
   deleteSession: (id: string) =>
     json<void>(`/sessions/${id}`, { method: "DELETE" }),
@@ -540,6 +544,39 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ title }),
     }),
+  /** Move a session into a chat project (folder), or detach by
+   *  passing null. The sidebar uses this from each session row. */
+  moveSessionToChatProject: (sessionId: string, projectId: string | null) =>
+    json<Session>(`/sessions/${sessionId}/chat-project`, {
+      method: "PATCH",
+      body: JSON.stringify({ chat_project_id: projectId }),
+    }),
+
+  // ── Chat projects (sidebar folders) ─────────────────────────────
+  listChatProjects: () => json<ChatProject[]>("/chat-projects"),
+  createChatProject: (payload: {
+    name: string;
+    description?: string;
+    instructions?: string;
+  }) =>
+    json<ChatProject>("/chat-projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: payload.name,
+        description: payload.description ?? "",
+        instructions: payload.instructions ?? "",
+      }),
+    }),
+  updateChatProject: (
+    id: string,
+    payload: Partial<{ name: string; description: string; instructions: string }>,
+  ) =>
+    json<ChatProject>(`/chat-projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deleteChatProject: (id: string) =>
+    json<{ ok: boolean }>(`/chat-projects/${id}`, { method: "DELETE" }),
   extractFile: uploadExtract,
   mergeFiles,
   /** Global chat search — scans every message the caller owns

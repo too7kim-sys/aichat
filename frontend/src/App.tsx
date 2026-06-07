@@ -16,7 +16,7 @@ import { VerifyBanner } from "./auth/VerifyBanner";
 import { ModelProvider } from "./state/ModelContext";
 import { ProjectsProvider } from "./state/ProjectsContext";
 import { WorkspacesProvider } from "./state/WorkspacesContext";
-import type { ProviderInfo, Session } from "./types";
+import type { ChatProject, ProviderInfo, Session } from "./types";
 
 // Monaco editor is ~400 kB minified. Split it off the main bundle so the
 // chat UI loads instantly; the panel chunk fetches on first use.
@@ -151,6 +151,7 @@ function AppInner({
 }) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [chatProjects, setChatProjects] = useState<ChatProject[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   // Pending scroll target — set by the global SearchBar when the
   // user picks a result so ChatPanel knows which message to flash
@@ -207,9 +208,19 @@ function AppInner({
     return list;
   }
 
+  async function refreshChatProjects() {
+    try {
+      setChatProjects(await api.listChatProjects());
+    } catch {
+      // Endpoint may be unavailable on a stale backend — fail soft so
+      // the sidebar still renders the date groups.
+    }
+  }
+
   useEffect(() => {
     api.listProviders().then(setProviders);
     refreshSessions();
+    refreshChatProjects();
   }, []);
 
   // Wipe artifact panel state whenever the user switches sessions so old
@@ -219,10 +230,10 @@ function AppInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
-  async function handleCreate() {
+  async function handleCreate(chatProjectId?: string | null) {
     try {
-      const s = await api.createSession("New chat");
-      await refreshSessions();
+      const s = await api.createSession("New chat", chatProjectId ?? null);
+      await Promise.all([refreshSessions(), refreshChatProjects()]);
       setActiveId(s.id);
     } catch (e) {
       alert(
@@ -273,18 +284,22 @@ function AppInner({
         onWorkspaceChange={setWorkspace}
         sessions={sessions}
         activeId={activeId}
+        chatProjects={chatProjects}
         onSelect={(id) => {
           setActiveId(id);
           setSidebarOpen(false);
         }}
-        onCreate={() => {
-          handleCreate();
+        onCreate={(chatProjectId) => {
+          handleCreate(chatProjectId);
           setSidebarOpen(false);
         }}
         onDelete={handleDelete}
         onStartChatFromWorkspace={handleCreateFromWorkspace}
         onSessionRefresh={async () => {
           await refreshSessions();
+        }}
+        onChatProjectsRefresh={async () => {
+          await Promise.all([refreshChatProjects(), refreshSessions()]);
         }}
       />
       {/* Mobile-only backdrop to dismiss the sidebar drawer. CSS hides
