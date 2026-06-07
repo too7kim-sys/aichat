@@ -634,7 +634,10 @@ async def run_indexing(snapshot_id: str) -> None:
             cleanup_workdir = True
             _clone_git(source_ref, None, workdir)
             root = workdir
-        elif source_type == "folder":
+        elif source_type in ("folder", "upload"):
+            # The upload source stores user-supplied files under a
+            # per-project directory the backend manages; same walker /
+            # chunker pipeline as folder once the files are on disk.
             root = Path(source_ref).resolve()
             if not root.is_dir():
                 raise RuntimeError(f"폴더를 찾을 수 없습니다: {root}")
@@ -880,7 +883,7 @@ async def run_incremental(project_id: str) -> dict:
             cleanup_workdir = True
             _clone_git(source_ref, None, workdir)
             root = workdir
-        elif source_type == "folder":
+        elif source_type in ("folder", "upload"):
             root = Path(source_ref).resolve()
         elif source_type == "url":
             workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))

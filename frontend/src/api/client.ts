@@ -345,7 +345,19 @@ export interface OllamaModelList {
 }
 
 export type CorpusType = "code" | "document" | "api" | "db";
-export type SourceType = "folder" | "git" | "url" | "connection" | "sftp";
+export type SourceType =
+  | "folder"
+  | "git"
+  | "url"
+  | "connection"
+  | "sftp"
+  | "upload";
+
+export interface RagUploadedFile {
+  filename: string;
+  size: number;
+  modified_at: string;
+}
 
 export interface DbDriverInfo {
   code: string;
@@ -676,6 +688,41 @@ export const api = {
     }),
   reindexProject: (id: string) =>
     json<Project>(`/projects/${id}/reindex`, { method: "POST" }),
+  /** List files the user has uploaded under the project's 내 문서
+   *  업로드 directory. Only valid for source_type='upload' projects. */
+  listProjectUploads: (id: string) =>
+    json<RagUploadedFile[]>(`/projects/${id}/uploads`),
+  /** Append one or more files to the project's upload directory. The
+   *  caller decides when to trigger reindex — this endpoint doesn't
+   *  rebuild the index by itself. */
+  uploadProjectFiles: async (
+    id: string,
+    files: File[],
+  ): Promise<RagUploadedFile[]> => {
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f, f.name);
+    const res = await fetch(`${BASE}/projects/${id}/uploads`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).detail ?? body;
+      } catch {
+        // not JSON
+      }
+      throw new Error(detail || `${res.status}`);
+    }
+    return (await res.json()) as RagUploadedFile[];
+  },
+  deleteProjectUpload: (id: string, filename: string) =>
+    json<{ ok: boolean }>(
+      `/projects/${id}/uploads/${encodeURIComponent(filename)}`,
+      { method: "DELETE" },
+    ),
   deleteProject: (id: string) =>
     json<{ freed_bytes: number }>(`/projects/${id}`, { method: "DELETE" }),
   projectStorage: () =>

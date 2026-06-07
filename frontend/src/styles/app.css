@@ -4698,6 +4698,97 @@ body {
   min-width: 0;
 }
 .pm-sftp-grid .pm-field { margin: 0; min-width: 0; }
+
+/* 내 문서 업로드 — file picker chip row + staged file list. Shared by
+ * the add form (preview before create) and the manage panel on an
+ * existing project card (live list with per-row delete). */
+.pm-upload-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.pm-upload-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.pm-upload-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  font-size: 12.5px;
+  min-width: 0;
+}
+.pm-upload-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.pm-upload-item-size {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.pm-upload-item-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.pm-upload-item-remove:hover { color: var(--danger); background: var(--hover); }
+
+/* Manage-side panel rendered on an existing project card for
+ * source_type='upload'. Sits between the snapshot block and the
+ * schedule block, with its own border-top so it reads as a distinct
+ * section. */
+.pm-upload-panel {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pm-upload-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pm-upload-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex: 1;
+}
+.pm-upload-panel-add {
+  padding: 4px 10px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .pm-add-hero {
   text-align: center;
   display: flex;

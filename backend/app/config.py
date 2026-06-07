@@ -120,6 +120,14 @@ class Settings(BaseSettings):
     # caps because the corpus is meant to be larger).
     rag_max_files: int = 5000
     rag_max_bytes_per_file: int = 1024 * 1024
+    # Where the "upload" document source stores user-supplied files —
+    # one subdirectory per project, written by the upload endpoint and
+    # walked by the indexer like a regular folder source.
+    rag_upload_dir: str = "./rag_uploads"
+    # Per-upload file cap (bytes). Bigger than max_upload_bytes which
+    # is meant for chat attachments — knowledge-base files are typically
+    # PDFs / DOCX / reports that easily exceed 5 MB.
+    rag_upload_max_bytes: int = 50 * 1024 * 1024
     # Auto-refresh scheduling. Sub-day intervals fire on wall-clock
     # boundaries (e.g. a 60-min interval runs at :00 every hour, a
     # 30-min one at :00 and :30) instead of drifting from the last

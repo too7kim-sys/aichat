@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { admin, api } from "../api/client";
 import type {
   CorpusType,
   DbDriverInfo,
   DbTestResult,
   Project,
+  RagUploadedFile,
   Role,
   SourceType,
   SqlPreviewResult,
@@ -54,8 +61,8 @@ const CORPUS_META: Record<
   document: {
     label: "문서",
     icon: <IconFileText />,
-    hint: "SFTP 서버에서 PDF·DOCX·MD를 받거나 백엔드 서버의 폴더 사용. 단락 단위 검색.",
-    sources: ["sftp", "folder"],
+    hint: "브라우저에서 직접 업로드, SFTP 서버에서 PDF·DOCX·MD를 받거나 백엔드 서버의 폴더 사용. 단락 단위 검색.",
+    sources: ["upload", "sftp", "folder"],
   },
   api: {
     label: "API",
@@ -118,6 +125,13 @@ const SOURCE_META: Record<
     icon: <IconGlobe size={14} />,
     placeholder: "",  // unused — sftp uses a custom multi-field form
     help: "원격 서버 정보를 입력하면 백엔드가 SFTP로 접속해 문서를 받아옵니다.",
+  },
+  upload: {
+    label: "내 문서 업로드",
+    icon: <IconDownload size={14} />,
+    placeholder: "",  // unused — uses the file picker UI below
+    help:
+      "브라우저에서 직접 PDF·DOCX·MD·TXT·HTML 파일을 골라 올립니다. 백엔드에 별도 폴더나 SFTP가 없을 때 사용.",
   },
 };
 
@@ -279,8 +293,9 @@ export function ProjectModal({
                   projects.length > 0 ? () => setAddOpen(false) : undefined
                 }
                 onSubmit={async (payload) => {
-                  await create(payload);
+                  const created = await create(payload);
                   setAddOpen(false);
+                  return created;
                 }}
               />
             </div>
@@ -530,7 +545,16 @@ function ProjectCard({
     try {
       const payload: Parameters<typeof update>[1] = {};
       if (eName.trim() !== p.name) payload.name = eName.trim();
-      if (eSourceRef.trim() !== p.source_ref) payload.source_ref = eSourceRef.trim();
+      // Upload source's source_ref is a backend-managed directory path —
+      // changing it would orphan the uploaded files. Skip the field for
+      // upload projects (the edit form hides the input for the same
+      // reason).
+      if (
+        p.source_type !== "upload"
+        && eSourceRef.trim() !== p.source_ref
+      ) {
+        payload.source_ref = eSourceRef.trim();
+      }
       if (p.source_type === "connection") {
         const next = eSql.trim() || null;
         if (next !== (p.sql_query ?? null)) payload.sql_query = next;
@@ -773,6 +797,24 @@ function ProjectCard({
         </div>
       )}
 
+      {p.source_type === "upload" && p.owned && (
+        <UploadFilesPanel
+          projectId={p.id}
+          hasSnapshot={p.current_snapshot_id != null}
+          onAfterChange={async () => {
+            // First-time upload (no snapshot yet) → full reindex
+            // creates the inaugural snapshot. Subsequent edits use
+            // incremental refresh to keep the existing index in sync
+            // without piling up snapshots.
+            if (p.current_snapshot_id == null) {
+              await onReindex();
+            } else {
+              await refreshProject(p.id);
+            }
+          }}
+        />
+      )}
+
       {p.status === "ready" && (
         <ScheduleBlock
           project={p}
@@ -850,33 +892,35 @@ function ProjectCard({
               maxLength={120}
             />
           </div>
-          <div className="pm-field">
-            <label htmlFor={`pm-edit-ref-${p.id}`}>
-              {p.source_type === "url"
-                ? "목록 API URL"
-                : p.source_type === "git"
-                ? "Git URL"
-                : p.source_type === "folder"
-                ? "서버 폴더"
-                : p.source_type === "connection"
-                ? "DB 연결 문자열"
-                : p.source_type === "sftp"
-                ? "SFTP URL"
-                : "출처"}
-            </label>
-            <input
-              id={`pm-edit-ref-${p.id}`}
-              type="text"
-              value={eSourceRef}
-              onChange={(e) => setESourceRef(e.target.value)}
-              disabled={editBusy}
-              maxLength={500}
-            />
-            <div className="pm-help">
-              값을 바꾸면 기존 인덱스가 오래된 상태로 표시되고,
-              저장 즉시 새 스냅샷이 시작됩니다.
+          {p.source_type !== "upload" && (
+            <div className="pm-field">
+              <label htmlFor={`pm-edit-ref-${p.id}`}>
+                {p.source_type === "url"
+                  ? "목록 API URL"
+                  : p.source_type === "git"
+                  ? "Git URL"
+                  : p.source_type === "folder"
+                  ? "서버 폴더"
+                  : p.source_type === "connection"
+                  ? "DB 연결 문자열"
+                  : p.source_type === "sftp"
+                  ? "SFTP URL"
+                  : "출처"}
+              </label>
+              <input
+                id={`pm-edit-ref-${p.id}`}
+                type="text"
+                value={eSourceRef}
+                onChange={(e) => setESourceRef(e.target.value)}
+                disabled={editBusy}
+                maxLength={500}
+              />
+              <div className="pm-help">
+                값을 바꾸면 기존 인덱스가 오래된 상태로 표시되고,
+                저장 즉시 새 스냅샷이 시작됩니다.
+              </div>
             </div>
-          </div>
+          )}
 
           {p.source_type === "connection" && (
             <div className="pm-field">
@@ -998,6 +1042,142 @@ function ProjectCard({
     </article>
   );
 }
+
+// ── Upload-source file management ────────────────────────────────────
+
+function UploadFilesPanel({
+  projectId,
+  hasSnapshot,
+  onAfterChange,
+}: {
+  projectId: string;
+  /** Whether the project already has at least one snapshot — controls
+   *  the "변경됨" indicator copy ("새 인덱싱" vs "다시 인덱싱"). */
+  hasSnapshot: boolean;
+  /** Called after a successful add/remove so the parent can trigger
+   *  the appropriate indexing path (full reindex for first time, then
+   *  incremental for subsequent edits). */
+  onAfterChange: () => Promise<void> | void;
+}) {
+  const [files, setFiles] = useState<RagUploadedFile[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pickRef = useRef<HTMLInputElement | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      setFiles(await api.listProjectUploads(projectId));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  async function addFiles(picked: File[]) {
+    if (picked.length === 0) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const updated = await api.uploadProjectFiles(projectId, picked);
+      setFiles(updated);
+      await onAfterChange();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeFile(name: string) {
+    if (!window.confirm(`"${name}"을(를) 삭제할까요?`)) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.deleteProjectUpload(projectId, name);
+      setFiles((prev) => prev?.filter((f) => f.filename !== name) ?? null);
+      await onAfterChange();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="pm-upload-panel">
+      <div className="pm-upload-panel-head">
+        <span className="pm-upload-panel-title">
+          <IconDownload size={13} /> 업로드된 문서{" "}
+          {files != null && `(${files.length})`}
+        </span>
+        <button
+          type="button"
+          className="pm-btn-secondary pm-upload-panel-add"
+          onClick={() => pickRef.current?.click()}
+          disabled={busy}
+        >
+          <IconPlus size={13} /> 파일 추가
+        </button>
+        <input
+          ref={pickRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.rtf,.log,.csv,.tsv"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const picked = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            addFiles(picked);
+          }}
+        />
+      </div>
+      {err && (
+        <div className="pm-add-error">
+          <IconAlertTriangle size={13} />
+          <span>{err}</span>
+        </div>
+      )}
+      {loading && files == null ? (
+        <div className="pm-help">불러오는 중…</div>
+      ) : files && files.length > 0 ? (
+        <ul className="pm-upload-list">
+          {files.map((f) => (
+            <li key={f.filename} className="pm-upload-item">
+              <span className="pm-upload-item-name" title={f.filename}>
+                {f.filename}
+              </span>
+              <span className="pm-upload-item-size">{fmtBytes(f.size)}</span>
+              <button
+                type="button"
+                className="pm-upload-item-remove"
+                onClick={() => removeFile(f.filename)}
+                disabled={busy}
+                aria-label="삭제"
+                title="삭제"
+              >
+                <IconX size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="pm-help">
+          업로드된 문서가 없습니다. "파일 추가"로 PDF·DOCX·MD 등을 올리면
+          {hasSnapshot ? " 증분 인덱싱" : " 인덱싱"}이 자동으로 시작됩니다.
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ── Status badge ─────────────────────────────────────────────────────
 
@@ -1128,6 +1308,9 @@ function AddProjectForm({
   adminMode?: boolean;
   roles?: Role[];
   onCancel?: () => void;
+  /** Returns the created project so callers (the upload-source path)
+   *  can stage files against the new project's id before triggering
+   *  the first index. Non-upload sources don't use the return value. */
   onSubmit: (payload: {
     name: string;
     source_type: SourceType;
@@ -1139,7 +1322,7 @@ function AddProjectForm({
     api_detail_url?: string | null;
     is_shared?: boolean;
     role_codes?: string[];
-  }) => Promise<void>;
+  }) => Promise<Project | void>;
 }) {
   // Shared knowledge-base toggle + role grants (admin only). Default
   // ON in admin mode — knowledge bases created from the admin panel
@@ -1172,7 +1355,14 @@ function AddProjectForm({
     url: "",
     connection: "",
     sftp: "",  // unused — sftp uses the multi-field form below
+    upload: "",  // unused — upload uses the file picker below
   });
+  // 내 문서 업로드 — files picked in the browser, staged in state, then
+  // POSTed to the new project's upload endpoint after the project is
+  // created. We hold the File objects (not extracted text) so the
+  // backend gets the original bytes for indexing.
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   // SFTP fields (5) — combined into a sftp:// URL on submit so the
   // backend sees the same shape as the rest of the source types.
   const [sftpHost, setSftpHost] = useState("");
@@ -1412,6 +1602,15 @@ function AddProjectForm({
         return;
       }
       sourceRef = buildSftpUrl();
+    } else if (sourceType === "upload") {
+      if (uploadFiles.length === 0) {
+        setError("업로드할 문서를 1개 이상 선택하세요");
+        return;
+      }
+      // The backend rewrites source_ref to the per-project upload
+      // directory; any value here is just a placeholder for the
+      // create payload (which requires source_ref >= 1 char).
+      sourceRef = "uploads";
     } else if (sourceType === "connection") {
       const info = currentDriver;
       if (!info) {
@@ -1451,7 +1650,7 @@ function AddProjectForm({
     }
     setSubmitting(true);
     try {
-      await onSubmit({
+      const created = await onSubmit({
         name: name.trim(),
         source_type: sourceType,
         source_ref: sourceRef,
@@ -1475,8 +1674,31 @@ function AddProjectForm({
         is_shared: adminMode ? isShared : false,
         role_codes: adminMode && isShared ? Array.from(shareRoles) : [],
       });
+      // Upload source: the create endpoint left status='pending' with
+      // no snapshot. Push the staged files into the project's upload
+      // dir, then trigger the first index. Failures here surface as
+      // form errors so the user knows the project exists but the
+      // files didn't make it.
+      if (sourceType === "upload" && created && uploadFiles.length > 0) {
+        try {
+          await api.uploadProjectFiles(created.id, uploadFiles);
+          await api.reindexProject(created.id);
+        } catch (uploadErr) {
+          setError(
+            `파일 업로드 실패: ${
+              uploadErr instanceof Error
+                ? uploadErr.message
+                : String(uploadErr)
+            }`,
+          );
+          return;
+        }
+      }
       setName("");
-      setRefs({ git: "", folder: "", url: "", connection: "", sftp: "" });
+      setRefs({
+        git: "", folder: "", url: "", connection: "", sftp: "", upload: "",
+      });
+      setUploadFiles([]);
       setGitBranch("");
       setSftpHost("");
       setSftpPort("22");
@@ -1572,7 +1794,86 @@ function AddProjectForm({
         />
       </div>
 
-      {sourceType === "sftp" ? (
+      {sourceType === "upload" ? (
+        <div className="pm-field">
+          <label htmlFor="pm-upload-input">업로드할 문서</label>
+          <div className="pm-upload-pick-row">
+            <button
+              type="button"
+              className="pm-btn-secondary"
+              onClick={() => uploadInputRef.current?.click()}
+              disabled={submitting}
+            >
+              <IconPlus size={14} /> 파일 선택
+            </button>
+            <span className="pm-help" style={{ margin: 0 }}>
+              {uploadFiles.length > 0
+                ? `${uploadFiles.length}개 선택됨 (${fmtBytes(
+                    uploadFiles.reduce((s, f) => s + f.size, 0),
+                  )})`
+                : "PDF · DOCX · MD · TXT · HTML · CSV (여러 개 가능)"}
+            </span>
+          </div>
+          <input
+            ref={uploadInputRef}
+            id="pm-upload-input"
+            type="file"
+            multiple
+            accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.rtf,.log,.csv,.tsv"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? []);
+              if (picked.length === 0) return;
+              setUploadFiles((prev) => {
+                // De-dupe by filename + size so a stray double-click
+                // doesn't enqueue the same PDF twice.
+                const seen = new Set(prev.map((f) => `${f.name}::${f.size}`));
+                const next = [...prev];
+                for (const f of picked) {
+                  if (!seen.has(`${f.name}::${f.size}`)) next.push(f);
+                }
+                return next;
+              });
+              // Allow picking the same file again later by clearing the
+              // input value (browsers won't fire change for the same
+              // selection twice in a row otherwise).
+              e.target.value = "";
+            }}
+          />
+          {uploadFiles.length > 0 && (
+            <ul className="pm-upload-list">
+              {uploadFiles.map((f, i) => (
+                <li key={`${f.name}-${i}`} className="pm-upload-item">
+                  <span className="pm-upload-item-name" title={f.name}>
+                    {f.name}
+                  </span>
+                  <span className="pm-upload-item-size">
+                    {fmtBytes(f.size)}
+                  </span>
+                  <button
+                    type="button"
+                    className="pm-upload-item-remove"
+                    onClick={() =>
+                      setUploadFiles((prev) =>
+                        prev.filter((_, idx) => idx !== i),
+                      )
+                    }
+                    disabled={submitting}
+                    aria-label="제거"
+                    title="제거"
+                  >
+                    <IconX size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="pm-help">
+            선택한 파일은 백엔드의 프로젝트 전용 폴더로 업로드되고 즉시
+            인덱싱이 시작됩니다. 생성 후 관리 화면에서 추가/삭제할 수 있습니다.
+          </div>
+        </div>
+      ) : sourceType === "sftp" ? (
         <div className="pm-sftp-grid">
           <div className="pm-field" style={{ gridColumn: "1 / span 2" }}>
             <label htmlFor="pm-sftp-host">호스트</label>

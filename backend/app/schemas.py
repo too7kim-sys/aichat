@@ -100,7 +100,15 @@ class ChatRequest(BaseModel):
 # return data for projects created before code was migrated to the
 # Code tab (workspaces). New POSTs are rejected in the router.
 CorpusType = Literal["code", "document", "api", "db"]
-SourceType = Literal["folder", "git", "url", "connection", "sftp"]
+SourceType = Literal["folder", "git", "url", "connection", "sftp", "upload"]
+
+
+class RagUploadedFile(BaseModel):
+    """One file living under the project's upload directory. Used by
+    the manage view to list / delete user-supplied documents."""
+    filename: str
+    size: int
+    modified_at: datetime
 
 
 class ProjectCreate(BaseModel):

@@ -1,13 +1,19 @@
 """CRUD + indexing trigger for RAG projects."""
 from __future__ import annotations
 
-from datetime import datetime
+import logging
+import re
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
 
 from pydantic import BaseModel, Field as PydField
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+log = logging.getLogger("uvicorn.error")
 
 from .. import models, schemas
 from ..auth import get_current_user, require_admin
@@ -184,10 +190,41 @@ async def list_projects(
 
 _ALLOWED_SOURCE_BY_CORPUS = {
     "code": {"git", "folder"},
-    "document": {"sftp", "folder"},
+    "document": {"sftp", "folder", "upload"},
     "api": {"url", "folder", "git"},
     "db": {"connection"},
 }
+
+
+# Files uploaded via the upload-source endpoint land here. Each project
+# gets its own subdirectory keyed by project id so we never mix users'
+# documents on disk.
+_DOCUMENT_EXTS = {
+    ".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm",
+    ".rtf", ".log", ".csv", ".tsv",
+}
+# Strip path separators + leading dots so a user-supplied "..\..\etc"
+# can't escape the per-project upload directory.
+_FILENAME_SAFE_RE = re.compile(r"[^A-Za-z0-9._가-힣\- ()\[\]]+")
+
+
+def _project_upload_dir(project_id: str) -> Path:
+    root = Path(settings.rag_upload_dir).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root / project_id
+
+
+def _sanitize_upload_name(name: str) -> str:
+    """Reduce an uploaded file's filename to something safe to write
+    under the per-project upload directory. Drops everything but the
+    basename, replaces path separators and unusual characters, and
+    rejects empty / dotfile-only results."""
+    base = Path(name).name  # strip any client-supplied directory parts
+    base = base.lstrip(".")  # don't allow .htaccess-style hidden files
+    cleaned = _FILENAME_SAFE_RE.sub("_", base).strip("._ ")
+    if not cleaned:
+        raise HTTPException(400, "파일명이 유효하지 않습니다")
+    return cleaned[:200]  # filesystem-friendly cap
 
 
 @router.post("", response_model=schemas.ProjectOut)
@@ -257,7 +294,19 @@ async def create_project(
     await db.flush()
     if payload.is_shared and payload.role_codes:
         await _set_project_roles(db, project.id, payload.role_codes)
-    await _create_snapshot_and_schedule(db, project)
+    # Upload-source projects start empty: we make the per-project
+    # upload directory so subsequent /uploads calls have a target, but
+    # we don't schedule the first snapshot — that fires from /reindex
+    # once the user has actually uploaded files.
+    if payload.source_type == "upload":
+        upload_dir = _project_upload_dir(project.id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        # Pin source_ref to the on-disk path so the indexer can walk it
+        # without needing to know about the upload source specially.
+        project.source_ref = str(upload_dir)
+        await db.commit()
+    else:
+        await _create_snapshot_and_schedule(db, project)
     # Reload with snapshots populated for the response.
     proj = await _project_with_snapshots(db, project.id, user.id)
     return await _serialize_project(db, proj, user)
@@ -632,9 +681,191 @@ async def delete_project(
     freed_total = 0
     for snap in project.snapshots:
         freed_total += drop_collection(snap.id)
+    # Wipe the per-project upload directory if the source kept user
+    # files on local disk (the upload source). Folder / git / sftp
+    # sources read from elsewhere and shouldn't be touched here.
+    if project.source_type == "upload":
+        upload_dir = _project_upload_dir(project.id)
+        if upload_dir.is_dir():
+            shutil.rmtree(upload_dir, ignore_errors=True)
     await db.delete(project)
     await db.commit()
     return {"freed_bytes": freed_total}
+
+
+# ── 내 문서 업로드 (upload source) ───────────────────────────────────
+
+@router.get(
+    "/{project_id}/uploads",
+    response_model=list[schemas.RagUploadedFile],
+)
+async def list_uploaded_files(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Files currently sitting under the project's upload directory.
+    The manage view in ProjectModal renders this list with per-row
+    delete + a size column."""
+    project = await db.scalar(
+        select(models.Project).where(models.Project.id == project_id)
+    )
+    if not project:
+        raise HTTPException(404, "project not found")
+    is_owner = project.user_id == user.id
+    is_admin = await _is_admin(db, user)
+    if not (is_owner or is_admin):
+        raise HTTPException(403, "권한이 없습니다")
+    if project.source_type != "upload":
+        raise HTTPException(409, "업로드 소스 프로젝트가 아닙니다")
+    upload_dir = _project_upload_dir(project.id)
+    if not upload_dir.is_dir():
+        return []
+    out: list[schemas.RagUploadedFile] = []
+    for p in sorted(upload_dir.iterdir()):
+        if not p.is_file():
+            continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        out.append(
+            schemas.RagUploadedFile(
+                filename=p.name,
+                size=st.st_size,
+                modified_at=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc),
+            )
+        )
+    return out
+
+
+@router.post(
+    "/{project_id}/uploads",
+    response_model=list[schemas.RagUploadedFile],
+)
+async def append_uploaded_files(
+    project_id: str,
+    files: list[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Accept one or more files (multipart) and write them under the
+    project's upload directory. The indexer doesn't run here — the
+    UI calls /reindex once the user is done staging files."""
+    project = await db.scalar(
+        select(models.Project).where(models.Project.id == project_id)
+    )
+    if not project:
+        raise HTTPException(404, "project not found")
+    is_owner = project.user_id == user.id
+    is_admin = await _is_admin(db, user)
+    if not (is_owner or is_admin):
+        raise HTTPException(403, "권한이 없습니다")
+    if project.source_type != "upload":
+        raise HTTPException(409, "업로드 소스 프로젝트가 아닙니다")
+
+    upload_dir = _project_upload_dir(project.id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    cap_bytes = settings.rag_upload_max_bytes
+    cap_files = settings.rag_max_files
+
+    # Count existing files so the per-project cap considers prior
+    # uploads, not just this batch.
+    existing = sum(1 for p in upload_dir.iterdir() if p.is_file())
+
+    accepted: list[Path] = []
+    for f in files:
+        if existing + len(accepted) >= cap_files:
+            raise HTTPException(
+                400,
+                f"업로드 파일 수 한도 도달 (RAG_MAX_FILES={cap_files})",
+            )
+        raw_name = f.filename or "untitled"
+        ext = Path(raw_name).suffix.lower()
+        if ext not in _DOCUMENT_EXTS:
+            raise HTTPException(
+                400,
+                f"지원하지 않는 확장자: {ext or '없음'} "
+                f"({raw_name}). 허용: {', '.join(sorted(_DOCUMENT_EXTS))}",
+            )
+        safe = _sanitize_upload_name(raw_name)
+        # Collision-handle: append _2, _3, … rather than overwriting an
+        # earlier upload that happened to share a name.
+        target = upload_dir / safe
+        i = 2
+        while target.exists():
+            stem, dot, suffix = safe.rpartition(".")
+            if dot:
+                target = upload_dir / f"{stem}_{i}.{suffix}"
+            else:
+                target = upload_dir / f"{safe}_{i}"
+            i += 1
+        total = 0
+        try:
+            with target.open("wb") as out_f:
+                while True:
+                    chunk = await f.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > cap_bytes:
+                        out_f.close()
+                        target.unlink(missing_ok=True)
+                        raise HTTPException(
+                            413,
+                            f"파일이 너무 큽니다 ({raw_name}, "
+                            f"limit {cap_bytes // (1024*1024)} MB)",
+                        )
+                    out_f.write(chunk)
+        except HTTPException:
+            raise
+        except OSError as exc:
+            raise HTTPException(500, f"파일 저장 실패: {exc}") from exc
+        accepted.append(target)
+
+    # Return the full updated listing so the UI can re-render without a
+    # follow-up GET.
+    return [
+        schemas.RagUploadedFile(
+            filename=p.name,
+            size=p.stat().st_size,
+            modified_at=datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc),
+        )
+        for p in sorted(upload_dir.iterdir())
+        if p.is_file()
+    ]
+
+
+@router.delete("/{project_id}/uploads/{filename}")
+async def delete_uploaded_file(
+    project_id: str,
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Remove a single file from the project's upload directory.
+    Doesn't touch the index — the user reindexes when they're done
+    editing the file set."""
+    project = await db.scalar(
+        select(models.Project).where(models.Project.id == project_id)
+    )
+    if not project:
+        raise HTTPException(404, "project not found")
+    is_owner = project.user_id == user.id
+    is_admin = await _is_admin(db, user)
+    if not (is_owner or is_admin):
+        raise HTTPException(403, "권한이 없습니다")
+    if project.source_type != "upload":
+        raise HTTPException(409, "업로드 소스 프로젝트가 아닙니다")
+    safe = _sanitize_upload_name(filename)
+    target = _project_upload_dir(project.id) / safe
+    if not target.is_file():
+        raise HTTPException(404, "파일을 찾을 수 없습니다")
+    try:
+        target.unlink()
+    except OSError as exc:
+        raise HTTPException(500, f"삭제 실패: {exc}") from exc
+    return {"ok": True}
 
 
 @router.get("/{project_id}/search")
