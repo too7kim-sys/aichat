@@ -267,6 +267,9 @@ async def delete_workspace(
         )
     await db.delete(ws)
     await db.commit()
+    # Stale bundle-status cache entries for the deleted workspace
+    # expire on their own (TTL=30s, key includes last_synced_at);
+    # explicit busts are unnecessary.
     return {"freed_bytes": freed, "removed_files": ws.source_type == "git"}
 
 
@@ -312,6 +315,8 @@ async def sync_workspace(
             ws.error = str(exc)[:500]
         await db.commit()
         await db.refresh(ws)
+        # bundle-status cache key includes last_synced_at — touching
+        # the row above naturally invalidates the previous entry.
         return ws
 
     token = decrypt_secret(ws.auth_token_encrypted)
@@ -351,9 +356,20 @@ async def workspace_tree(
     return {"tree": tree, "file_count": file_count, "size_bytes": total}
 
 
+# Short-lived bundle-status cache. React StrictMode in dev runs every
+# useEffect twice, which would otherwise re-walk a 400-file workspace
+# back-to-back; the chat router also calls collect_workspace_files on
+# the next turn. A 30-second per-workspace TTL keeps the result fresh
+# enough that the operator's "this file just landed" expectation
+# holds, while collapsing burst duplicates into a single walk.
+_BUNDLE_STATUS_CACHE: dict[str, tuple[float, dict]] = {}
+_BUNDLE_STATUS_TTL_S = 30.0
+
+
 @router.get("/workspaces/{workspace_id}/bundle-status")
 async def workspace_bundle_status(
     workspace_id: str,
+    refresh: bool = False,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -362,7 +378,10 @@ async def workspace_bundle_status(
     Re-runs collect_workspace_files so the result reflects the
     exact same selection the next chat turn will see — handy for
     "왜 이 파일은 분석 안 됐어요?" troubleshooting before the user
-    even asks a question."""
+    even asks a question. Pass `refresh=true` to bypass the
+    short-lived cache after a workspace sync."""
+    import time as _time
+
     ws = await db.scalar(
         select(models.CodeWorkspace).where(
             models.CodeWorkspace.id == workspace_id,
@@ -376,11 +395,24 @@ async def workspace_bundle_status(
     from ..code.workspace import collect_workspace_files
     from ..code import workspace as ws_module
 
+    # Cache key folds in last_synced_at so a background sync that
+    # changed the file set automatically invalidates the entry — no
+    # need for the sync handler to explicitly busts the cache.
+    sync_stamp = (
+        ws.last_synced_at.isoformat() if ws.last_synced_at else "none"
+    )
+    cache_key = f"{user.id}:{workspace_id}:{sync_stamp}"
+    now = _time.monotonic()
+    if not refresh:
+        hit = _BUNDLE_STATUS_CACHE.get(cache_key)
+        if hit and now - hit[0] < _BUNDLE_STATUS_TTL_S:
+            return hit[1]
+
     root = Path(ws.local_path)
     bundle = await asyncio.get_running_loop().run_in_executor(
         None, collect_workspace_files, root,
     )
-    return {
+    result = {
         "total_files_in_repo": bundle["total_files_in_repo"],
         "bundled_files": bundle["total_files"],
         "bundled_bytes": bundle["total_size"],
@@ -397,6 +429,15 @@ async def workspace_bundle_status(
             "max_bytes_per_file": ws_module._BULK_MAX_BYTES_PER_FILE,
         },
     }
+    _BUNDLE_STATUS_CACHE[cache_key] = (now, result)
+    # Trim other users' stale entries opportunistically so the dict
+    # never grows unbounded — tiny cost on a cache miss.
+    if len(_BUNDLE_STATUS_CACHE) > 64:
+        cutoff = now - _BUNDLE_STATUS_TTL_S * 4
+        for k in list(_BUNDLE_STATUS_CACHE):
+            if _BUNDLE_STATUS_CACHE[k][0] < cutoff:
+                del _BUNDLE_STATUS_CACHE[k]
+    return result
 
 
 @router.post("/workspaces/{workspace_id}/start-chat")
