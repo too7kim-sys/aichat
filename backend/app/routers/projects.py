@@ -200,8 +200,16 @@ _ALLOWED_SOURCE_BY_CORPUS = {
 # gets its own subdirectory keyed by project id so we never mix users'
 # documents on disk.
 _DOCUMENT_EXTS = {
-    ".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm",
+    # Office-style docs with dedicated extractors
+    ".pdf", ".docx",
+    # Plain-text / markup decoded via the UTF-8 fallback chain
+    ".md", ".markdown", ".txt", ".html", ".htm",
     ".rtf", ".log", ".csv", ".tsv",
+    # Structured data + config (covers exports from sales / mgmt tools
+    # the user may dump into a 지식베이스 folder).
+    ".json", ".jsonl", ".xml", ".yaml", ".yml",
+    ".ini", ".cfg", ".conf", ".toml", ".properties",
+    ".eml", ".tex",
 }
 # Strip path separators + leading dots so a user-supplied "..\..\etc"
 # can't escape the per-project upload directory.

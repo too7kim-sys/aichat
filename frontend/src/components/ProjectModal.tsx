@@ -141,8 +141,10 @@ const SOURCE_META: Record<
  *  sync by hand so the picker / drop-zone filters client-side too
  *  (saves a round trip on rejected files). */
 const _UPLOAD_EXTENSIONS = new Set([
+  // Office-style docs with extractors on the backend
   ".pdf",
   ".docx",
+  // Plain text / markup
   ".md",
   ".markdown",
   ".txt",
@@ -152,7 +154,44 @@ const _UPLOAD_EXTENSIONS = new Set([
   ".log",
   ".csv",
   ".tsv",
+  // Structured data + config (kept in sync with backend _DOCUMENT_EXTS)
+  ".json",
+  ".jsonl",
+  ".xml",
+  ".yaml",
+  ".yml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".toml",
+  ".properties",
+  ".eml",
+  ".tex",
 ]);
+
+/** Tally a set of dropped files by extension so the upload form can
+ *  show "30개 중 10개 추가됨 — 20개 제외 (.xlsx ×12, .hwp ×8)" instead
+ *  of silently keeping a fraction of what the user picked. Returns
+ *  an empty string when nothing was rejected. */
+function _summarizeRejectedExts(rejected: File[]): string {
+  if (rejected.length === 0) return "";
+  const buckets: Record<string, number> = {};
+  for (const f of rejected) {
+    const name = (
+      (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
+      f.name
+    ).toLowerCase();
+    const dot = name.lastIndexOf(".");
+    const ext = dot >= 0 ? name.slice(dot) : "(없음)";
+    buckets[ext] = (buckets[ext] ?? 0) + 1;
+  }
+  const top = Object.entries(buckets)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([ext, n]) => `${ext} ×${n}`);
+  const more = Object.keys(buckets).length - top.length;
+  return top.join(", ") + (more > 0 ? `, 외 ${more}종` : "");
+}
 
 /** Marker glyph + tooltip for one uploaded file's index_status,
  *  shaped like the code workspace tree's ✓ / ⊘ scheme so users get
@@ -1386,12 +1425,16 @@ function UploadFilesPanel({
       if (dot < 0) return false;
       return _UPLOAD_EXTENSIONS.has(name.slice(dot));
     });
+    const rejected = picked.filter((f) => !filtered.includes(f));
     if (filtered.length === 0) {
-      if (!fromFolder) {
-        setErr(
-          `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
-        );
-      }
+      // Folder pick that produced zero matches: still tell the user
+      // — silently keeping nothing makes them think the picker is
+      // broken. File pick keeps the same "허용 목록" guidance.
+      setErr(
+        fromFolder
+          ? `폴더에서 가져올 수 있는 파일이 없습니다 — 미지원 확장자 ${rejected.length}개 (${_summarizeRejectedExts(rejected)})`
+          : `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
+      );
       return;
     }
     setBusy(true);
@@ -1399,6 +1442,14 @@ function UploadFilesPanel({
     try {
       const updated = await api.uploadProjectFiles(projectId, filtered);
       setFiles(updated);
+      if (rejected.length > 0) {
+        // Partial pick — show a soft warning so the user can decide
+        // whether to convert the dropped files (xlsx → csv, hwp →
+        // pdf, etc.) before pressing reindex.
+        setErr(
+          `${picked.length}개 중 ${filtered.length}개 추가됨 — ${rejected.length}개 미지원 확장자 제외 (${_summarizeRejectedExts(rejected)})`,
+        );
+      }
       await onAfterChange?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1750,10 +1801,10 @@ function AddProjectForm({
 
   /** Stage a batch of picked files (file picker or folder picker),
    *  filtering by the document extension allow-list and de-duping
-   *  against what's already queued. Folder picks lose unsupported
-   *  extensions silently — picking a project root + ignoring the
-   *  README is normal — but file picks that drop everything surface
-   *  as a hint so the user knows what went wrong. */
+   *  against what's already queued. Both file + folder picks now
+   *  surface the per-extension skip count so the user can tell at
+   *  a glance which formats need converting (xlsx → csv, hwp → pdf)
+   *  before pressing 추가. */
   function addStagedUploads(picked: File[], fromFolder: boolean) {
     if (picked.length === 0) return;
     const filtered = picked.filter((f) => {
@@ -1765,13 +1816,24 @@ function AddProjectForm({
       if (dot < 0) return false;
       return _UPLOAD_EXTENSIONS.has(name.slice(dot));
     });
+    const rejected = picked.filter((f) => !filtered.includes(f));
     if (filtered.length === 0) {
-      if (!fromFolder) {
-        setError(
-          `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
-        );
-      }
+      setError(
+        fromFolder
+          ? `폴더에서 가져올 수 있는 파일이 없습니다 — 미지원 확장자 ${rejected.length}개 (${_summarizeRejectedExts(rejected)})`
+          : `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
+      );
       return;
+    }
+    if (rejected.length > 0) {
+      // Partial pick — non-fatal: keep what we got, but make the
+      // skip count visible so the user notices the gap.
+      setError(
+        `${picked.length}개 중 ${filtered.length}개 추가됨 — ${rejected.length}개 미지원 확장자 제외 (${_summarizeRejectedExts(rejected)})`,
+      );
+    } else {
+      // Clear any earlier "30 중 10" notice once a clean pick lands.
+      setError(null);
     }
     setUploadFiles((prev) => {
       const seen = new Set(

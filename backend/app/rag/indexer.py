@@ -44,8 +44,17 @@ _EXTS_CODE = {
     ".groovy", ".scala", ".lua", ".dart", ".swift",
 }
 _EXTS_DOCUMENT = {
-    ".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm", ".rtf",
+    # Office-style docs the extractor can pull text from
+    ".pdf", ".docx",
+    # Plain-text / markup formats decoded via the UTF-8 fallback chain
+    ".md", ".markdown", ".txt", ".html", ".htm", ".rtf",
     ".log", ".csv", ".tsv",
+    # Structured data + config — almost always UTF-8 text the chunker
+    # can split sensibly even without a dedicated parser.
+    ".json", ".jsonl", ".xml", ".yaml", ".yml",
+    ".ini", ".cfg", ".conf", ".toml", ".properties",
+    # Mail + LaTeX, which decode to text without surprises.
+    ".eml", ".tex",
 }
 _EXTS_API = {
     ".json", ".yaml", ".yml", ".md", ".markdown", ".xml",
