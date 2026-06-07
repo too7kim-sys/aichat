@@ -393,10 +393,22 @@ body {
   gap: 1px;
 }
 .cp-child {
+  /* These rows live under .cp-children (project folder), not
+   * .session-list, so they don't inherit the flex/min-width setup
+   * the date-grouped rows get. Establish them here so a long title
+   * actually ellipsises instead of breaking the row. */
+  display: flex !important;
+  align-items: center !important;
+  min-width: 0 !important;
   padding: 6px 10px !important;
   font-size: 12.5px !important;
   gap: 6px !important;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--text);
 }
+.cp-child:hover { background: rgba(204, 120, 92, 0.07); }
+.cp-child.active { background: var(--accent-soft); }
 .cp-child-add { padding: 0 !important; }
 .cp-child-add-btn {
   width: 100%;
