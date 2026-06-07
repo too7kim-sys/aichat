@@ -890,7 +890,7 @@ async def list_uploaded_files(
     has_shared_access = (
         not (is_owner or is_admin)
         and project.is_shared
-        and await can_access_project(db, user, project_id)
+        and await can_access_project(db, user, project)
     )
     if not (is_owner or is_admin or has_shared_access):
         raise HTTPException(403, "권한이 없습니다")
@@ -1059,7 +1059,7 @@ async def download_uploaded_file(
     has_shared_access = (
         not (is_owner or is_admin)
         and project.is_shared
-        and await can_access_project(db, user, project_id)
+        and await can_access_project(db, user, project)
     )
     if not (is_owner or is_admin or has_shared_access):
         raise HTTPException(403, "권한이 없습니다")
