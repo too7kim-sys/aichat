@@ -74,24 +74,82 @@ _ALLOWED_GIT_HOSTS = {
 _GIT_CLONE_TIMEOUT = 600  # bigger than the one-off /repo/clone — RAG corpora are larger
 
 
-def _walk_corpus(root: Path, corpus_type: str) -> list[Path]:
+def _walk_corpus(
+    root: Path, corpus_type: str,
+) -> tuple[list[Path], dict]:
     """Filter walk for files we'll embed, using the per-type
-    extension allowlist."""
+    extension allowlist. Returns the accepted file list AND a stats
+    dict with skip counters so the caller can tell the user *why*
+    the result is empty — "전체 X개 중 모두 확장자 미일치" reads
+    much better than the bare "인덱싱 대상 파일이 없습니다".
+
+    The stats keys are:
+      - total_files: every regular file the walker saw
+      - skipped_unsupported_ext / skipped_too_large: per-bucket counts
+      - walk_errors: up to five OSError descriptions captured along
+        the way (permission denied, broken mount, …) so a silent
+        IO failure on a subdir shows up in the error message.
+    """
     allowed = _EXTS_BY_TYPE.get(corpus_type, _EXTS_CODE)
     out: list[Path] = []
-    for p in root.rglob("*"):
-        if not p.is_file() or p.is_symlink():
-            continue
+    stats = {
+        "total_files": 0,
+        "skipped_unsupported_ext": 0,
+        "skipped_too_large": 0,
+        "walk_errors": [],  # list[str]
+    }
+
+    def _iter():
+        # rglob is `os.walk` underneath; we wrap each subdirectory's
+        # iterdir() ourselves so a permission failure on one branch
+        # doesn't poison the whole scan AND lands in stats.
+        stack: list[Path] = [root]
+        while stack:
+            d = stack.pop()
+            try:
+                entries = list(d.iterdir())
+            except OSError as exc:
+                if len(stats["walk_errors"]) < 5:
+                    stats["walk_errors"].append(f"{d}: {exc}")
+                continue
+            for entry in entries:
+                if entry.is_symlink():
+                    continue
+                try:
+                    is_dir = entry.is_dir()
+                except OSError:
+                    continue
+                if is_dir:
+                    # Honour the same skip set the project-corpus
+                    # walker uses (node_modules / .git / …).
+                    if entry.name in _SKIP_DIRS:
+                        continue
+                    stack.append(entry)
+                    continue
+                try:
+                    if not entry.is_file():
+                        continue
+                except OSError:
+                    continue
+                yield entry
+
+    for p in _iter():
         try:
             rel = p.relative_to(root)
         except ValueError:
             continue
+        # Defence — rglob walks below _SKIP_DIRS too on some
+        # platforms via the symlink-resolve path; keep the rel-parts
+        # check as a second filter.
         if any(seg in _SKIP_DIRS for seg in rel.parts):
             continue
+        stats["total_files"] += 1
         if p.suffix.lower() not in allowed:
+            stats["skipped_unsupported_ext"] += 1
             continue
         try:
             if p.stat().st_size > settings.rag_max_bytes_per_file:
+                stats["skipped_too_large"] += 1
                 continue
         except OSError:
             continue
@@ -102,7 +160,54 @@ def _walk_corpus(root: Path, corpus_type: str) -> list[Path]:
                 settings.rag_max_files,
             )
             break
-    return out
+    log.info(
+        "RAG _walk_corpus root=%s corpus=%s total=%d bundled=%d "
+        "unsupported_ext=%d too_large=%d walk_errors=%d",
+        root, corpus_type, stats["total_files"], len(out),
+        stats["skipped_unsupported_ext"], stats["skipped_too_large"],
+        len(stats["walk_errors"]),
+    )
+    return out, stats
+
+
+def _format_walk_failure_reason(
+    stats: dict, corpus_type: str, allowed_exts: set[str] | None = None,
+) -> str:
+    """Build the user-facing "왜 0개?" message from the walk stats.
+    Used by both the full indexing path and the incremental refresh
+    so the project's error column reads the same way in both."""
+    if stats["walk_errors"]:
+        return (
+            f"폴더 읽기 실패: {stats['walk_errors'][0]}"
+            + (f" (외 {len(stats['walk_errors']) - 1}건)"
+               if len(stats['walk_errors']) > 1 else "")
+        )
+    total = stats["total_files"]
+    if total == 0:
+        return (
+            "지정된 경로에 파일이 없습니다. "
+            "디렉토리가 비어 있거나 SKIP 대상(.git/node_modules 등)만 있을 수 있습니다."
+        )
+    parts: list[str] = []
+    if stats["skipped_unsupported_ext"] > 0:
+        exts = (
+            ", ".join(sorted(allowed_exts)[:8]) + " …"
+            if allowed_exts else ""
+        )
+        parts.append(
+            f"{stats['skipped_unsupported_ext']}개가 지원하지 않는 확장자로 제외 "
+            f"(corpus_type={corpus_type} 허용: {exts})"
+        )
+    if stats["skipped_too_large"] > 0:
+        parts.append(
+            f"{stats['skipped_too_large']}개가 RAG_MAX_BYTES_PER_FILE "
+            f"({settings.rag_max_bytes_per_file:,} bytes) 초과로 제외"
+        )
+    detail = " / ".join(parts) if parts else "원인 불명"
+    return (
+        f"전체 {total}개를 봤지만 인덱싱 가능한 파일이 없습니다. "
+        f"{detail}"
+    )
 
 
 _HTML_TAG_RE = None  # lazily compiled
@@ -674,16 +779,29 @@ async def run_indexing(snapshot_id: str) -> None:
 
         # 1) Walk the corpus and build chunks (per-type allowlist +
         #    per-type chunker).
-        files = _walk_corpus(root, corpus_type)
+        files, walk_stats = _walk_corpus(root, corpus_type)
         if not files:
+            allowed_exts = _EXTS_BY_TYPE.get(corpus_type)
+            reason = _format_walk_failure_reason(
+                walk_stats, corpus_type, allowed_exts,
+            )
             raise RuntimeError(
-                f"인덱싱 대상 파일이 없습니다 (corpus_type={corpus_type})"
+                f"인덱싱 대상 파일이 없습니다 (corpus_type={corpus_type}). "
+                f"{reason}"
             )
 
         all_chunks = []
+        unreadable: list[str] = []
         for f in files:
             body = _read_text_for_indexing(f)
             if not body:
+                # Track binary / decode-failed files so a "0 chunks"
+                # result tells the user something concrete instead of
+                # the generic message below.
+                try:
+                    unreadable.append(f.relative_to(root).as_posix())
+                except ValueError:
+                    unreadable.append(str(f))
                 continue
             rel = f.relative_to(root).as_posix()
             all_chunks.extend(chunk_for_type(corpus_type, rel, body))
@@ -693,7 +811,20 @@ async def run_indexing(snapshot_id: str) -> None:
         )
 
         if not all_chunks:
-            raise RuntimeError("청크가 생성되지 않았습니다")
+            # Files matched the walker filter but none yielded text —
+            # almost always binary / DRM-protected PDFs / decode-error
+            # docs. Surface a sample so the user can fix it instead of
+            # guessing.
+            sample = ", ".join(unreadable[:3])
+            extra = (
+                f" 첫 3개: {sample}"
+                + (f" (외 {len(unreadable) - 3}개)" if len(unreadable) > 3 else "")
+                if unreadable else ""
+            )
+            raise RuntimeError(
+                "청크가 생성되지 않았습니다. 모든 파일이 "
+                "바이너리이거나 텍스트 추출에 실패했습니다." + extra
+            )
 
         # 2) Drop + recreate THIS snapshot's collection. Older
         #    snapshots' collections are untouched — they stay
@@ -927,7 +1058,7 @@ async def run_incremental(project_id: str) -> dict:
         else:
             raise RuntimeError(f"unknown source_type: {source_type}")
 
-        files = _walk_corpus(root, corpus_type)
+        files, _walk_stats = _walk_corpus(root, corpus_type)
         ensure_collection(snapshot_id)  # idempotent
         client = get_client()
         cname = collection_name(snapshot_id)
