@@ -810,7 +810,8 @@ function ProjectCard({
                         </div>
                       </div>
                       <div className="pm-snap-actions">
-                        {!isCurrent && s.status === "ready" && (
+                        {!isCurrent && s.status === "ready" &&
+                          (p.owned || adminMode) && (
                           <button
                             type="button"
                             className="pm-snap-btn"
@@ -820,7 +821,7 @@ function ProjectCard({
                             현재로
                           </button>
                         )}
-                        {totalSnapshots > 1 && (
+                        {totalSnapshots > 1 && (p.owned || adminMode) && (
                           <button
                             type="button"
                             className="pm-snap-btn danger"
@@ -860,7 +861,7 @@ function ProjectCard({
         <UploadFilesPanel
           projectId={p.id}
           hasSnapshot={p.current_snapshot_id != null}
-          readOnly={!p.owned}
+          readOnly={!p.owned && !adminMode}
           onAfterChange={async () => {
             // First-time upload (no snapshot yet) → full reindex
             // creates the inaugural snapshot. Subsequent edits use
@@ -875,7 +876,7 @@ function ProjectCard({
         />
       )}
 
-      {p.status === "ready" && (
+      {p.status === "ready" && (p.owned || adminMode) && (
         <ScheduleBlock
           project={p}
           onRefreshNow={() => refreshProject(p.id)}
