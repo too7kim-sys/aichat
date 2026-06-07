@@ -4769,9 +4769,14 @@ body {
    * collide with the input border below. */
   line-height: 1.25;
 }
-.pm-field input {
+.pm-field input:not([type="checkbox"]):not([type="radio"]),
+.pm-field select,
+.pm-field textarea {
   padding: 10px 12px;
-  border: 1px solid var(--border-strong);
+  /* Slightly stronger border than --border-strong so the input edges
+   * read clearly against the white .pm-add.hero / modal background.
+   * Hover bumps it again for affordance feedback. */
+  border: 1px solid #c0b8a4;
   border-radius: 8px;
   font: inherit;
   font-size: 13.5px;
@@ -4786,8 +4791,28 @@ body {
    * otherwise the default min-width:auto on grid items keeps them
    * at intrinsic width and the whole row overflows the modal. */
   min-width: 0;
+  width: 100%;
 }
-.pm-field input:focus {
+/* Native checkbox / radio inside .pm-field skip the input-text
+ * styling above so they render as actual checkboxes instead of
+ * fat empty rounded boxes. accent-color recolours the native check. */
+.pm-field input[type="checkbox"],
+.pm-field input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.pm-field input:not([type="checkbox"]):not([type="radio"]):hover,
+.pm-field select:hover,
+.pm-field textarea:hover {
+  border-color: var(--text-muted);
+}
+.pm-field input:not([type="checkbox"]):not([type="radio"]):focus,
+.pm-field select:focus,
+.pm-field textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
@@ -5194,10 +5219,6 @@ body {
 }
 .pm-share-toggle input {
   margin-top: 3px;
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  accent-color: var(--accent);
 }
 .pm-share-toggle > span {
   display: flex;
@@ -5232,12 +5253,8 @@ body {
   text-transform: none;
   letter-spacing: normal;
 }
-.pm-share-role-chip input {
-  width: 15px;
-  height: 15px;
-  cursor: pointer;
-  accent-color: var(--accent);
-}
+/* Native checkbox sizing is handled by the .pm-field input rule
+ * above (16×16, accent-coloured). Chip just sets the layout. */
 .pm-share-role-chip:has(input:checked) {
   background: var(--accent-soft);
   border-color: var(--accent);
