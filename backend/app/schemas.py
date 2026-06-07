@@ -169,6 +169,11 @@ class ProjectCreate(BaseModel):
     # in chat for those users. Personal projects leave is_shared=False.
     is_shared: bool = False
     role_codes: list[str] = Field(default_factory=list, max_length=50)
+    # How many snapshots to keep per project (0 = unlimited). After
+    # each fresh snapshot the indexer drops anything older than the
+    # N most recent + the currently-active one. Server-side defaults
+    # cover absent fields from older clients.
+    snapshot_retention_count: int = Field(default=10, ge=0, le=10000)
 
 
 class PromptOut(BaseModel):
@@ -291,6 +296,7 @@ class ProjectUpdate(BaseModel):
     api_detail_url: str | None = Field(default=None, max_length=500)
     is_shared: bool | None = None
     role_codes: list[str] | None = Field(default=None, max_length=50)
+    snapshot_retention_count: int | None = Field(default=None, ge=0, le=10000)
 
 
 class SnapshotOut(BaseModel):
@@ -329,6 +335,7 @@ class ProjectOut(BaseModel):
     sql_query: str | None = None
     api_detail_key: str | None = None
     api_detail_url: str | None = None
+    snapshot_retention_count: int = 10
     # Populated for shared projects so the admin UI can render the
     # current role grants. Empty for personal projects.
     role_codes: list[str] = []

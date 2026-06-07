@@ -424,6 +424,9 @@ export interface Project {
   sql_query: string | null;
   api_detail_key: string | null;
   api_detail_url: string | null;
+  /** How many snapshots the indexer keeps per project; older ones
+   *  are auto-pruned after each successful reindex. 0 = unlimited. */
+  snapshot_retention_count: number;
   /** False when the user is accessing this as a shared knowledge base
    *  they don't own — the UI hides delete / reindex in that case. */
   owned: boolean;
@@ -672,6 +675,9 @@ export const api = {
      *  given role codes. */
     is_shared?: boolean;
     role_codes?: string[];
+    /** How many snapshots to keep per project (0 = unlimited).
+     *  Defaults to 10 on the backend if omitted. */
+    snapshot_retention_count?: number;
   }) =>
     json<Project>("/projects", {
       method: "POST",
@@ -717,6 +723,7 @@ export const api = {
       api_detail_url?: string | null;
       is_shared?: boolean;
       role_codes?: string[];
+      snapshot_retention_count?: number;
     },
   ) =>
     json<Project>(`/projects/${id}`, {

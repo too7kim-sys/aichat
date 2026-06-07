@@ -795,6 +795,28 @@ async def run_indexing(snapshot_id: str) -> None:
                 proj_row.last_indexed_at = datetime.now(timezone.utc)
                 await db.commit()
 
+        # Trim history beyond the project's retention cap. The pruner
+        # walks the snapshot table for this project, keeps the most
+        # recent N + the active one, and drops both the DB rows and
+        # the Qdrant collections of the rest. Lives in the router
+        # module so the same logic backs the PATCH endpoint too.
+        try:
+            from ..routers.projects import prune_old_snapshots
+
+            async with SessionLocal() as db:
+                dropped, freed = await prune_old_snapshots(db, project_id)
+                if dropped:
+                    log.info(
+                        "RAG retention prune project=%s dropped=%d "
+                        "freed=%d bytes",
+                        project_id, dropped, freed,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "RAG retention prune failed project=%s: %s",
+                project_id, exc,
+            )
+
         log.info(
             "RAG indexed snapshot=%s project=%s files=%d chunks=%d",
             snapshot_id, project_id, len(files), len(all_chunks),

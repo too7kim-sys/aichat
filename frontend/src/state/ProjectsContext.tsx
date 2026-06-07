@@ -42,6 +42,7 @@ interface ProjectsState {
       api_detail_url?: string | null;
       is_shared?: boolean;
       role_codes?: string[];
+      snapshot_retention_count?: number;
     },
   ) => Promise<Project>;
   remove: (id: string) => Promise<{ freedBytes: number }>;

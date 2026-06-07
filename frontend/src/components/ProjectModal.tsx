@@ -568,6 +568,16 @@ function ProjectCard({
   useEffect(() => {
     if (initialSnapshotsOpen) setSnapshotsOpen(true);
   }, [initialSnapshotsOpen, p.id]);
+  // Lazy-expand the snapshot list — under a busy schedule a project
+  // can accumulate hundreds of rows that'd push everything else off
+  // the screen. Show the most recent N first, then "더 보기" to
+  // reveal the rest. Reset to collapsed whenever the project changes
+  // so a switch to a different card always opens fresh.
+  const SNAPSHOT_PREVIEW = 5;
+  const [snapshotsExpanded, setSnapshotsExpanded] = useState(false);
+  useEffect(() => {
+    setSnapshotsExpanded(false);
+  }, [p.id]);
   // Edit mode — populated from the current project when the user
   // clicks 편집. Save = PATCH, then refresh; cancel reverts.
   const [editing, setEditing] = useState(false);
@@ -580,6 +590,9 @@ function ProjectCard({
   const [eApiUrl, setEApiUrl] = useState(p.api_detail_url ?? "");
   const [eShared, setEShared] = useState(p.is_shared);
   const [eRoles, setERoles] = useState<Set<string>>(new Set(p.role_codes));
+  const [eRetention, setERetention] = useState<string>(
+    String(p.snapshot_retention_count ?? 10),
+  );
 
   // Re-seed every time the project under the card changes (user
   // switched projects, snapshot landed, etc.) so we don't keep stale
@@ -593,9 +606,11 @@ function ProjectCard({
     setEApiUrl(p.api_detail_url ?? "");
     setEShared(p.is_shared);
     setERoles(new Set(p.role_codes));
+    setERetention(String(p.snapshot_retention_count ?? 10));
   }, [
     p.id, p.name, p.source_ref, p.sql_query, p.api_detail_key,
-    p.api_detail_url, p.is_shared, p.role_codes, editing,
+    p.api_detail_url, p.is_shared, p.role_codes,
+    p.snapshot_retention_count, editing,
   ]);
 
   async function saveEdit() {
@@ -630,6 +645,14 @@ function ProjectCard({
         const sameSize = cur.size === eRoles.size;
         const sameMembers = sameSize && [...cur].every((c) => eRoles.has(c));
         if (!sameMembers) payload.role_codes = Array.from(eRoles);
+      }
+      // Retention — parse to a sane integer in [0, 10000]. 0 reads
+      // as "무제한" in the form; the backend uses the same convention.
+      const parsedRetention = Math.max(
+        0, Math.min(10000, Math.floor(Number(eRetention) || 0)),
+      );
+      if (parsedRetention !== (p.snapshot_retention_count ?? 10)) {
+        payload.snapshot_retention_count = parsedRetention;
       }
       if (Object.keys(payload).length === 0) {
         setEditing(false);
@@ -746,6 +769,11 @@ function ProjectCard({
             <IconHistory size={14} />
             <span>
               스냅샷 {totalSnapshots}개
+              {p.snapshot_retention_count > 0 && (
+                <span className="pm-snap-current-label">
+                  &nbsp;· 보관 {p.snapshot_retention_count}개
+                </span>
+              )}
               {currentSnapshot && (
                 <span className="pm-snap-current-label">
                   &nbsp;· 현재 {currentSnapshot.label}
@@ -761,6 +789,10 @@ function ProjectCard({
                   (a, b) =>
                     new Date(b.created_at).getTime() -
                     new Date(a.created_at).getTime(),
+                )
+                .slice(
+                  0,
+                  snapshotsExpanded ? totalSnapshots : SNAPSHOT_PREVIEW,
                 )
                 .map((s) => {
                   const isCurrent = s.id === p.current_snapshot_id;
@@ -853,6 +885,17 @@ function ProjectCard({
                   );
                 })}
             </ul>
+          )}
+          {snapshotsOpen && totalSnapshots > SNAPSHOT_PREVIEW && (
+            <button
+              type="button"
+              className="pm-snap-more"
+              onClick={() => setSnapshotsExpanded((v) => !v)}
+            >
+              {snapshotsExpanded
+                ? "접기"
+                : `더 보기 (${totalSnapshots - SNAPSHOT_PREVIEW}개 더)`}
+            </button>
           )}
         </div>
       )}
@@ -1074,6 +1117,34 @@ function ProjectCard({
               )}
             </div>
           )}
+
+          <div className="pm-field">
+            <label htmlFor={`pm-edit-retention-${p.id}`}>
+              스냅샷 보관 개수
+            </label>
+            <div className="pm-retention-row">
+              <input
+                id={`pm-edit-retention-${p.id}`}
+                type="number"
+                min={0}
+                max={10000}
+                step={1}
+                value={eRetention}
+                onChange={(e) => setERetention(e.target.value)}
+                disabled={editBusy}
+                className="pm-retention-input"
+              />
+              <span className="pm-help" style={{ margin: 0 }}>
+                {Number(eRetention) === 0
+                  ? "무제한 — 모든 스냅샷을 보관 (디스크 사용 주의)"
+                  : `최근 ${Number(eRetention) || 0}개만 유지, 그 이상은 자동 삭제`}
+              </span>
+            </div>
+            <div className="pm-help">
+              새 스냅샷이 생성될 때마다 오래된 것부터 정리됩니다. 현재 활성
+              스냅샷은 보관 개수와 무관하게 항상 유지됩니다.
+            </div>
+          </div>
 
           {editErr && (
             <div className="pm-add-error">

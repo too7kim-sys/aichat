@@ -295,6 +295,81 @@ def _safe_join_upload(upload_dir: Path, relpath: str) -> Path:
     return target
 
 
+async def prune_old_snapshots(
+    db: AsyncSession, project_id: str,
+) -> tuple[int, int]:
+    """Drop snapshots beyond the project's retention window. Keeps
+    the most recent `snapshot_retention_count` ready+failed rows,
+    plus whichever snapshot is currently active (even if it would
+    otherwise have aged out — never orphan the live index).
+
+    Returns `(snapshots_dropped, bytes_freed)`. Called from the
+    indexer after a fresh snapshot lands "ready" so the table doesn't
+    grow without bound under a busy auto-refresh schedule, and from
+    the PATCH endpoint when the user tightens the retention setting.
+    """
+    project = await db.scalar(
+        select(models.Project).where(models.Project.id == project_id)
+    )
+    if not project:
+        return 0, 0
+    keep = project.snapshot_retention_count
+    if keep is None or keep <= 0:
+        return 0, 0  # unlimited
+
+    snapshots = (
+        await db.execute(
+            select(models.ProjectSnapshot)
+            .where(models.ProjectSnapshot.project_id == project_id)
+            .order_by(models.ProjectSnapshot.created_at.desc())
+        )
+    ).scalars().all()
+    if len(snapshots) <= keep:
+        return 0, 0
+
+    # Never delete an in-flight indexing job — it'd leave the Qdrant
+    # collection mid-write and the project status stuck on
+    # "indexing". The retention window only thins finished history.
+    safe_to_drop = [
+        s for s in snapshots
+        if s.status not in ("pending", "indexing")
+        and s.id != project.current_snapshot_id
+    ]
+    # Determine which finished snapshots to keep (most recent N after
+    # always-keep set). Build the keep set from the ordered list.
+    always_keep: set[str] = set()
+    if project.current_snapshot_id:
+        always_keep.add(project.current_snapshot_id)
+    for s in snapshots:
+        if s.status in ("pending", "indexing"):
+            always_keep.add(s.id)
+
+    # Walk snapshots newest-first; keep until we've held onto `keep`
+    # rows (counting always-keep entries against the budget so the
+    # user sees roughly that many in the UI).
+    kept = 0
+    keep_ids: set[str] = set(always_keep)
+    for s in snapshots:
+        if s.id in keep_ids:
+            kept += 1
+            continue
+        if kept < keep:
+            keep_ids.add(s.id)
+            kept += 1
+
+    dropped = 0
+    freed = 0
+    for s in safe_to_drop:
+        if s.id in keep_ids:
+            continue
+        freed += drop_collection(s.id)
+        await db.delete(s)
+        dropped += 1
+    if dropped:
+        await db.commit()
+    return dropped, freed
+
+
 @router.post("", response_model=schemas.ProjectOut)
 async def create_project(
     payload: schemas.ProjectCreate,
@@ -356,6 +431,7 @@ async def create_project(
         api_detail_key=api_key,
         api_detail_url=api_url,
         is_shared=payload.is_shared,
+        snapshot_retention_count=payload.snapshot_retention_count,
         status="pending",
     )
     db.add(project)
@@ -631,6 +707,17 @@ async def update_project(
             )
         await _set_project_roles(db, project_id, payload.role_codes)
 
+    # Snapshot retention — owner (or admin) can tighten / loosen the
+    # cap. When the number drops we run the pruner immediately so
+    # the user sees the effect right away instead of having to wait
+    # for the next reindex.
+    retention_dropped = False
+    if payload.snapshot_retention_count is not None:
+        new_n = payload.snapshot_retention_count
+        if new_n != project.snapshot_retention_count:
+            project.snapshot_retention_count = new_n
+            retention_dropped = new_n > 0  # 0 = unlimited, nothing to prune
+
     if source_changed and project.current_snapshot_id is not None:
         # Stale index — schedule a fresh snapshot (same path as the
         # reindex button) so retrieval reflects the new source ASAP.
@@ -641,6 +728,11 @@ async def update_project(
         await _create_snapshot_and_schedule(db, project)
 
     await db.commit()
+    # Run the retention sweep after the commit so the updated cap is
+    # the one the helper reads. Safe to no-op when the cap didn't
+    # actually move.
+    if retention_dropped:
+        await prune_old_snapshots(db, project_id)
     proj = await db.scalar(
         select(models.Project)
         .where(models.Project.id == project_id)

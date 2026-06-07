@@ -113,6 +113,15 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_projects_is_shared "
                     "ON projects(is_shared)"
                 )
+            if pexisting and "snapshot_retention_count" not in pexisting:
+                # Per-project retention policy — see Project model. The
+                # default (10) covers most "snapshot every hour, glance
+                # at the last day" usage; users on a busy schedule pump
+                # this up to 30/100 from the UI.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE projects ADD COLUMN "
+                    "snapshot_retention_count INTEGER NOT NULL DEFAULT 10"
+                )
             # Prompt library tables — created by create_all on first
             # boot, belt-and-suspenders here for older DBs.
             await conn.exec_driver_sql(

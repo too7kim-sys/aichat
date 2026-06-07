@@ -4281,6 +4281,39 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Long retention windows can hold hundreds of rows. Cap the
+   * panel height so a single project doesn't push the rest of the
+   * card off-screen; "더 보기" reveals the rest scrolled. */
+  max-height: 360px;
+  overflow-y: auto;
+}
+/* "더 보기" toggle that follows the snapshot list when there are
+ * more rows than the preview slot shows. Quiet link-like style so
+ * it reads as a secondary affordance, not another row. */
+.pm-snap-more {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 4px 0;
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  text-decoration: underline;
+}
+.pm-snap-more:hover { color: var(--accent); }
+
+/* Retention number input inside the edit form — narrow box so the
+ * helper text on the right reads as the primary explanation. */
+.pm-retention-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pm-retention-input {
+  width: 100px;
+  font-variant-numeric: tabular-nums;
 }
 .pm-snap-item {
   display: flex;

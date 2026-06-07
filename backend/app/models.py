@@ -302,6 +302,14 @@ class Project(Base):
     last_indexed_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+    # How many snapshots to keep per project. After each fresh
+    # snapshot lands "ready", anything older than the N most recent
+    # (plus the active one) is purged — both the DB row and the
+    # Qdrant collection — so a long-running auto-refresh schedule
+    # doesn't accumulate hundreds of stale versions. 0 = unlimited.
+    snapshot_retention_count: Mapped[int] = mapped_column(
+        Integer, default=10
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
