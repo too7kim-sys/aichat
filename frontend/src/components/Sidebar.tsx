@@ -211,6 +211,26 @@ function ChatPane({
     (sessionsByProject[s.chat_project_id] ||= []).push(s);
   }
 
+  // Shared rename + move-session handlers wired through every group.
+  // Both refresh the sidebar list afterwards so the new title / new
+  // location is visible without a page reload.
+  async function renameSession(sessionId: string, newTitle: string) {
+    await api.updateSession(sessionId, newTitle);
+    await onSessionRefresh?.();
+  }
+  async function moveSession(
+    sessionId: string,
+    targetId: string | null,
+  ) {
+    try {
+      await api.moveSessionToChatProject(sessionId, targetId);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    await Promise.all([onChatProjectsRefresh?.(), onSessionRefresh?.()]);
+  }
+
   return (
     <>
       <div className="sidebar-actions">
@@ -261,21 +281,9 @@ function ChatPane({
                   onSelect={onSelect}
                   onCreate={() => onCreate(p.id)}
                   onDelete={onDelete}
+                  onRename={renameSession}
                   onEdit={() => setEditProject(p)}
-                  onMoveSession={async (sid, targetId) => {
-                    try {
-                      await api.moveSessionToChatProject(sid, targetId);
-                    } catch (e) {
-                      window.alert(
-                        e instanceof Error ? e.message : String(e),
-                      );
-                      return;
-                    }
-                    await Promise.all([
-                      onChatProjectsRefresh?.(),
-                      onSessionRefresh?.(),
-                    ]);
-                  }}
+                  onMoveSession={moveSession}
                   allProjects={chatProjects}
                 />
               ))}
@@ -288,72 +296,32 @@ function ChatPane({
           sessions={groups.today}
           chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
-          onMoveSession={async (sid, targetId) => {
-            try {
-              await api.moveSessionToChatProject(sid, targetId);
-            } catch (e) {
-              window.alert(e instanceof Error ? e.message : String(e));
-              return;
-            }
-            await Promise.all([
-              onChatProjectsRefresh?.(),
-              onSessionRefresh?.(),
-            ]);
-          }}
+          onRename={renameSession}
+          onMoveSession={moveSession}
         />
         <SessionGroup
           label="어제"
           sessions={groups.yesterday}
           chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
-          onMoveSession={async (sid, targetId) => {
-            try {
-              await api.moveSessionToChatProject(sid, targetId);
-            } catch (e) {
-              window.alert(e instanceof Error ? e.message : String(e));
-              return;
-            }
-            await Promise.all([
-              onChatProjectsRefresh?.(),
-              onSessionRefresh?.(),
-            ]);
-          }}
+          onRename={renameSession}
+          onMoveSession={moveSession}
         />
         <SessionGroup
           label="지난 7일"
           sessions={groups.lastWeek}
           chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
-          onMoveSession={async (sid, targetId) => {
-            try {
-              await api.moveSessionToChatProject(sid, targetId);
-            } catch (e) {
-              window.alert(e instanceof Error ? e.message : String(e));
-              return;
-            }
-            await Promise.all([
-              onChatProjectsRefresh?.(),
-              onSessionRefresh?.(),
-            ]);
-          }}
+          onRename={renameSession}
+          onMoveSession={moveSession}
         />
         <SessionGroup
           label="이전"
           sessions={groups.earlier}
           chatProjects={chatProjects}
           {...{ activeId, onSelect, onDelete }}
-          onMoveSession={async (sid, targetId) => {
-            try {
-              await api.moveSessionToChatProject(sid, targetId);
-            } catch (e) {
-              window.alert(e instanceof Error ? e.message : String(e));
-              return;
-            }
-            await Promise.all([
-              onChatProjectsRefresh?.(),
-              onSessionRefresh?.(),
-            ]);
-          }}
+          onRename={renameSession}
+          onMoveSession={moveSession}
         />
       </div>
 
@@ -388,6 +356,7 @@ function ChatProjectRow({
   onSelect,
   onCreate,
   onDelete,
+  onRename,
   onEdit,
   onMoveSession,
   allProjects,
@@ -400,6 +369,7 @@ function ChatProjectRow({
   onSelect: (id: string) => void;
   onCreate: () => void;
   onDelete: (id: string) => void;
+  onRename: (sessionId: string, newTitle: string) => void | Promise<void>;
   onEdit: () => void;
   onMoveSession: (
     sessionId: string,
@@ -473,6 +443,7 @@ function ChatProjectRow({
                   active={s.id === activeId}
                   onSelect={() => onSelect(s.id)}
                   onDelete={() => onDelete(s.id)}
+                  onRename={onRename}
                   chatProjects={allProjects}
                   onMoveSession={onMoveSession}
                   compact
@@ -646,6 +617,7 @@ function SessionGroup({
   chatProjects,
   onSelect,
   onDelete,
+  onRename,
   onMoveSession,
 }: {
   label: string;
@@ -654,6 +626,7 @@ function SessionGroup({
   chatProjects: ChatProject[];
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onRename: (sessionId: string, newTitle: string) => void | Promise<void>;
   onMoveSession: (
     sessionId: string,
     targetProjectId: string | null,
@@ -671,6 +644,7 @@ function SessionGroup({
             active={s.id === activeId}
             onSelect={() => onSelect(s.id)}
             onDelete={() => onDelete(s.id)}
+            onRename={onRename}
             chatProjects={chatProjects}
             onMoveSession={onMoveSession}
           />
@@ -690,6 +664,7 @@ function SessionRow({
   active,
   onSelect,
   onDelete,
+  onRename,
   chatProjects,
   onMoveSession,
   compact = false,
@@ -698,6 +673,11 @@ function SessionRow({
   active: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  /** Rename the session. Implemented by the parent so the API call
+   *  is paired with the right post-update refresh (sidebar list +
+   *  active chat header). When omitted the rename affordance is
+   *  hidden. */
+  onRename?: (sessionId: string, newTitle: string) => void | Promise<void>;
   chatProjects: ChatProject[];
   onMoveSession: (
     sessionId: string,
@@ -707,6 +687,13 @@ function SessionRow({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // Inline rename. Activated from the row menu OR by double-clicking
+  // the title — same edit path either way so users with either habit
+  // land somewhere familiar.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(s.title);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     if (!menuOpen) return;
     function onDocClick(e: MouseEvent) {
@@ -715,15 +702,95 @@ function SessionRow({
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [menuOpen]);
+  // Auto-focus + select-all when the row enters edit mode so the
+  // user can just start typing the new title.
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+  // Re-seed the draft whenever the underlying session's title changes
+  // out from under us (e.g., the chat router's auto-title rename
+  // fires while the user has the row in view but not in edit mode).
+  useEffect(() => {
+    if (!editing) setDraft(s.title);
+  }, [s.title, editing]);
+
+  function startEdit() {
+    if (!onRename) return;
+    setDraft(s.title);
+    setEditing(true);
+  }
+  async function commitEdit() {
+    const next = draft.trim();
+    if (!next || next === s.title || !onRename) {
+      setEditing(false);
+      setDraft(s.title);
+      return;
+    }
+    setBusy(true);
+    try {
+      await onRename(s.id, next);
+      setEditing(false);
+    } catch (e) {
+      window.alert(
+        `이름 변경 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  function cancelEdit() {
+    setEditing(false);
+    setDraft(s.title);
+  }
+
   return (
     <li
-      className={`${active ? "active" : ""}${compact ? " cp-child" : ""}`}
-      onClick={onSelect}
+      className={`${active ? "active" : ""}${compact ? " cp-child" : ""}${
+        editing ? " editing" : ""
+      }`}
+      onClick={editing ? undefined : onSelect}
     >
       <span className="session-emoji" aria-hidden="true">
         <SessionIcon session={s} />
       </span>
-      <span className="session-title">{s.title}</span>
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="session-title-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitEdit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              cancelEdit();
+            }
+          }}
+          maxLength={200}
+          disabled={busy}
+        />
+      ) : (
+        <span
+          className="session-title"
+          title={s.title}
+          onDoubleClick={(e) => {
+            // Double-click is a power-user shortcut — only wire it up
+            // when the row supports rename at all.
+            if (!onRename) return;
+            e.stopPropagation();
+            startEdit();
+          }}
+        >
+          {s.title}
+        </span>
+      )}
       <div
         className="session-row-actions"
         ref={menuRef}
@@ -732,14 +799,29 @@ function SessionRow({
         <button
           type="button"
           className="session-row-move"
-          aria-label="프로젝트로 이동"
-          title="프로젝트로 이동"
+          aria-label="옵션"
+          title="옵션"
           onClick={() => setMenuOpen((v) => !v)}
         >
           <IconFolder size={11} />
         </button>
         {menuOpen && (
           <div className="session-row-menu">
+            {onRename && (
+              <>
+                <button
+                  type="button"
+                  className="session-row-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    startEdit();
+                  }}
+                >
+                  <IconEdit size={11} /> 이름 변경
+                </button>
+                <div className="session-row-menu-sep" />
+              </>
+            )}
             <div className="session-row-menu-title">프로젝트로 이동</div>
             {chatProjects.length === 0 ? (
               <div className="session-row-menu-empty">

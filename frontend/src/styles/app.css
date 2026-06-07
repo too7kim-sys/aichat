@@ -98,11 +98,17 @@ body {
   font-size: 13px;
   color: var(--text);
   margin-bottom: 1px;
+  /* Without min-width:0 the flex parent gives each child its intrinsic
+   * content width as a floor, so .session-title — even with overflow
+   * hidden — won't actually shrink below the full title length and
+   * the ellipsis never fires. */
+  min-width: 0;
 }
 .session-list li:hover { background: rgba(204, 120, 92, 0.07); }
 .session-list li.active { background: var(--accent-soft); color: var(--text); }
 .session-title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -224,6 +230,37 @@ body {
   margin-top: 2px;
   padding-top: 8px;
 }
+.session-row-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* Inline rename input that replaces .session-title while editing.
+ * Matches the title's flex sizing so the row layout doesn't jump. */
+.session-title-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.session-list li.editing,
+.cp-children .cp-child.editing {
+  /* Don't shade the row on hover while editing — the input border
+   * already shows focus. */
+  background: transparent !important;
+  cursor: default;
+}
+.cp-children .cp-child .session-title-input {
+  font-size: 12.5px;
+}
 
 /* ── Chat projects (sidebar folders) ─────────────────────────── */
 .cp-section {
@@ -287,6 +324,7 @@ body {
   align-items: center;
   gap: 2px;
   padding: 3px 6px;
+  min-width: 0;
 }
 .cp-item-toggle {
   background: none;
@@ -300,6 +338,7 @@ body {
 .cp-item-toggle:hover { color: var(--text); background: var(--bg-sidebar); }
 .cp-item-name {
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   text-align: left;
