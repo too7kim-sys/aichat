@@ -225,6 +225,41 @@ _UPLOAD_DENY_EXTS = {
 _FILENAME_SAFE_RE = re.compile(r"[^A-Za-z0-9._가-힣\- ()\[\]]+")
 
 
+# Magic-byte signatures for the executable formats we never want on
+# disk. Renaming `notepad.exe` to `notepad.pdf` bypasses the extension
+# deny-list — sniffing the first 32 bytes catches it because the PE /
+# ELF / Mach-O headers are unforgeable. Each entry is (signature,
+# offset_to_check_at, human label).
+_DANGEROUS_MAGIC: list[tuple[bytes, int, str]] = [
+    # Windows PE — EXE, DLL, SYS, OCX, SCR, CPL, …
+    (b"MZ", 0, "Windows PE (EXE/DLL/SCR)"),
+    # ELF — Linux/BSD executables, shared objects, kernel modules
+    (b"\x7fELF", 0, "ELF 실행 파일 / 라이브러리"),
+    # Mach-O 32 / 64 bit, big and little endian — macOS binaries
+    (b"\xfe\xed\xfa\xce", 0, "Mach-O 실행 파일"),
+    (b"\xfe\xed\xfa\xcf", 0, "Mach-O 실행 파일"),
+    (b"\xce\xfa\xed\xfe", 0, "Mach-O 실행 파일"),
+    (b"\xcf\xfa\xed\xfe", 0, "Mach-O 실행 파일"),
+    # 0xCAFEBABE covers Mach-O fat binaries AND Java class files —
+    # both are executable code and have no business in a 지식베이스.
+    (b"\xca\xfe\xba\xbe", 0, "Java class / Mach-O fat binary"),
+    # Windows registry hive
+    (b"regf", 0, "Windows 레지스트리 hive"),
+]
+
+
+def _sniff_dangerous_magic(head: bytes) -> str | None:
+    """Return a human label when the first bytes look like an
+    executable / library / hive that the server should never accept,
+    regardless of what extension the client claimed. Returns None for
+    everything benign (text, PDF, ZIP-based Office, images, …)."""
+    for sig, offset, label in _DANGEROUS_MAGIC:
+        end = offset + len(sig)
+        if len(head) >= end and head[offset:end] == sig:
+            return label
+    return None
+
+
 def _project_upload_dir(project_id: str) -> Path:
     root = Path(settings.rag_upload_dir).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -1079,6 +1114,25 @@ async def append_uploaded_files(
         total = 0
         try:
             with target.open("wb") as out_f:
+                # Sniff the first 32 bytes for executable magic before
+                # committing the rest — catches the renamed-EXE case
+                # where someone uploaded notepad.exe → notepad.pdf to
+                # slip past the extension deny-list. 32 bytes is enough
+                # for every PE / ELF / Mach-O / class-file signature.
+                head = await f.read(32)
+                if head:
+                    danger = _sniff_dangerous_magic(head)
+                    if danger:
+                        out_f.close()
+                        target.unlink(missing_ok=True)
+                        raise HTTPException(
+                            400,
+                            f"파일 헤더가 {danger} 시그니처와 일치합니다 "
+                            f"({raw_name}). 확장자만 바꾼 실행 파일은 "
+                            "업로드할 수 없습니다.",
+                        )
+                    total += len(head)
+                    out_f.write(head)
                 while True:
                     chunk = await f.read(1024 * 1024)
                     if not chunk:
