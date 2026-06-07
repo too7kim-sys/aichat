@@ -11,6 +11,7 @@ import type { ChatProject, Session } from "../types";
 import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
 import { ChatProjectEditModal } from "./ChatProjectEditModal";
 import {
+  IconBookOpen,
   IconChat,
   IconCheckCircle,
   IconChevronDown,
@@ -874,6 +875,8 @@ function SessionRow({
 }
 
 
+type CoworkSection = "meetings" | "workflows" | "prompts" | "knowledge";
+
 function CoworkPane({
   onSessionRefresh,
   onOpenSession,
@@ -881,7 +884,28 @@ function CoworkPane({
   onSessionRefresh?: () => Promise<void> | void;
   onOpenSession: (id: string) => void;
 }) {
-  const [tab, setTab] = useState<"meetings" | "workflows" | "prompts">("meetings");
+  // 회의록 / 워크플로 / 프롬프트 / 지식베이스 — 4-way menu replacing the
+  // earlier horizontal tab bar. Vertical stack inside a slim header so
+  // a fixed 260px sidebar can still fit four entries comfortably; the
+  // active section's content renders below.
+  const [tab, setTab] = useState<CoworkSection>(() => {
+    const stored = localStorage.getItem("cowork:section");
+    if (
+      stored === "meetings" || stored === "workflows" ||
+      stored === "prompts" || stored === "knowledge"
+    ) {
+      return stored;
+    }
+    return "meetings";
+  });
+  useEffect(() => {
+    localStorage.setItem("cowork:section", tab);
+  }, [tab]);
+  // Knowledge (RAG) entry opens the existing ProjectModal in embedded
+  // mode — same UI the admin panel renders, just without adminMode so
+  // the operator gets owner-only controls.
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [knowledgeAddOpen, setKnowledgeAddOpen] = useState(false);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
@@ -1066,37 +1090,36 @@ function CoworkPane({
     }
   }
 
+  const menu: {
+    id: CoworkSection;
+    label: string;
+    icon: ReactNode;
+    hint: string;
+  }[] = [
+    { id: "meetings", label: "회의록", icon: <IconFileText size={13} />, hint: "녹음·전사·요약" },
+    { id: "workflows", label: "워크플로", icon: <IconClock size={13} />, hint: "예약·자동 실행" },
+    { id: "prompts", label: "프롬프트", icon: <IconSparkles size={13} />, hint: "재사용 가능한 프롬프트" },
+    { id: "knowledge", label: "지식베이스", icon: <IconBookOpen size={13} />, hint: "RAG·내 문서·공유 자료" },
+  ];
+
   return (
     <>
-      <div className="cowork-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "meetings"}
-          className={`cowork-tab${tab === "meetings" ? " active" : ""}`}
-          onClick={() => setTab("meetings")}
-        >
-          <IconFileText size={13} /> 회의록
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "workflows"}
-          className={`cowork-tab${tab === "workflows" ? " active" : ""}`}
-          onClick={() => setTab("workflows")}
-        >
-          <IconClock size={13} /> 워크플로
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "prompts"}
-          className={`cowork-tab${tab === "prompts" ? " active" : ""}`}
-          onClick={() => setTab("prompts")}
-        >
-          <IconSparkles size={13} /> 프롬프트
-        </button>
-      </div>
+      <nav className="cowork-menu" role="tablist" aria-label="Cowork 메뉴">
+        {menu.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === m.id}
+            className={`cowork-menu-item${tab === m.id ? " active" : ""}`}
+            onClick={() => setTab(m.id)}
+            title={m.hint}
+          >
+            <span className="cowork-menu-icon" aria-hidden>{m.icon}</span>
+            <span className="cowork-menu-label">{m.label}</span>
+          </button>
+        ))}
+      </nav>
 
       {tab === "meetings" && (
         <div className="sidebar-sessions">
@@ -1320,6 +1343,88 @@ function CoworkPane({
           )}
         </div>
       )}
+
+      {tab === "knowledge" && (
+        <div className="sidebar-sessions cowork-knowledge">
+          <div className="sidebar-actions">
+            <button
+              className="primary"
+              onClick={() => {
+                setKnowledgeAddOpen(true);
+                setKnowledgeOpen(true);
+              }}
+            >
+              <IconPlus size={14} /> 새 지식베이스
+            </button>
+            <button
+              type="button"
+              className="cowork-upload-btn"
+              onClick={() => {
+                setKnowledgeAddOpen(false);
+                setKnowledgeOpen(true);
+              }}
+            >
+              목록 / 관리
+            </button>
+          </div>
+          <div className="sidebar-empty cowork-knowledge-hint">
+            내 문서를 업로드하거나 폴더·SFTP·DB·API를 인덱싱해서 자연어로
+            검색·분석할 수 있습니다. 공유된 지식베이스는 자동으로 함께
+            검색됩니다.
+          </div>
+          {knowledgeOpen && (
+            <CoworkKnowledgeModal
+              addOpen={knowledgeAddOpen}
+              onClose={() => {
+                setKnowledgeOpen(false);
+                setKnowledgeAddOpen(false);
+              }}
+            />
+          )}
+        </div>
+      )}
     </>
+  );
+}
+
+
+/** Embedded RAG / 지식베이스 manager opened from Cowork. Reuses the
+ *  existing ProjectModal, but never passes adminMode so the user
+ *  sees only owner-mode controls — personal projects + shared ones
+ *  granted to them, with create/edit/delete confined to their own. */
+function CoworkKnowledgeModal({
+  addOpen,
+  onClose,
+}: {
+  addOpen: boolean;
+  onClose: () => void;
+}) {
+  // Lazy import to keep ProjectModal out of the sidebar's initial
+  // bundle — RAG users open it on demand, not on every page load.
+  const [Modal, setModal] = useState<
+    React.ComponentType<{
+      open: boolean;
+      onClose: () => void;
+      adminMode?: boolean;
+      initialAddOpen?: boolean;
+    }> | null
+  >(null);
+  useEffect(() => {
+    let active = true;
+    import("./ProjectModal").then((m) => {
+      if (active) setModal(() => m.ProjectModal);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  if (!Modal) return null;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      adminMode={false}
+      initialAddOpen={addOpen}
+    />
   );
 }

@@ -5462,33 +5462,58 @@ body {
 .cowork-upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Cowork pane (prompts + workflows in the sidebar) */
-.cowork-tabs {
+/* Vertical menu replacing the original horizontal tab bar — three
+ * tabs were already cramped at 260px, the new four-entry menu
+ * (회의록 / 워크플로 / 프롬프트 / 지식베이스) wouldn't fit at all on a
+ * single row. Stack the entries instead so each label gets the full
+ * sidebar width. */
+.cowork-menu {
   display: flex;
-  gap: 4px;
-  padding: 6px 10px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
   border-bottom: 1px solid var(--border);
 }
-.cowork-tab {
-  flex: 1;
+.cowork-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
+  text-align: left;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.cowork-tab:hover { color: var(--text); }
-.cowork-tab.active {
+.cowork-menu-item:hover {
+  color: var(--text);
+  background: var(--bg-sidebar);
+}
+.cowork-menu-item.active {
   background: var(--accent-soft);
   color: var(--accent);
   border-color: var(--accent);
-  font-weight: 600;
+}
+.cowork-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  flex-shrink: 0;
+}
+.cowork-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cowork-knowledge-hint {
+  padding: 12px;
+  line-height: 1.55;
 }
 .cowork-list {
   list-style: none;
