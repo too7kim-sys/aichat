@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { IconCheck, IconX } from "../components/Icon";
 import { ProjectModal } from "../components/ProjectModal";
+import { useProjects } from "../state/ProjectsContext";
 
 interface Props {
   onBack: () => void;
@@ -1009,8 +1010,50 @@ function RolesPanel({
  *  and map them to roles. Users with a granted role then get the
  *  base auto-searched in chat without any per-session linking. */
 function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
+  const { projects, refresh, remove } = useProjects();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // Modal popup state. `addOpen` = blank add form; `focusId` = open
+  // the modal with that project pre-selected on the detail pane so
+  // 편집 / 스냅샷 / 다시 인덱싱 are one click away.
+  const [addOpen, setAddOpen] = useState(false);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const modalOpen = addOpen || focusId !== null;
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  function corpusLabel(t: string): string {
+    return (
+      { code: "코드", document: "문서", api: "API", db: "DB" } as Record<string, string>
+    )[t] || t;
+  }
+
+  function statusLabel(p: Project): string {
+    switch (p.status) {
+      case "ready": return "준비됨";
+      case "indexing":
+        return p.progress_total
+          ? `인덱싱 ${Math.round((100 * p.progress_done) / p.progress_total)}%`
+          : "인덱싱";
+      case "pending": return "대기";
+      case "failed": return "실패";
+      default: return p.status;
+    }
+  }
+
+  async function deleteProject(p: Project) {
+    if (!window.confirm(`"${p.name}" 을(를) 삭제할까요?\n인덱스도 함께 사라집니다.`)) return;
+    setBusyId(p.id);
+    try {
+      await remove(p.id);
+    } catch (e) {
+      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
-    <div className="admin-knowledge">
+    <div className="admin-roles">
       <div className="admin-roles-head">
         <div>
           <h2>지식베이스 (RAG)</h2>
@@ -1020,9 +1063,96 @@ function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
             활용합니다.{isAdmin ? "" : " (생성·역할 매핑은 관리자만 가능)"}
           </p>
         </div>
+        {isAdmin && (
+          <button
+            type="button"
+            className="admin-btn admin-btn-primary"
+            onClick={() => { setFocusId(null); setAddOpen(true); }}
+          >
+            RAG 추가
+          </button>
+        )}
       </div>
-      {/* Rendered inline (embedded) like the roles table — no modal. */}
-      <ProjectModal open onClose={() => undefined} adminMode embedded />
+
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>이름</th>
+            <th>코퍼스</th>
+            <th>소스</th>
+            <th>상태</th>
+            <th>공유</th>
+            <th>스냅샷</th>
+            <th className="admin-actions-col">작업</th>
+          </tr>
+        </thead>
+        <tbody>
+          {projects.length === 0 ? (
+            <tr>
+              <td colSpan={7} className="admin-cell-muted" style={{ textAlign: "center", padding: "24px" }}>
+                아직 등록된 지식베이스가 없습니다. 위 <b>RAG 추가</b> 버튼으로 시작하세요.
+              </td>
+            </tr>
+          ) : projects.map((p) => (
+            <tr key={p.id} className={busyId === p.id ? "busy" : ""}>
+              <td>
+                <div>{p.name}</div>
+                {!p.owned && <span className="admin-cell-muted">(공유 — 읽기 전용)</span>}
+              </td>
+              <td>
+                <span className="admin-role-base base-user">
+                  {corpusLabel(p.corpus_type)}
+                </span>
+              </td>
+              <td className="admin-cell-muted" style={{ fontFamily: "ui-monospace, monospace", fontSize: 11.5 }}>
+                {p.source_type}
+              </td>
+              <td>
+                <span className={`admin-status admin-status-${p.status === "ready" ? "approved" : p.status === "failed" ? "rejected" : "pending"}`}>
+                  {statusLabel(p)}
+                </span>
+              </td>
+              <td>
+                {p.is_shared
+                  ? (p.role_codes.length > 0 ? `${p.role_codes.length}개 역할` : "공유 (역할 없음)")
+                  : <span className="admin-cell-muted">개인</span>}
+              </td>
+              <td className="admin-cell-muted">
+                {p.snapshots?.length ?? 0}개
+              </td>
+              <td className="admin-actions-col">
+                <div className="admin-actions">
+                  <button
+                    type="button"
+                    className="admin-btn"
+                    onClick={() => { setAddOpen(false); setFocusId(p.id); }}
+                  >
+                    관리
+                  </button>
+                  {(p.owned || isAdmin) && (
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-danger"
+                      onClick={() => deleteProject(p)}
+                      disabled={busyId === p.id}
+                    >
+                      삭제
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <ProjectModal
+        open={modalOpen}
+        onClose={() => { setAddOpen(false); setFocusId(null); refresh(); }}
+        adminMode={isAdmin}
+        initialAddOpen={addOpen}
+        initialProjectId={focusId}
+      />
     </div>
   );
 }

@@ -150,6 +150,11 @@ interface Props {
   /** When true, render inline (no modal backdrop / close button) so
    *  the panel sits inside the admin shell like the roles table. */
   embedded?: boolean;
+  /** Open straight into the 추가 view (skip the browse list). */
+  initialAddOpen?: boolean;
+  /** Pre-select this project in the browse view so the card on the
+   *  right shows its details / snapshots / edit form immediately. */
+  initialProjectId?: string | null;
 }
 
 function fmtBytes(n: number): string {
@@ -168,6 +173,8 @@ export function ProjectModal({
   onLinkChange,
   adminMode = false,
   embedded = false,
+  initialAddOpen = false,
+  initialProjectId = null,
 }: Props) {
   const { projects, storageBytes, create, remove, reindex, refresh } =
     useProjects();
@@ -198,11 +205,20 @@ export function ProjectModal({
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose, refresh, embedded]);
 
-  // Auto-open the add form when the list is empty so the empty state
-  // doubles as the onboarding CTA.
+  // Auto-open the add form when the list is empty (onboarding CTA)
+  // OR when the parent explicitly asked via initialAddOpen.
   useEffect(() => {
-    if (open && projects.length === 0) setAddOpen(true);
-  }, [open, projects.length]);
+    if (!open) return;
+    if (initialAddOpen) setAddOpen(true);
+    else if (projects.length === 0) setAddOpen(true);
+  }, [open, initialAddOpen, projects.length]);
+
+  // Honour initialProjectId so a "관리" button on a row card opens
+  // the modal with that project already focused on the right.
+  useEffect(() => {
+    if (!open) return;
+    if (initialProjectId) setActiveProjectId(initialProjectId);
+  }, [open, initialProjectId]);
 
   // Default the detail pane to the linked project on open, falling
   // back to the first project so the right side is never empty when
