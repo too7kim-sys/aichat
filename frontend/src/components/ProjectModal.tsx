@@ -155,6 +155,10 @@ interface Props {
   /** Pre-select this project in the browse view so the card on the
    *  right shows its details / snapshots / edit form immediately. */
   initialProjectId?: string | null;
+  /** Auto-expand the snapshot history panel on the focused project's
+   *  card. Used by the admin table's "스냅샷" cell so a click jumps
+   *  straight into the snapshot list. */
+  initialSnapshotsOpen?: boolean;
 }
 
 function fmtBytes(n: number): string {
@@ -175,6 +179,7 @@ export function ProjectModal({
   embedded = false,
   initialAddOpen = false,
   initialProjectId = null,
+  initialSnapshotsOpen = false,
 }: Props) {
   const { projects, storageBytes, create, remove, reindex, refresh } =
     useProjects();
@@ -206,12 +211,20 @@ export function ProjectModal({
   }, [open, onClose, refresh, embedded]);
 
   // Auto-open the add form when the list is empty (onboarding CTA)
-  // OR when the parent explicitly asked via initialAddOpen.
+  // OR when the parent explicitly asked via initialAddOpen. When the
+  // parent passed initialProjectId (e.g., 관리 button on the admin
+  // table), force browse view so the user actually sees the project's
+  // card instead of a stale add form left over from a previous open.
   useEffect(() => {
     if (!open) return;
-    if (initialAddOpen) setAddOpen(true);
-    else if (projects.length === 0) setAddOpen(true);
-  }, [open, initialAddOpen, projects.length]);
+    if (initialAddOpen) {
+      setAddOpen(true);
+    } else if (initialProjectId) {
+      setAddOpen(false);
+    } else if (projects.length === 0) {
+      setAddOpen(true);
+    }
+  }, [open, initialAddOpen, initialProjectId, projects.length]);
 
   // Honour initialProjectId so a "관리" button on a row card opens
   // the modal with that project already focused on the right.
@@ -248,38 +261,13 @@ export function ProjectModal({
   // the full modal for the sidebar entry point.
   const body = (
     <>
-      {embedded && (
-        <div className="pm-embedded-head">
-          {storageBytes > 0 && (
-            <div className="pm-storage" title="벡터 인덱스가 차지하는 디스크 용량">
-              <IconDownload size={12} /> {fmtBytes(storageBytes)}
-            </div>
-          )}
-        </div>
-      )}
 
         {addOpen ? (
-          // ── Add-only view ──
-          // The form takes the full modal body so the user isn't
-          // visually pulled between "browse existing projects" and
-          // "fill out a new one" at the same time. ← 목록으로 stays
-          // disabled until at least one project exists, so the empty
-          // state can't escape into a blank list.
+          // Add-only view — the modal's own ✕ closes it; no separate
+          // back-to-list affordance since the parent page already
+          // shows the list directly.
           <div className="pm-body pm-body-add">
             <div className="pm-add-header">
-              <button
-                type="button"
-                className="pm-back-btn"
-                onClick={() => setAddOpen(false)}
-                disabled={projects.length === 0}
-                title={
-                  projects.length === 0
-                    ? "최소 한 개 프로젝트를 먼저 추가해야 목록으로 돌아갈 수 있습니다"
-                    : "목록으로"
-                }
-              >
-                ← 목록으로
-              </button>
               <h4>새 RAG 프로젝트 추가</h4>
             </div>
             <div className="pm-add-wrap">
@@ -335,6 +323,7 @@ export function ProjectModal({
                   project={activeProject}
                   adminMode={adminMode}
                   allRoles={roles}
+                  initialSnapshotsOpen={initialSnapshotsOpen}
                   linkable={!!linkSessionId}
                   linked={linkedProjectId === activeProject.id}
                   onLink={() =>
@@ -397,11 +386,6 @@ export function ProjectModal({
             <p>대용량 코드베이스를 한 번 인덱싱해 자연어로 검색·분석하세요.</p>
           </div>
           <div className="pm-head-right">
-            {storageBytes > 0 && (
-              <div className="pm-storage" title="벡터 인덱스가 차지하는 디스크 용량">
-                <IconDownload size={12} /> {fmtBytes(storageBytes)}
-              </div>
-            )}
             <button
               type="button"
               className="modal-close"
@@ -480,6 +464,7 @@ function ProjectCard({
   project: p,
   adminMode = false,
   allRoles = [],
+  initialSnapshotsOpen = false,
   linkable,
   linked,
   onLink,
@@ -489,6 +474,7 @@ function ProjectCard({
   project: Project;
   adminMode?: boolean;
   allRoles?: Role[];
+  initialSnapshotsOpen?: boolean;
   linkable: boolean;
   linked: boolean;
   onLink: () => void;
@@ -502,7 +488,12 @@ function ProjectCard({
     setSchedule,
     update,
   } = useProjects();
-  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [snapshotsOpen, setSnapshotsOpen] = useState(initialSnapshotsOpen);
+  // Re-open if the parent flips the flag (e.g., the admin table's
+  // 스냅샷 cell triggers a refocus on the same project).
+  useEffect(() => {
+    if (initialSnapshotsOpen) setSnapshotsOpen(true);
+  }, [initialSnapshotsOpen, p.id]);
   // Edit mode — populated from the current project when the user
   // clicks 편집. Save = PATCH, then refresh; cancel reverts.
   const [editing, setEditing] = useState(false);

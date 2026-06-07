@@ -1017,7 +1017,8 @@ function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
   // 편집 / 스냅샷 / 다시 인덱싱 are one click away.
   const [addOpen, setAddOpen] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
-  const modalOpen = addOpen || focusId !== null;
+  const [snapshotFocusId, setSnapshotFocusId] = useState<string | null>(null);
+  const modalOpen = addOpen || focusId !== null || snapshotFocusId !== null;
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -1117,8 +1118,20 @@ function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
                   ? (p.role_codes.length > 0 ? `${p.role_codes.length}개 역할` : "공유 (역할 없음)")
                   : <span className="admin-cell-muted">개인</span>}
               </td>
-              <td className="admin-cell-muted">
-                {p.snapshots?.length ?? 0}개
+              <td>
+                <button
+                  type="button"
+                  className="admin-btn admin-link-btn"
+                  onClick={() => {
+                    setAddOpen(false);
+                    setFocusId(null);
+                    setSnapshotFocusId(p.id);
+                  }}
+                  disabled={(p.snapshots?.length ?? 0) === 0}
+                  title="스냅샷 이력 보기"
+                >
+                  {p.snapshots?.length ?? 0}개
+                </button>
               </td>
               <td className="admin-actions-col">
                 <div className="admin-actions">
@@ -1148,10 +1161,16 @@ function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
 
       <ProjectModal
         open={modalOpen}
-        onClose={() => { setAddOpen(false); setFocusId(null); refresh(); }}
+        onClose={() => {
+          setAddOpen(false);
+          setFocusId(null);
+          setSnapshotFocusId(null);
+          refresh();
+        }}
         adminMode={isAdmin}
         initialAddOpen={addOpen}
-        initialProjectId={focusId}
+        initialProjectId={focusId || snapshotFocusId}
+        initialSnapshotsOpen={snapshotFocusId !== null}
       />
     </div>
   );

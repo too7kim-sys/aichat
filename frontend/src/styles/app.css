@@ -2199,6 +2199,29 @@ body {
   color: var(--text-muted);
 }
 
+/* Inline link-style button used in the 지식베이스 table's 스냅샷
+ * cell — looks like a count, behaves like a button that opens the
+ * snapshot history popup. */
+.admin-link-btn {
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  transition: text-decoration-color 0.12s;
+}
+.admin-link-btn:hover:not(:disabled) {
+  text-decoration-color: currentColor;
+}
+.admin-link-btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
 /* Runtime policy panel — auto-approval toggle */
 .admin-policy {
   display: flex;
