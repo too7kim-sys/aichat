@@ -856,10 +856,11 @@ function ProjectCard({
         </div>
       )}
 
-      {p.source_type === "upload" && p.owned && (
+      {p.source_type === "upload" && (
         <UploadFilesPanel
           projectId={p.id}
           hasSnapshot={p.current_snapshot_id != null}
+          readOnly={!p.owned}
           onAfterChange={async () => {
             // First-time upload (no snapshot yet) → full reindex
             // creates the inaugural snapshot. Subsequent edits use
@@ -1107,16 +1108,22 @@ function ProjectCard({
 function UploadFilesPanel({
   projectId,
   hasSnapshot,
+  readOnly = false,
   onAfterChange,
 }: {
   projectId: string;
   /** Whether the project already has at least one snapshot — controls
    *  the "변경됨" indicator copy ("새 인덱싱" vs "다시 인덱싱"). */
   hasSnapshot: boolean;
+  /** When true, the panel renders the listing without add / delete
+   *  affordances — used for shared knowledge bases where the viewer
+   *  has read access but isn't the owner. Download is always
+   *  available (it's the same content the chat would already cite). */
+  readOnly?: boolean;
   /** Called after a successful add/remove so the parent can trigger
    *  the appropriate indexing path (full reindex for first time, then
-   *  incremental for subsequent edits). */
-  onAfterChange: () => Promise<void> | void;
+   *  incremental for subsequent edits). Ignored in readOnly mode. */
+  onAfterChange?: () => Promise<void> | void;
 }) {
   const [files, setFiles] = useState<RagUploadedFile[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1169,7 +1176,7 @@ function UploadFilesPanel({
     try {
       const updated = await api.uploadProjectFiles(projectId, filtered);
       setFiles(updated);
-      await onAfterChange();
+      await onAfterChange?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1184,7 +1191,7 @@ function UploadFilesPanel({
     try {
       await api.deleteProjectUpload(projectId, name);
       setFiles((prev) => prev?.filter((f) => f.filename !== name) ?? null);
-      await onAfterChange();
+      await onAfterChange?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1192,54 +1199,70 @@ function UploadFilesPanel({
     }
   }
 
+  async function downloadFile(name: string) {
+    setErr(null);
+    try {
+      await api.downloadProjectUpload(projectId, name);
+    } catch (e) {
+      setErr(
+        `다운로드 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   return (
     <div className="pm-upload-panel">
       <div className="pm-upload-panel-head">
         <span className="pm-upload-panel-title">
-          <IconDownload size={13} /> 업로드된 문서{" "}
+          <IconDownload size={13} />{" "}
+          {readOnly ? "사내 문서" : "업로드된 문서"}{" "}
           {files != null && `(${files.length})`}
         </span>
-        <button
-          type="button"
-          className="pm-btn-secondary pm-upload-panel-add"
-          onClick={() => pickRef.current?.click()}
-          disabled={busy}
-        >
-          <IconPlus size={13} /> 파일 추가
-        </button>
-        <button
-          type="button"
-          className="pm-btn-secondary pm-upload-panel-add"
-          onClick={() => folderPickRef.current?.click()}
-          disabled={busy}
-          title="폴더를 통째로 추가 (하위 폴더 구조 유지)"
-        >
-          <IconFolder size={13} /> 폴더 추가
-        </button>
-        <input
-          ref={pickRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.rtf,.log,.csv,.tsv"
-          style={{ display: "none" }}
-          onChange={(e) => {
-            const picked = Array.from(e.target.files ?? []);
-            e.target.value = "";
-            addFiles(picked, false);
-          }}
-        />
-        <input
-          ref={folderPickRef}
-          type="file"
-          multiple
-          style={{ display: "none" }}
-          {...{ webkitdirectory: "", directory: "" }}
-          onChange={(e) => {
-            const picked = Array.from(e.target.files ?? []);
-            e.target.value = "";
-            addFiles(picked, true);
-          }}
-        />
+        {!readOnly && (
+          <>
+            <button
+              type="button"
+              className="pm-btn-secondary pm-upload-panel-add"
+              onClick={() => pickRef.current?.click()}
+              disabled={busy}
+            >
+              <IconPlus size={13} /> 파일 추가
+            </button>
+            <button
+              type="button"
+              className="pm-btn-secondary pm-upload-panel-add"
+              onClick={() => folderPickRef.current?.click()}
+              disabled={busy}
+              title="폴더를 통째로 추가 (하위 폴더 구조 유지)"
+            >
+              <IconFolder size={13} /> 폴더 추가
+            </button>
+            <input
+              ref={pickRef}
+              type="file"
+              multiple
+              accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.rtf,.log,.csv,.tsv"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                addFiles(picked, false);
+              }}
+            />
+            <input
+              ref={folderPickRef}
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              {...{ webkitdirectory: "", directory: "" }}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                addFiles(picked, true);
+              }}
+            />
+          </>
+        )}
       </div>
       {err && (
         <div className="pm-add-error">
@@ -1259,21 +1282,35 @@ function UploadFilesPanel({
               <span className="pm-upload-item-size">{fmtBytes(f.size)}</span>
               <button
                 type="button"
-                className="pm-upload-item-remove"
-                onClick={() => removeFile(f.filename)}
-                disabled={busy}
-                aria-label="삭제"
-                title="삭제"
+                className="pm-upload-item-download"
+                onClick={() => downloadFile(f.filename)}
+                aria-label="다운로드"
+                title="다운로드"
               >
-                <IconX size={12} />
+                <IconDownload size={12} />
               </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="pm-upload-item-remove"
+                  onClick={() => removeFile(f.filename)}
+                  disabled={busy}
+                  aria-label="삭제"
+                  title="삭제"
+                >
+                  <IconX size={12} />
+                </button>
+              )}
             </li>
           ))}
         </ul>
       ) : (
         <div className="pm-help">
-          업로드된 문서가 없습니다. "파일 추가"로 PDF·DOCX·MD 등을 올리면
-          {hasSnapshot ? " 증분 인덱싱" : " 인덱싱"}이 자동으로 시작됩니다.
+          {readOnly
+            ? "공유된 문서가 없습니다."
+            : `업로드된 문서가 없습니다. "파일 추가"로 PDF·DOCX·MD 등을 올리면${
+                hasSnapshot ? " 증분 인덱싱" : " 인덱싱"
+              }이 자동으로 시작됩니다.`}
         </div>
       )}
     </div>

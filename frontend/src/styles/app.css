@@ -5119,7 +5119,8 @@ body {
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
-.pm-upload-item-remove {
+.pm-upload-item-remove,
+.pm-upload-item-download {
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -5131,6 +5132,10 @@ body {
   flex-shrink: 0;
 }
 .pm-upload-item-remove:hover { color: var(--danger); background: var(--hover); }
+.pm-upload-item-download:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 
 /* Manage-side panel rendered on an existing project card for
  * source_type='upload'. Sits between the snapshot block and the

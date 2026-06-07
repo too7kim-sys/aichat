@@ -763,6 +763,47 @@ export const api = {
     }
     return (await res.json()) as RagUploadedFile[];
   },
+  /** Trigger a browser download for an uploaded file. The fetch
+   *  carries the bearer token (cookies don't survive cross-origin
+   *  dev setups), then we hand the resulting blob to a synthesised
+   *  <a download> click so the file lands in the user's downloads
+   *  folder with the original name. Slash separators in the path are
+   *  preserved (matches the backend's `{filename:path}` route) and
+   *  individual segments get percent-encoded. */
+  downloadProjectUpload: async (id: string, filename: string) => {
+    const safe = filename
+      .split("/")
+      .map((seg) => encodeURIComponent(seg))
+      .join("/");
+    const res = await fetch(
+      `${BASE}/projects/${id}/uploads/${safe}/download`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).detail ?? body;
+      } catch {
+        // not JSON
+      }
+      throw new Error(detail || `${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // The fetch response's Content-Disposition has the proper name;
+    // browsers DO read it when the URL is blob:, but only some — pass
+    // the basename through `download` so the result is consistent.
+    a.download = filename.split("/").pop() || filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Free the blob slot after a tick so the click handler has time
+    // to start the download.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
   /** Delete one file by its relative path under the project's upload
    *  directory. The backend route uses `{filename:path}` so the slash
    *  separators must NOT be percent-encoded — split on / and encode

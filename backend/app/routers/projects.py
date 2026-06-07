@@ -739,8 +739,9 @@ async def list_uploaded_files(
     user: models.User = Depends(get_current_user),
 ):
     """Files currently sitting under the project's upload directory.
-    The manage view in ProjectModal renders this list with per-row
-    delete + a size column."""
+    Owners + admins always see the list; users who only have shared
+    role-based access still get a read-only listing so they can
+    download the originals of documents that already feed retrieval."""
     project = await db.scalar(
         select(models.Project).where(models.Project.id == project_id)
     )
@@ -748,7 +749,12 @@ async def list_uploaded_files(
         raise HTTPException(404, "project not found")
     is_owner = project.user_id == user.id
     is_admin = await _is_admin(db, user)
-    if not (is_owner or is_admin):
+    has_shared_access = (
+        not (is_owner or is_admin)
+        and project.is_shared
+        and await can_access_project(db, user, project_id)
+    )
+    if not (is_owner or is_admin or has_shared_access):
         raise HTTPException(403, "권한이 없습니다")
     if project.source_type != "upload":
         raise HTTPException(409, "업로드 소스 프로젝트가 아닙니다")
@@ -889,6 +895,63 @@ async def append_uploaded_files(
             )
         )
     return out_list
+
+
+@router.get("/{project_id}/uploads/{filename:path}/download")
+async def download_uploaded_file(
+    project_id: str,
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Return the original bytes of an uploaded file as a download.
+    Same access model as the listing endpoint — owner / admin /
+    shared-role grant. The `/download` suffix keeps the URL space
+    distinct from the DELETE `{filename:path}` route."""
+    from fastapi.responses import FileResponse
+    import urllib.parse
+
+    project = await db.scalar(
+        select(models.Project).where(models.Project.id == project_id)
+    )
+    if not project:
+        raise HTTPException(404, "project not found")
+    is_owner = project.user_id == user.id
+    is_admin = await _is_admin(db, user)
+    has_shared_access = (
+        not (is_owner or is_admin)
+        and project.is_shared
+        and await can_access_project(db, user, project_id)
+    )
+    if not (is_owner or is_admin or has_shared_access):
+        raise HTTPException(403, "권한이 없습니다")
+    if project.source_type != "upload":
+        raise HTTPException(409, "업로드 소스 프로젝트가 아닙니다")
+    upload_dir = _project_upload_dir(project.id)
+    safe_rel = _sanitize_upload_relpath(filename)
+    target = _safe_join_upload(upload_dir, safe_rel)
+    if not target.is_file():
+        raise HTTPException(404, "파일을 찾을 수 없습니다")
+
+    # Force a download — without `attachment` the browser would try
+    # to preview unknown types inline. Encode the filename twice: a
+    # plain ASCII fallback for legacy clients, plus the RFC-5987
+    # filename* parameter so Korean/UTF-8 names survive.
+    leaf = Path(safe_rel).name
+    ascii_fallback = leaf.encode("ascii", errors="replace").decode(
+        "ascii"
+    ).replace('"', "_")
+    encoded = urllib.parse.quote(leaf, safe="")
+    disposition = (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{encoded}"
+    )
+    return FileResponse(
+        path=str(target),
+        filename=leaf,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": disposition},
+    )
 
 
 @router.delete("/{project_id}/uploads/{filename:path}")
