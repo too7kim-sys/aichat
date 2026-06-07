@@ -96,9 +96,88 @@ function FileDownload({ path, body }: { path: string; body: string }) {
         setDone(true);
         window.setTimeout(() => setDone(false), 1500);
       }}
-      title={`${path} 다운로드`}
+      title={`${path} 다운로드 (브라우저 기본 다운로드 폴더)`}
     >
       {done ? "✓ 저장됨" : "💾 다운로드"}
+    </button>
+  );
+}
+
+/** Combined action: write the file into the workspace clone on the
+ *  backend AND trigger the browser download in one click. Only
+ *  rendered when the chat is bound to a workspace — without one
+ *  there's nowhere to apply, so the standalone Download button is
+ *  enough. Lets the user say "다운받게 해줘" and walk away with both
+ *  the file on their machine and the workspace folder updated. */
+function FileSaveAndDownload({
+  path,
+  body,
+}: {
+  path: string;
+  body: string;
+}) {
+  const { workspaceId, onPatchApplied } = useChatWorkspace();
+  const [state, setState] = useState<
+    "idle" | "busy" | "done" | "error"
+  >("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  if (!workspaceId) return null;
+
+  async function run() {
+    if (!workspaceId) return;
+    setState("busy");
+    setError(null);
+    try {
+      // Apply first — if the server rejects (path traversal, etc.)
+      // we'd rather not hand the user a file that didn't actually
+      // make it into the workspace.
+      await api.applyWorkspaceFile(workspaceId, path, body);
+      downloadAsFile(body, path);
+      onPatchApplied?.();
+      setState("done");
+      window.setTimeout(() => setState("idle"), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setState("error");
+      window.setTimeout(() => setState("idle"), 3500);
+    }
+  }
+
+  if (state === "busy") {
+    return (
+      <button type="button" className="code-apply busy" disabled>
+        ⏳ 저장 중…
+      </button>
+    );
+  }
+  if (state === "done") {
+    return (
+      <button type="button" className="code-apply done" disabled>
+        ✓ 저장 + 다운로드 완료
+      </button>
+    );
+  }
+  if (state === "error") {
+    return (
+      <button
+        type="button"
+        className="code-apply err"
+        title={error ?? ""}
+        onClick={() => setState("idle")}
+      >
+        ⚠ 실패
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="code-apply"
+      onClick={run}
+      title={`${path}를 워크스페이스에 저장한 뒤 브라우저로 다운로드`}
+    >
+      📦 저장 + 다운로드
     </button>
   );
 }
@@ -267,6 +346,9 @@ function CollapsibleCode({
         </button>
         <div className="code-header-actions">
           {file && <FileApply path={file.path} body={file.body} />}
+          {file && (
+            <FileSaveAndDownload path={file.path} body={file.body} />
+          )}
           {file && <FileDownload path={file.path} body={file.body} />}
           <button
             type="button"
