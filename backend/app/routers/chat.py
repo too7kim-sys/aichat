@@ -161,8 +161,10 @@ _CODE_FOCUSED_SYSTEM = ChatMessage(
         "   기존 폴더 구조를 따르세요 — 새 서비스라면 기존 서비스가 있는 "
         "   디렉터리, 새 컨트롤러라면 기존 컨트롤러 디렉터리. 디렉터리 표준이 "
         "   없거나 모호하면 사용자에게 어디에 둘지 먼저 물어보세요. "
-        "   UI가 자동으로 💾 다운로드 / 📥 워크스페이스에 저장 / "
-        "   📦 저장 + 다운로드 버튼을 붙입니다.\n"
+        "   본문에서는 git / commit / push 같은 용어를 임의로 사용하지 "
+        "   말고, 자신이 어떤 워크스페이스 종류에 있는지 모르면 그냥 "
+        "   \"저장하면 워크스페이스에 반영됩니다\" 정도로만 안내하세요 "
+        "   (별도 시스템 메시지가 git 여부를 알려줍니다).\n"
         "6. 빌드·테스트 명령은 프로젝트의 실제 스택(pom.xml / build.gradle / "
         "   package.json / Cargo.toml 등)에서 확인된 것만.\n"
         "7. 이전 턴 파일은 다시 첨부됐다고 가정하고 맥락 이어가기 — "
@@ -1146,6 +1148,43 @@ async def chat_single(
     # to the user message so its rules win over the global ruleset.
     if session.code_focused:
         history.insert(-1, _CODE_FOCUSED_SYSTEM)
+        # Tell the model which kind of workspace is attached so it
+        # describes the "save" action with the right vocabulary.
+        # Without this hint the model defaults to mentioning git
+        # commit / push even when the session is on a local-folder
+        # workspace (no .git) and the user gets confused.
+        ws_kind = None
+        if session.workspace_id:
+            ws_for_hint = await db.scalar(
+                select(models.CodeWorkspace).where(
+                    models.CodeWorkspace.id == session.workspace_id,
+                    models.CodeWorkspace.user_id == user.id,
+                )
+            )
+            ws_kind = ws_for_hint.source_type if ws_for_hint else None
+        if ws_kind == "git":
+            hint = (
+                "[워크스페이스 종류: git clone]\n"
+                "- 파일을 저장하면 클론에 쓰고, UI에서 사용자가 commit/push "
+                "  버튼을 누르면 원격 저장소에 반영됩니다.\n"
+                "- 사용자가 \"git에 반영\" / \"push\" / \"commit\" 요청 시 "
+                "  `# file: <상대경로>` 마커 + 전체 파일을 출력하세요. UI가 "
+                "  자동으로 apply + commit + push 칩을 답니다.\n"
+            )
+        elif ws_kind == "local":
+            hint = (
+                "[워크스페이스 종류: local 폴더]\n"
+                "- 이 워크스페이스에는 .git이 없거나 사용자가 직접 등록한 "
+                "  서버 폴더입니다. **git, commit, push 단어를 답변에 쓰지 "
+                "  마세요** — 사용자가 혼란스러워합니다.\n"
+                "- \"저장\" / \"다운로드\" 요청 시 `# file: <상대경로>` 마커 "
+                "  + 전체 파일을 출력하면 UI가 폴더에 저장 + 브라우저 다운로드 "
+                "  칩을 답니다.\n"
+            )
+        else:
+            hint = None
+        if hint:
+            history.insert(-1, ChatMessage(role="system", content=hint))
 
     # Pin the language preference at the very front so it always wins
     # over the model's own default behavior.
