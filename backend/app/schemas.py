@@ -345,6 +345,35 @@ class ProjectOut(BaseModel):
     # consumes.
     owned: bool = True
 
+    @field_validator(
+        "snapshot_retention_count",
+        "schedule_interval_minutes",
+        "progress_done",
+        "progress_total",
+        "file_count",
+        "chunk_count",
+        mode="before",
+    )
+    @classmethod
+    def _default_int(cls, v, info):
+        # Pre-migration rows can come back with NULL for columns added
+        # later (snapshot_retention_count, etc.). Pydantic's `int = N`
+        # default kicks in only when the field is missing entirely,
+        # not when the attribute exists with value None — so a single
+        # legacy row would 500 the whole list endpoint. Substitute the
+        # field-specific default here.
+        if v is not None:
+            return v
+        defaults = {
+            "snapshot_retention_count": 10,
+            "schedule_interval_minutes": 0,
+            "progress_done": 0,
+            "progress_total": 0,
+            "file_count": 0,
+            "chunk_count": 0,
+        }
+        return defaults.get(info.field_name, 0)
+
     class Config:
         from_attributes = True
 

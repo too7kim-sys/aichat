@@ -122,6 +122,15 @@ async def init_db() -> None:
                     "ALTER TABLE projects ADD COLUMN "
                     "snapshot_retention_count INTEGER NOT NULL DEFAULT 10"
                 )
+            # Belt-and-suspenders — older SQLite builds occasionally
+            # leave existing rows at NULL even when the column was
+            # added with `NOT NULL DEFAULT 10`. Backfill so the
+            # response schema doesn't have to special-case None.
+            if pexisting and "snapshot_retention_count" in pexisting:
+                await conn.exec_driver_sql(
+                    "UPDATE projects SET snapshot_retention_count = 10 "
+                    "WHERE snapshot_retention_count IS NULL"
+                )
             # Prompt library tables — created by create_all on first
             # boot, belt-and-suspenders here for older DBs.
             await conn.exec_driver_sql(
