@@ -199,17 +199,26 @@ _ALLOWED_SOURCE_BY_CORPUS = {
 # Files uploaded via the upload-source endpoint land here. Each project
 # gets its own subdirectory keyed by project id so we never mix users'
 # documents on disk.
-_DOCUMENT_EXTS = {
-    # Office-style docs with dedicated extractors
-    ".pdf", ".docx",
-    # Plain-text / markup decoded via the UTF-8 fallback chain
-    ".md", ".markdown", ".txt", ".html", ".htm",
-    ".rtf", ".log", ".csv", ".tsv",
-    # Structured data + config (covers exports from sales / mgmt tools
-    # the user may dump into a 지식베이스 folder).
-    ".json", ".jsonl", ".xml", ".yaml", ".yml",
-    ".ini", ".cfg", ".conf", ".toml", ".properties",
-    ".eml", ".tex",
+_UPLOAD_DENY_EXTS = {
+    # Server-side / shell executables — would run if the upload dir is
+    # ever served as static content or sourced into the wrong place.
+    ".exe", ".dll", ".bat", ".cmd", ".com", ".scr", ".msi", ".ps1",
+    ".vbs", ".vbe", ".jse", ".wsf", ".wsh", ".pif", ".lnk", ".url",
+    ".reg", ".sys",
+    # Java / native libraries — same risk as the above on linux/mac.
+    ".jar", ".war", ".ear", ".class", ".so", ".dylib", ".a",
+    # Office files with macros (typical phishing vector).
+    ".docm", ".dotm", ".xlsm", ".xltm", ".xlsb",
+    ".pptm", ".potm", ".ppsm",
+    # Disk images / installers / kernel modules — large, opaque, never
+    # legitimately part of a 지식베이스.
+    ".iso", ".img", ".dmg", ".pkg", ".deb", ".rpm", ".apk", ".ipa",
+    ".vhd", ".vmdk", ".ko",
+    # Chrome/HTA executables and Windows installers.
+    ".hta", ".cpl", ".mst", ".msc",
+    # PHP / ASP — only relevant if the upload dir gets misconfigured,
+    # but cheap to block.
+    ".php", ".phtml", ".phar", ".asp", ".aspx", ".cgi",
 }
 # Strip path separators + leading dots so a user-supplied "..\..\etc"
 # can't escape the per-project upload directory.
@@ -1036,11 +1045,18 @@ async def append_uploaded_files(
             )
         raw_name = f.filename or "untitled"
         ext = Path(raw_name).suffix.lower()
-        if ext not in _DOCUMENT_EXTS:
+        # Deny-list model — block the server-vulnerable formats
+        # (executables, macros, disk images, …) and accept everything
+        # else. The indexer's text extractor still decides which files
+        # actually make it into the searchable index; uploaded-but-
+        # non-extractable files stay downloadable from the manage
+        # panel.
+        if ext in _UPLOAD_DENY_EXTS:
             raise HTTPException(
                 400,
-                f"지원하지 않는 확장자: {ext or '없음'} "
-                f"({raw_name}). 허용: {', '.join(sorted(_DOCUMENT_EXTS))}",
+                f"서버 보안 정책상 차단된 확장자: {ext} "
+                f"({raw_name}). 실행 파일·매크로 포함 문서·디스크 이미지 등은 "
+                f"업로드할 수 없습니다.",
             )
         # The browser sends webkitRelativePath as the filename when the
         # user picked a folder, so the value may contain forward slashes

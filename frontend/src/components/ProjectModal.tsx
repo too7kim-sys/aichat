@@ -140,33 +140,27 @@ const SOURCE_META: Record<
  *  `_DOCUMENT_EXTS` in backend/app/routers/projects.py — kept in
  *  sync by hand so the picker / drop-zone filters client-side too
  *  (saves a round trip on rejected files). */
-const _UPLOAD_EXTENSIONS = new Set([
-  // Office-style docs with extractors on the backend
-  ".pdf",
-  ".docx",
-  // Plain text / markup
-  ".md",
-  ".markdown",
-  ".txt",
-  ".html",
-  ".htm",
-  ".rtf",
-  ".log",
-  ".csv",
-  ".tsv",
-  // Structured data + config (kept in sync with backend _DOCUMENT_EXTS)
-  ".json",
-  ".jsonl",
-  ".xml",
-  ".yaml",
-  ".yml",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".toml",
-  ".properties",
-  ".eml",
-  ".tex",
+/** Server-vulnerable extensions that the backend rejects outright.
+ *  Mirrors `_UPLOAD_DENY_EXTS` in backend/app/routers/projects.py —
+ *  kept in sync by hand so the picker filters them out client-side
+ *  too (no wasted upload on a request the server would 400). */
+const _UPLOAD_DENY_EXTENSIONS = new Set([
+  // Windows / cross-platform executables + scripts
+  ".exe", ".dll", ".bat", ".cmd", ".com", ".scr", ".msi", ".ps1",
+  ".vbs", ".vbe", ".jse", ".wsf", ".wsh", ".pif", ".lnk", ".url",
+  ".reg", ".sys",
+  // Java / native libs
+  ".jar", ".war", ".ear", ".class", ".so", ".dylib", ".a",
+  // Office files with macros
+  ".docm", ".dotm", ".xlsm", ".xltm", ".xlsb",
+  ".pptm", ".potm", ".ppsm",
+  // Disk images / installers / kernel modules
+  ".iso", ".img", ".dmg", ".pkg", ".deb", ".rpm", ".apk", ".ipa",
+  ".vhd", ".vmdk", ".ko",
+  // HTML applications + Windows installers
+  ".hta", ".cpl", ".mst", ".msc",
+  // Server scripts
+  ".php", ".phtml", ".phar", ".asp", ".aspx", ".cgi",
 ]);
 
 /** Tally a set of dropped files by extension so the upload form can
@@ -1413,27 +1407,25 @@ function UploadFilesPanel({
   async function addFiles(picked: File[], fromFolder: boolean) {
     if (picked.length === 0) return;
     // Drop anything not in the document allow-list before hitting the
-    // network — folder picks routinely include README files / images
-    // we don't care about, and the backend would reject the whole
-    // batch on the first bad extension.
+    // network — block only the server-vulnerable formats (exe/dll/
+    // macros/disk images) and let everything else through. The
+    // indexer still decides what text-extracts; non-extractable
+    // files stay downloadable from the manage panel.
     const filtered = picked.filter((f) => {
       const name = (
         (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
         f.name
       ).toLowerCase();
       const dot = name.lastIndexOf(".");
-      if (dot < 0) return false;
-      return _UPLOAD_EXTENSIONS.has(name.slice(dot));
+      const ext = dot >= 0 ? name.slice(dot) : "";
+      return !_UPLOAD_DENY_EXTENSIONS.has(ext);
     });
     const rejected = picked.filter((f) => !filtered.includes(f));
     if (filtered.length === 0) {
-      // Folder pick that produced zero matches: still tell the user
-      // — silently keeping nothing makes them think the picker is
-      // broken. File pick keeps the same "허용 목록" guidance.
       setErr(
         fromFolder
-          ? `폴더에서 가져올 수 있는 파일이 없습니다 — 미지원 확장자 ${rejected.length}개 (${_summarizeRejectedExts(rejected)})`
-          : `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
+          ? `폴더에서 가져올 수 있는 파일이 없습니다 — 차단된 확장자 ${rejected.length}개 (${_summarizeRejectedExts(rejected)})`
+          : `서버 보안 정책상 차단된 확장자입니다 (${_summarizeRejectedExts(rejected)})`,
       );
       return;
     }
@@ -1515,7 +1507,7 @@ function UploadFilesPanel({
               ref={pickRef}
               type="file"
               multiple
-              accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.rtf,.log,.csv,.tsv"
+             
               style={{ display: "none" }}
               onChange={(e) => {
                 const picked = Array.from(e.target.files ?? []);
@@ -1812,27 +1804,30 @@ function AddProjectForm({
         (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
         f.name
       ).toLowerCase();
+      // Files without an extension (Dockerfile / Makefile / LICENSE /
+      // README) are allowed — they're text artefacts the indexer can
+      // decode just fine. Only the deny-list blocks anything.
       const dot = name.lastIndexOf(".");
-      if (dot < 0) return false;
-      return _UPLOAD_EXTENSIONS.has(name.slice(dot));
+      const ext = dot >= 0 ? name.slice(dot) : "";
+      return !_UPLOAD_DENY_EXTENSIONS.has(ext);
     });
     const rejected = picked.filter((f) => !filtered.includes(f));
     if (filtered.length === 0) {
       setError(
         fromFolder
-          ? `폴더에서 가져올 수 있는 파일이 없습니다 — 미지원 확장자 ${rejected.length}개 (${_summarizeRejectedExts(rejected)})`
-          : `지원하지 않는 확장자입니다 (허용: ${[..._UPLOAD_EXTENSIONS].join(", ")})`,
+          ? `폴더에서 가져올 수 있는 파일이 없습니다 — 차단된 확장자 ${rejected.length}개 (${_summarizeRejectedExts(rejected)})`
+          : `서버 보안 정책상 차단된 확장자입니다 (${_summarizeRejectedExts(rejected)})`,
       );
       return;
     }
     if (rejected.length > 0) {
-      // Partial pick — non-fatal: keep what we got, but make the
-      // skip count visible so the user notices the gap.
+      // Partial pick — non-fatal: keep what we got, but tell the
+      // user which security-blocked extensions got dropped.
       setError(
-        `${picked.length}개 중 ${filtered.length}개 추가됨 — ${rejected.length}개 미지원 확장자 제외 (${_summarizeRejectedExts(rejected)})`,
+        `${picked.length}개 중 ${filtered.length}개 추가됨 — ${rejected.length}개 차단된 확장자 제외 (${_summarizeRejectedExts(rejected)})`,
       );
     } else {
-      // Clear any earlier "30 중 10" notice once a clean pick lands.
+      // Clear any earlier "차단" notice once a clean pick lands.
       setError(null);
     }
     setUploadFiles((prev) => {
@@ -2314,7 +2309,7 @@ function AddProjectForm({
                 ? `${uploadFiles.length}개 선택됨 (${fmtBytes(
                     uploadFiles.reduce((s, f) => s + f.size, 0),
                   )})`
-                : "PDF · DOCX · MD · TXT · HTML · CSV (여러 개 가능)"}
+                : "PDF · DOCX · MD · TXT · CSV · 그 외 모든 문서 (실행 파일·매크로 제외)"}
             </span>
           </div>
           <input
@@ -2322,7 +2317,7 @@ function AddProjectForm({
             id="pm-upload-input"
             type="file"
             multiple
-            accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.rtf,.log,.csv,.tsv"
+           
             style={{ display: "none" }}
             onChange={(e) => {
               const picked = Array.from(e.target.files ?? []);
@@ -2381,7 +2376,11 @@ function AddProjectForm({
           )}
           <div className="pm-help">
             파일 또는 폴더를 골라 올릴 수 있고, 폴더는 하위 구조를 그대로
-            유지합니다. 지원 확장자 외 파일은 자동으로 걸러집니다.
+            유지합니다. 실행 파일(.exe / .dll / .bat …) · 매크로 포함 문서
+            (.docm / .xlsm …) · 디스크 이미지(.iso / .dmg …) 등 서버 보안 정책상
+            위험한 형식만 차단됩니다. 그 외 모든 문서는 업로드되며,
+            인덱서가 자동으로 텍스트를 추출할 수 있는 형식만 검색에 반영합니다
+            (나머지는 다운로드만 가능).
           </div>
         </div>
       ) : sourceType === "sftp" ? (
