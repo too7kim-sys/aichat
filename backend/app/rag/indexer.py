@@ -46,6 +46,12 @@ _EXTS_CODE = {
 _EXTS_DOCUMENT = {
     # Office-style docs the extractor can pull text from
     ".pdf", ".docx",
+    # Modern Office (XML-based) — body + tables + slide notes via
+    # openpyxl / python-pptx (already in requirements).
+    ".xlsx", ".pptx",
+    # Legacy Office (OLE2 / CFB) — best-effort string extraction
+    # from the binary streams via olefile.
+    ".doc", ".xls", ".ppt",
     # Korean Hancom Office — HWP 5.x (OLE/CFB) preview text via
     # olefile, HWPX (XML/ZIP) section bodies via the stdlib zipfile.
     ".hwp", ".hwpx",
@@ -325,6 +331,26 @@ def _read_text_for_indexing(path: Path) -> str | None:
         if ext == ".docx":
             from ..files.extract import _extract_docx
             return _extract_docx(blob)
+        if ext == ".xlsx":
+            from ..files.extract import _extract_xlsx
+            return _extract_xlsx(blob)
+        if ext == ".pptx":
+            from ..files.extract import _extract_pptx
+            return _extract_pptx(blob)
+        if ext in (".doc", ".xls", ".ppt"):
+            # Legacy OLE2 — best-effort preview text extraction via
+            # olefile. Falls back to the UTF-8 decode chain when the
+            # streams don't have anything readable.
+            try:
+                from ..files.extract import _extract_ole_preview
+                text = _extract_ole_preview(blob, ext.upper().lstrip("."))
+                if text and text.strip():
+                    return text
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Legacy OLE %s extract failed: %s", ext, exc)
+            # Fall through to UTF-8 decode chain (almost always
+            # garbage for binary formats, but better than dropping
+            # the file entirely from the index).
         if ext == ".hwp":
             text = _extract_hwp(blob)
             if text is not None:

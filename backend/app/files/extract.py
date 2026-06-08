@@ -145,6 +145,131 @@ def _extract_docx(blob: bytes) -> str:
     return "\n".join(parts)
 
 
+def _extract_xlsx(blob: bytes) -> str:
+    """Read every visible cell of every worksheet via openpyxl, one
+    "sheet : row" line per non-empty row. Returns a flat text dump
+    the chunker can split — no formatting / formulas, just values."""
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise ExtractError(f"XLSX dependency missing: {exc}") from exc
+    try:
+        wb = load_workbook(
+            io.BytesIO(blob), read_only=True, data_only=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise ExtractError(f"XLSX parse failed: {exc}") from exc
+    parts: list[str] = []
+    for sheet in wb.worksheets:
+        parts.append(f"# {sheet.title}")
+        for row in sheet.iter_rows(values_only=True):
+            cells = [str(c) for c in row if c not in (None, "")]
+            if cells:
+                parts.append(" | ".join(cells))
+        parts.append("")
+    wb.close()
+    return "\n".join(parts).rstrip()
+
+
+def _extract_pptx(blob: bytes) -> str:
+    """python-pptx — pull every text frame on every slide. Each
+    slide gets a `## Slide N` header so retrieval can anchor a
+    chunk to a slide number."""
+    try:
+        from pptx import Presentation
+    except ImportError as exc:
+        raise ExtractError(f"PPTX dependency missing: {exc}") from exc
+    try:
+        prs = Presentation(io.BytesIO(blob))
+    except Exception as exc:  # noqa: BLE001
+        raise ExtractError(f"PPTX parse failed: {exc}") from exc
+    parts: list[str] = []
+    for idx, slide in enumerate(prs.slides, start=1):
+        parts.append(f"## Slide {idx}")
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    line = "".join(run.text for run in para.runs).strip()
+                    if line:
+                        parts.append(line)
+            # Tables in slides
+            if getattr(shape, "has_table", False) and shape.has_table:
+                for row in shape.table.rows:
+                    cells = [c.text.strip() for c in row.cells]
+                    if any(cells):
+                        parts.append(" | ".join(cells))
+        # Slide notes — often holds the real content for review decks
+        if slide.has_notes_slide:
+            notes = slide.notes_slide.notes_text_frame.text.strip()
+            if notes:
+                parts.append("notes:")
+                parts.append(notes)
+        parts.append("")
+    return "\n".join(parts).rstrip()
+
+
+def _extract_ole_preview(blob: bytes, label: str) -> str:
+    """Generic fallback for the legacy OLE2 office formats
+    (.doc / .xls / .ppt). They're CFB compound documents the same
+    as HWP 5.x; we pull the most useful text streams and stitch
+    them together. Not as complete as the proper office parsers,
+    but enough for a "find docs that mention X" hit and avoids
+    pulling in heavy dependencies (textract / antiword / xlrd)
+    for the increasingly rare legacy formats."""
+    try:
+        import olefile
+    except ImportError as exc:
+        raise ExtractError(f"OLE dependency missing: {exc}") from exc
+    bio = io.BytesIO(blob)
+    if not olefile.isOleFile(bio):
+        raise ExtractError(f"{label} is not a valid OLE2 container")
+    ole = olefile.OleFileIO(bio)
+    parts: list[str] = []
+    # Candidates ordered most-useful first.
+    candidates = [
+        "WordDocument",       # .doc body (binary, but readable strings)
+        "0Table", "1Table",  # .doc table streams
+        "PowerPoint Document",  # .ppt body
+        "PrvText",           # HWP-style preview text (UTF-16LE)
+        "SummaryInformation",
+        "DocumentSummaryInformation",
+        "Workbook", "Book",  # .xls — note xls's binary format is gnarly
+    ]
+    try:
+        for name in candidates:
+            if not ole.exists(name):
+                continue
+            try:
+                stream = ole.openstream(name)
+                data = stream.read()
+                stream.close()
+            except Exception:  # noqa: BLE001
+                continue
+            # Try UTF-16LE first (HWP / many MS streams), then ASCII
+            # printable run extraction so the index gets the actual
+            # words rather than raw binary noise.
+            try:
+                text16 = data.decode("utf-16-le", errors="ignore")
+            except Exception:  # noqa: BLE001
+                text16 = ""
+            # Keep printable + Korean text only — strip the binary noise
+            # that surrounds real text in these streams.
+            import re
+            text16 = re.sub(
+                r"[^ -~ -ɏ가-힯぀-ヿ一-鿿\n]+",
+                " ",
+                text16,
+            )
+            text16 = re.sub(r"\s+", " ", text16).strip()
+            if len(text16) >= 32:
+                parts.append(text16)
+    finally:
+        ole.close()
+    if not parts:
+        raise ExtractError(f"{label}: no readable text streams found")
+    return "\n\n".join(parts)
+
+
 def _looks_like_image(blob: bytes) -> bool:
     """Magic-byte sniff so a clipboard paste with no/wrong extension
     still gets routed to OCR. Covers PNG, JPEG, GIF, BMP, WEBP, TIFF."""
