@@ -46,6 +46,9 @@ _EXTS_CODE = {
 _EXTS_DOCUMENT = {
     # Office-style docs the extractor can pull text from
     ".pdf", ".docx",
+    # Korean Hancom Office — HWP 5.x (OLE/CFB) preview text via
+    # olefile, HWPX (XML/ZIP) section bodies via the stdlib zipfile.
+    ".hwp", ".hwpx",
     # Plain-text / markup formats decoded via the UTF-8 fallback chain
     ".md", ".markdown", ".txt", ".html", ".htm", ".rtf",
     ".log", ".csv", ".tsv",
@@ -222,11 +225,93 @@ def _format_walk_failure_reason(
 _HTML_TAG_RE = None  # lazily compiled
 
 
+def _extract_hwp(blob: bytes) -> str | None:
+    """Pull text out of an HWP 5.x file. HWP is an OLE2 / CFB
+    container; every document carries a `PrvText` stream that holds
+    a UTF-16LE preview of the body — typically 1-2 KB, enough for a
+    decent search hit even though it's not the full document. Real
+    HWP body decoding (BodyText/Section0) needs a dedicated parser
+    (pyhwp) which we can layer on later; PrvText covers the common
+    "find documents that mention X" case.
+
+    Returns None when olefile isn't installed, the file isn't a
+    valid OLE2 container, or the stream is missing — caller falls
+    back to the regular text-decode chain.
+    """
+    try:
+        import io
+        import olefile
+    except ImportError:
+        return None
+    try:
+        bio = io.BytesIO(blob)
+        if not olefile.isOleFile(bio):
+            return None
+        ole = olefile.OleFileIO(bio)
+        try:
+            if not ole.exists("PrvText"):
+                return None
+            stream = ole.openstream("PrvText")
+            data = stream.read()
+            stream.close()
+        finally:
+            ole.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("HWP PrvText read failed: %s", exc)
+        return None
+    return data.decode("utf-16-le", errors="replace")
+
+
+def _extract_hwpx(blob: bytes) -> str | None:
+    """HWPX is a ZIP archive of XML — same shape as docx / xlsx.
+    Walk the ZIP, pull `Contents/section*.xml` (the body sections),
+    and strip out the XML tags so the chunker sees plain text.
+    Returns None on bad archive / no sections so the caller can fall
+    back to the generic decode path."""
+    import io
+    import re
+    import zipfile
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(blob))
+    except (zipfile.BadZipFile, OSError) as exc:
+        log.warning("HWPX zip open failed: %s", exc)
+        return None
+    parts: list[str] = []
+    try:
+        names = [
+            n for n in zf.namelist()
+            if n.startswith("Contents/section") and n.endswith(".xml")
+        ]
+        names.sort()
+        for n in names:
+            try:
+                raw = zf.read(n)
+            except (KeyError, RuntimeError):
+                continue
+            try:
+                xml = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                xml = raw.decode("utf-8", errors="replace")
+            # Quick tag strip — pulls out every <hp:t>...</hp:t> run.
+            text = re.sub(r"<[^>]+>", " ", xml)
+            parts.append(text)
+    finally:
+        zf.close()
+    if not parts:
+        return None
+    out = "\n".join(parts)
+    # Collapse the many spaces/blank lines that strip leaves behind.
+    out = re.sub(r"[ \t]+", " ", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out
+
+
 def _read_text_for_indexing(path: Path) -> str | None:
     """Decode the file into UTF-8 text for chunking. Routes through
-    the existing files.extract helpers for PDF and DOCX so the
-    indexer benefits from the same parsing pipeline as the chat
-    composer attachments. Returns None if the file can't be read."""
+    the existing files.extract helpers for PDF and DOCX, plus the
+    HWP / HWPX extractors above for Korean Hancom Office. Returns
+    None if the file can't be read."""
     ext = path.suffix.lower()
     try:
         blob = path.read_bytes()
@@ -240,6 +325,17 @@ def _read_text_for_indexing(path: Path) -> str | None:
         if ext == ".docx":
             from ..files.extract import _extract_docx
             return _extract_docx(blob)
+        if ext == ".hwp":
+            text = _extract_hwp(blob)
+            if text is not None:
+                return text
+            # Fall through to the UTF-8 decode chain when olefile
+            # isn't available — produces a partial hit but better
+            # than dropping the file entirely.
+        if ext == ".hwpx":
+            text = _extract_hwpx(blob)
+            if text is not None:
+                return text
         # Everything else: try UTF-8 with Korean fallbacks.
         for enc in ("utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"):
             try:
