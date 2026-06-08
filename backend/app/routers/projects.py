@@ -252,12 +252,47 @@ def _sniff_dangerous_magic(head: bytes) -> str | None:
     """Return a human label when the first bytes look like an
     executable / library / hive that the server should never accept,
     regardless of what extension the client claimed. Returns None for
-    everything benign (text, PDF, ZIP-based Office, images, …)."""
+    everything benign (text, PDF, ZIP-based Office, images, …).
+
+    Callers should normally only invoke this for files whose extension
+    ISN'T in `_TRUSTED_MAGIC_EXTS` — every known-safe extension has
+    its own format-specific magic, and forcing a header check against
+    a tiny signature list invites false positives (a CSV that opens
+    with `MZ` as a column header would otherwise read as a Windows
+    PE binary).
+    """
     for sig, offset, label in _DANGEROUS_MAGIC:
         end = offset + len(sig)
         if len(head) >= end and head[offset:end] == sig:
             return label
     return None
+
+
+# Extensions where we trust the format and skip the magic-byte sniff.
+# Each one has its own well-defined header signature, so a renamed
+# EXE *with* a doc extension is still possible — but rarer than the
+# false-positive case where a small text/CSV/image accidentally
+# matches one of our tiny magic strings.
+_TRUSTED_MAGIC_EXTS = {
+    # Office / PDF / Hangul
+    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+    ".hwp", ".hwpx", ".rtf",
+    # Plain text + markup + structured data
+    ".txt", ".md", ".markdown", ".log",
+    ".csv", ".tsv",
+    ".json", ".jsonl", ".xml", ".yaml", ".yml",
+    ".ini", ".cfg", ".conf", ".toml", ".properties",
+    ".html", ".htm", ".eml", ".tex",
+    # Common images (chat attachments often land here too)
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
+    ".tiff", ".tif", ".svg",
+    # Audio / video (transcription source)
+    ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".opus", ".flac",
+    ".mp4", ".mkv", ".mov", ".aac",
+    # Archives — content extraction is a separate decision; the
+    # archive itself is harmless on disk.
+    ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+}
 
 
 def _project_upload_dir(project_id: str) -> Path:
@@ -1112,15 +1147,18 @@ async def append_uploaded_files(
         # this is the upload root, already created above.
         target.parent.mkdir(parents=True, exist_ok=True)
         total = 0
+        # Only sniff magic for unknown / untrusted extensions —
+        # known-safe formats (PDF, DOCX, HWP, CSV, …) carry their own
+        # well-defined headers and a tiny 2-4 byte signature match
+        # would false-positive on a CSV that happens to start with
+        # "MZ" or a text file beginning with "regf". The deny-list
+        # already blocks the obvious dangerous extensions; magic
+        # check is the safety net for the "renamed to .bin" case.
+        sniff = ext not in _TRUSTED_MAGIC_EXTS
         try:
             with target.open("wb") as out_f:
-                # Sniff the first 32 bytes for executable magic before
-                # committing the rest — catches the renamed-EXE case
-                # where someone uploaded notepad.exe → notepad.pdf to
-                # slip past the extension deny-list. 32 bytes is enough
-                # for every PE / ELF / Mach-O / class-file signature.
                 head = await f.read(32)
-                if head:
+                if head and sniff:
                     danger = _sniff_dangerous_magic(head)
                     if danger:
                         out_f.close()
@@ -1131,6 +1169,7 @@ async def append_uploaded_files(
                             f"({raw_name}). 확장자만 바꾼 실행 파일은 "
                             "업로드할 수 없습니다.",
                         )
+                if head:
                     total += len(head)
                     out_f.write(head)
                 while True:
