@@ -6229,6 +6229,103 @@ body {
   gap: 6px;
 }
 
+/* Transcript export selection modal — opened from the 📄 icon on a
+ * meetings row. Wider than the standard popup because the message
+ * preview lines need room to breathe; the scroll lives inside the
+ * list so the action bar at the bottom stays pinned. */
+.tx-export-modal {
+  max-width: 720px;
+  width: 96vw;
+  max-height: 88vh;
+}
+.tx-export-body {
+  padding: 14px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.tx-export-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.tx-export-counts b { color: var(--accent); }
+.tx-export-tool-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tx-export-tool-actions .pm-btn-secondary { padding: 4px 10px; font-size: 11.5px; }
+.tx-export-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tx-export-row {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tx-export-row.checked { background: var(--accent-soft); }
+.tx-export-row:hover { background: var(--bg-sidebar); }
+.tx-export-row.role-user { border-left: 3px solid var(--border-strong); padding-left: 7px; }
+.tx-export-row.role-assistant { border-left: 3px solid var(--accent); padding-left: 7px; }
+.tx-export-check {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+.tx-export-check input { cursor: pointer; }
+.tx-export-meta {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.tx-export-role {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-sidebar);
+}
+.tx-export-role.role-assistant {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tx-export-time {
+  font-variant-numeric: tabular-nums;
+}
+.tx-export-text {
+  grid-column: 2;
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.55;
+  word-break: break-word;
+}
+
 /* Inline rename input on a transcript row — matches the cowork-item
  * font so the row layout doesn't jump when the user toggles edit. */
 .cowork-item-name-input {

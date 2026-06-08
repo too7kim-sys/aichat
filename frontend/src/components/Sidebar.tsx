@@ -13,6 +13,7 @@ import type { ChatProject, Session } from "../types";
 import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
 import { ChatProjectEditModal } from "./ChatProjectEditModal";
 import { PromptEditModal } from "./PromptEditModal";
+import { TranscriptExportModal } from "./TranscriptExportModal";
 import { WorkflowEditModal } from "./WorkflowEditModal";
 import {
   IconBookOpen,
@@ -941,6 +942,12 @@ function CoworkPane({
   const [workflowEdit, setWorkflowEdit] = useState<Workflow | "new" | null>(
     null,
   );
+  // Transcript export selection modal — opened from the 📄 button
+  // on a meetings row. The user picks which messages to include
+  // (defaults to assistant-only) and downloads as DOCX.
+  const [exportTranscript, setExportTranscript] = useState<Transcript | null>(
+    null,
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   // MediaRecorder state for the live record button.
@@ -1206,6 +1213,7 @@ function CoworkPane({
                   onRenamed={async () => {
                     await refreshAll();
                   }}
+                  onExport={() => setExportTranscript(t)}
                 />
               ))}
             </ul>
@@ -1421,6 +1429,17 @@ function CoworkPane({
           }}
         />
       )}
+
+      {exportTranscript && (
+        <TranscriptExportModal
+          transcript={exportTranscript}
+          onClose={() => setExportTranscript(null)}
+          onOpenChat={(sessionId) => {
+            setExportTranscript(null);
+            onOpenSession(sessionId);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1469,20 +1488,24 @@ function CoworkKnowledgeModal({
 
 
 /** One row in the Cowork meetings list. Inline rename (double-click
- *  the name or click ✏) + 회의록 DOCX export (📄) + open-session +
- *  delete. Encapsulated so the parent loop stays readable. */
+ *  the name or click ✏) + 회의록 DOCX export modal (📄) + open-
+ *  session + delete. The export icon opens a selection dialog so
+ *  the user can pick which messages land in the document — raw
+ *  transcript is hidden by default. */
 function TranscriptRow({
   transcript: t,
   busyId,
   onOpen,
   onDelete,
   onRenamed,
+  onExport,
 }: {
   transcript: Transcript;
   busyId: string | null;
   onOpen: () => void;
   onDelete: () => void;
   onRenamed: () => void | Promise<void>;
+  onExport: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(t.source_filename);
@@ -1513,18 +1536,6 @@ function TranscriptRow({
     } catch (e) {
       window.alert(
         `이름 변경 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function download() {
-    setBusy(true);
-    try {
-      await api.exportTranscriptDocx(t.id, t.source_filename);
-    } catch (e) {
-      window.alert(
-        `다운로드 실패: ${e instanceof Error ? e.message : String(e)}`,
       );
     } finally {
       setBusy(false);
@@ -1578,9 +1589,9 @@ function TranscriptRow({
               <button
                 type="button"
                 className="cowork-item-run"
-                onClick={download}
+                onClick={onExport}
                 disabled={busy || busyId === t.id}
-                title="회의록 DOCX 다운로드"
+                title="회의록 다운로드 (메시지 선택)"
               >
                 <IconFileText size={12} />
               </button>

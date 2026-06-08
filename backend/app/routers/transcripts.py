@@ -187,17 +187,21 @@ async def rename_transcript(
 @router.get("/{transcript_id}/export.docx")
 async def export_transcript_docx(
     transcript_id: str,
+    include: str = "summary",
+    message_ids: str = "",
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
     """Render the transcript's linked chat session as a Korean
-    회의록 DOCX and stream it back. Each user message becomes a
-    `## 발언 / 전사 N` block (the raw whisper output); each
-    assistant message becomes an `## 요약 / 정리 N` block (the
-    polished AI summary the user may have iterated on in chat).
-    Edit the chat content via the regular chat surface — this
-    endpoint always reflects whatever messages exist on the linked
-    session at export time."""
+    회의록 DOCX and stream it back.
+
+    Query params control which messages land in the document:
+      · `include=summary` (default) — assistant messages only, raw
+        transcript hidden. Matches the common "회의록 = 요약만" need.
+      · `include=all` — every message including the raw transcript.
+      · `message_ids=<id>,<id>,...` — explicit pick from the
+        selection modal in the UI. Overrides `include` when set.
+    """
     import io
     import urllib.parse
 
@@ -229,6 +233,21 @@ async def export_transcript_docx(
         )
     ).scalars().all()
 
+    # Decide which messages to include. Explicit IDs win; otherwise
+    # the `include` mode picks a sensible default.
+    picked_ids: set[str] | None = None
+    if message_ids.strip():
+        picked_ids = {
+            x.strip() for x in message_ids.split(",") if x.strip()
+        }
+    selected_msgs: list[models.Message] = []
+    if picked_ids is not None:
+        selected_msgs = [m for m in msg_rows if m.id in picked_ids]
+    elif include == "all":
+        selected_msgs = list(msg_rows)
+    else:  # "summary" (default)
+        selected_msgs = [m for m in msg_rows if m.role == "assistant"]
+
     try:
         from docx import Document
         from docx.shared import Pt
@@ -256,12 +275,12 @@ async def export_transcript_docx(
     meta_bits: list[str] = []
     meta_bits.append(f"작성 일시: {tr.created_at.strftime('%Y-%m-%d %H:%M')}")
     if tr.duration_sec:
-        m, s = divmod(int(tr.duration_sec), 60)
-        h, m = divmod(m, 60)
-        if h:
-            meta_bits.append(f"녹음 길이: {h}h {m:02d}m {s:02d}s")
+        m_, s_ = divmod(int(tr.duration_sec), 60)
+        h_, m_ = divmod(m_, 60)
+        if h_:
+            meta_bits.append(f"녹음 길이: {h_}h {m_:02d}m {s_:02d}s")
         else:
-            meta_bits.append(f"녹음 길이: {m}m {s:02d}s")
+            meta_bits.append(f"녹음 길이: {m_}m {s_:02d}s")
     if tr.language:
         meta_bits.append(f"언어: {tr.language}")
     if tr.diarized:
@@ -272,46 +291,43 @@ async def export_transcript_docx(
 
     doc.add_paragraph()  # spacer
 
-    if not msg_rows:
+    if not selected_msgs:
         doc.add_paragraph(
-            "세션에 본문이 없습니다. 채팅창에서 내용을 수정·작성한 뒤 다시 받아주세요."
+            "선택된 본문이 없습니다. 채팅창에서 회의록에 담을 메시지를 "
+            "선택한 뒤 다시 받아주세요."
         )
     else:
-        # Group messages — typically there's exactly one user message
-        # (the raw transcript) and one assistant message (the
-        # summary), but the user may have continued the chat with
-        # additional clarifications / Q&A turns. Render every turn
-        # so manual edits show up in the export.
-        user_idx = 0
-        asst_idx = 0
-        for m in msg_rows:
+        # Each picked message renders as one section. Numbering only
+        # appears when there's more than one of the same role so a
+        # single-summary export reads cleanly as just "요약".
+        role_counts = {"assistant": 0, "user": 0}
+        for m in selected_msgs:
+            role_counts[m.role] += 1
+        a_idx = 0
+        u_idx = 0
+        for m in selected_msgs:
             content = (m.content or "").strip()
             if not content:
                 continue
             if m.role == "assistant":
-                asst_idx += 1
-                doc.add_heading(
-                    f"요약 / 정리"
-                    + (f" {asst_idx}" if asst_idx > 1 else ""),
-                    level=1,
-                )
+                a_idx += 1
+                label = "요약"
+                if role_counts["assistant"] > 1:
+                    label = f"요약 {a_idx}"
+                doc.add_heading(label, level=1)
             else:
-                user_idx += 1
-                # The first user message is the raw transcript; later
-                # ones are follow-up questions / context the user
-                # added in chat.
-                if user_idx == 1:
-                    doc.add_heading("전체 전사", level=1)
+                u_idx += 1
+                # User-side: distinguish the original transcript (first
+                # one) from later notes the user typed into chat.
+                if u_idx == 1 and role_counts["user"] >= 1:
+                    label = "전체 전사"
                 else:
-                    doc.add_heading(f"추가 메모 {user_idx - 1}", level=1)
+                    label = f"메모 {u_idx - 1}"
+                doc.add_heading(label, level=1)
             for para in content.split("\n\n"):
                 line = para.strip()
                 if not line:
                     continue
-                # Very light markdown handling — strip leading "## "
-                # so heading markers don't appear as literal text in
-                # the body. The chunker doesn't keep headings within
-                # the chat bubble anyway.
                 if line.startswith("# "):
                     doc.add_heading(line[2:].strip(), level=2)
                 elif line.startswith("## "):
@@ -326,9 +342,6 @@ async def export_transcript_docx(
     doc.save(buf)
     buf.seek(0)
 
-    # Korean-safe Content-Disposition — both legacy filename + RFC-5987
-    # filename* so old clients get something readable and modern ones
-    # get the original Korean title.
     base = (tr.source_filename or sess.title or "회의록").rsplit(".", 1)[0]
     leaf = f"{base} 회의록.docx"
     ascii_fallback = (

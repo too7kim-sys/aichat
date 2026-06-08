@@ -1017,12 +1017,27 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
   /** Download the transcript's chat session as a Korean 회의록 DOCX.
-   *  Fetches with the bearer token, then triggers a synthesised
-   *  <a download> click so the file lands in the user's downloads
-   *  folder with the original Korean title. */
-  exportTranscriptDocx: async (id: string, title: string) => {
+   *  Optional `messageIds` lets the caller hand-pick which messages
+   *  to include (selection modal). When omitted, only assistant
+   *  messages (the polished summary) land in the document — raw
+   *  transcript is hidden by default. */
+  exportTranscriptDocx: async (
+    id: string,
+    title: string,
+    opts?: {
+      messageIds?: string[];
+      include?: "summary" | "all";
+    },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.messageIds && opts.messageIds.length > 0) {
+      params.set("message_ids", opts.messageIds.join(","));
+    } else if (opts?.include) {
+      params.set("include", opts.include);
+    }
+    const qs = params.toString();
     const res = await fetch(
-      `${BASE}/transcripts/${id}/export.docx`,
+      `${BASE}/transcripts/${id}/export.docx${qs ? "?" + qs : ""}`,
       { headers: authHeaders() },
     );
     if (!res.ok) {
@@ -1039,9 +1054,6 @@ export const api = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    // Server already attaches the right filename via Content-
-    // Disposition; this is just a sensible fallback when the
-    // browser ignores it on blob: URLs.
     a.download = `${title} 회의록.docx`;
     document.body.appendChild(a);
     a.click();
