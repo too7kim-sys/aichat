@@ -688,7 +688,13 @@ body {
   flex: 1;
 }
 .cp-edit-body {
-  padding: 18px 22px 22px;
+  /* Scroll the form body inside the modal so the action bar stays
+   * visible — a tall prompt or long workflow form used to push the
+   * 저장 / 취소 buttons below the 88vh modal cap and clip them. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -699,6 +705,16 @@ body {
   justify-content: space-between;
   gap: 12px;
   margin-top: 6px;
+  /* Pin to the bottom of the modal — sits outside the scrollable
+   * body so a long form still shows the action buttons. */
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-card);
+  padding: 12px 22px 18px;
+  border-top: 1px solid var(--border);
+  margin-left: -22px;
+  margin-right: -22px;
+  z-index: 1;
 }
 .cp-edit-actions-right {
   display: inline-flex;
