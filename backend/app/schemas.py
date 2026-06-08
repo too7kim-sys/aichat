@@ -159,6 +159,25 @@ class RagUploadedFile(BaseModel):
     chunk_count: int | None = None
 
 
+class RagUploadError(BaseModel):
+    """Per-file rejection — extension blocked, magic-byte signature
+    detected, size cap exceeded, etc. Returned alongside the live
+    listing so a partial batch upload reports which files made it
+    and which didn't."""
+    filename: str
+    reason: str
+
+
+class RagUploadResult(BaseModel):
+    """POST /uploads response — the full updated listing AND any
+    per-file errors so a single bad file doesn't tank the whole
+    batch. UI shows ✓ rows for the successes + a warning chip with
+    the errors so the user can re-attempt or convert the problem
+    files."""
+    files: list[RagUploadedFile] = []
+    errors: list[RagUploadError] = []
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     source_type: SourceType

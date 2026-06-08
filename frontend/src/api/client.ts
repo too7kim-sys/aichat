@@ -766,7 +766,10 @@ export const api = {
   uploadProjectFiles: async (
     id: string,
     files: File[],
-  ): Promise<RagUploadedFile[]> => {
+  ): Promise<{
+    files: RagUploadedFile[];
+    errors: { filename: string; reason: string }[];
+  }> => {
     const fd = new FormData();
     for (const f of files) {
       const rel =
@@ -780,6 +783,8 @@ export const api = {
       headers: authHeaders(),
     });
     if (!res.ok) {
+      // Whole-request rejection (403 / 409 / etc.) — the per-file
+      // partial-success path returns 200 with errors inside the body.
       const body = await res.text();
       let detail = body;
       try {
@@ -789,7 +794,10 @@ export const api = {
       }
       throw new Error(detail || `${res.status}`);
     }
-    return (await res.json()) as RagUploadedFile[];
+    return (await res.json()) as {
+      files: RagUploadedFile[];
+      errors: { filename: string; reason: string }[];
+    };
   },
   /** Trigger a browser download for an uploaded file. The fetch
    *  carries the bearer token (cookies don't survive cross-origin

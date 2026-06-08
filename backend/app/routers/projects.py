@@ -1073,7 +1073,7 @@ async def list_uploaded_files(
 
 @router.post(
     "/{project_id}/uploads",
-    response_model=list[schemas.RagUploadedFile],
+    response_model=schemas.RagUploadResult,
 )
 async def append_uploaded_files(
     project_id: str,
@@ -1082,8 +1082,11 @@ async def append_uploaded_files(
     user: models.User = Depends(get_current_user),
 ):
     """Accept one or more files (multipart) and write them under the
-    project's upload directory. The indexer doesn't run here — the
-    UI calls /reindex once the user is done staging files."""
+    project's upload directory. Per-file errors are non-fatal — a
+    single bad file (oversize / blocked extension / suspicious magic
+    bytes) is reported in the `errors` list and the rest of the
+    batch still completes. The indexer doesn't run here — the UI
+    calls /reindex once the user is done staging files."""
     project = await db.scalar(
         select(models.Project).where(models.Project.id == project_id)
     )
@@ -1101,41 +1104,29 @@ async def append_uploaded_files(
     cap_bytes = settings.rag_upload_max_bytes
     cap_files = settings.rag_max_files
 
-    # Count existing files (recursively) so the per-project cap
-    # considers prior uploads — including ones nested inside folders
-    # from a previous webkitdirectory pick.
     existing = sum(1 for p in upload_dir.rglob("*") if p.is_file())
 
     accepted: list[Path] = []
-    for f in files:
+    errors: list[schemas.RagUploadError] = []
+
+    async def _process_one(f: UploadFile) -> None:
+        """Write one file with all its per-file gates. Raises
+        HTTPException on rejection; the outer loop catches it as a
+        per-file error so the rest of the batch keeps going."""
+        raw_name = f.filename or "untitled"
+        ext = Path(raw_name).suffix.lower()
         if existing + len(accepted) >= cap_files:
             raise HTTPException(
                 400,
                 f"업로드 파일 수 한도 도달 (RAG_MAX_FILES={cap_files})",
             )
-        raw_name = f.filename or "untitled"
-        ext = Path(raw_name).suffix.lower()
-        # Deny-list model — block the server-vulnerable formats
-        # (executables, macros, disk images, …) and accept everything
-        # else. The indexer's text extractor still decides which files
-        # actually make it into the searchable index; uploaded-but-
-        # non-extractable files stay downloadable from the manage
-        # panel.
         if ext in _UPLOAD_DENY_EXTS:
             raise HTTPException(
                 400,
-                f"서버 보안 정책상 차단된 확장자: {ext} "
-                f"({raw_name}). 실행 파일·매크로 포함 문서·디스크 이미지 등은 "
-                f"업로드할 수 없습니다.",
+                f"서버 보안 정책상 차단된 확장자: {ext}",
             )
-        # The browser sends webkitRelativePath as the filename when the
-        # user picked a folder, so the value may contain forward slashes
-        # — sanitise per-component instead of treating it as one name.
         safe_rel = _sanitize_upload_relpath(raw_name)
         target = _safe_join_upload(upload_dir, safe_rel)
-        # Collision-handle: append _2, _3, … rather than overwriting an
-        # earlier upload that happened to share a name within the same
-        # subdirectory.
         i = 2
         while target.exists():
             parent = target.parent
@@ -1143,17 +1134,8 @@ async def append_uploaded_files(
             suffix = target.suffix
             target = parent / f"{stem}_{i}{suffix}"
             i += 1
-        # Ensure the parent subdirectory exists; for top-level files
-        # this is the upload root, already created above.
         target.parent.mkdir(parents=True, exist_ok=True)
         total = 0
-        # Only sniff magic for unknown / untrusted extensions —
-        # known-safe formats (PDF, DOCX, HWP, CSV, …) carry their own
-        # well-defined headers and a tiny 2-4 byte signature match
-        # would false-positive on a CSV that happens to start with
-        # "MZ" or a text file beginning with "regf". The deny-list
-        # already blocks the obvious dangerous extensions; magic
-        # check is the safety net for the "renamed to .bin" case.
         sniff = ext not in _TRUSTED_MAGIC_EXTS
         try:
             with target.open("wb") as out_f:
@@ -1165,9 +1147,7 @@ async def append_uploaded_files(
                         target.unlink(missing_ok=True)
                         raise HTTPException(
                             400,
-                            f"파일 헤더가 {danger} 시그니처와 일치합니다 "
-                            f"({raw_name}). 확장자만 바꾼 실행 파일은 "
-                            "업로드할 수 없습니다.",
+                            f"파일 헤더가 {danger} 시그니처와 일치 (확장자만 바꾼 실행 파일)",
                         )
                 if head:
                     total += len(head)
@@ -1182,20 +1162,43 @@ async def append_uploaded_files(
                         target.unlink(missing_ok=True)
                         raise HTTPException(
                             413,
-                            f"파일이 너무 큽니다 ({raw_name}, "
-                            f"limit {cap_bytes // (1024*1024)} MB)",
+                            f"파일이 너무 큼 ({total:,} bytes > "
+                            f"한도 {cap_bytes // (1024*1024)} MB)",
                         )
                     out_f.write(chunk)
         except HTTPException:
             raise
         except OSError as exc:
-            raise HTTPException(500, f"파일 저장 실패: {exc}") from exc
+            target.unlink(missing_ok=True)
+            raise HTTPException(500, f"디스크 쓰기 실패: {exc}") from exc
         accepted.append(target)
 
-    # Return the full updated listing so the UI can re-render without a
-    # follow-up GET — including the per-file index status so the new
-    # rows immediately show "pending" until the next reindex lands.
-    return await _list_uploaded_files_with_status(db, project)
+    for f in files:
+        raw_name = f.filename or "untitled"
+        try:
+            await _process_one(f)
+        except HTTPException as exc:
+            log.warning(
+                "upload reject project=%s file=%s reason=%s",
+                project.id, raw_name, exc.detail,
+            )
+            errors.append(
+                schemas.RagUploadError(filename=raw_name, reason=str(exc.detail))
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception(
+                "upload unexpected error project=%s file=%s",
+                project.id, raw_name,
+            )
+            errors.append(
+                schemas.RagUploadError(
+                    filename=raw_name,
+                    reason=f"{type(exc).__name__}: {exc}",
+                )
+            )
+
+    files_out = await _list_uploaded_files_with_status(db, project)
+    return schemas.RagUploadResult(files=files_out, errors=errors)
 
 
 @router.get("/{project_id}/uploads/{filename:path}/download")

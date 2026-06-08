@@ -1572,14 +1572,32 @@ function UploadFilesPanel({
     setBusy(true);
     setErr(null);
     try {
-      const updated = await api.uploadProjectFiles(projectId, filtered);
-      setFiles(updated);
+      const result = await api.uploadProjectFiles(projectId, filtered);
+      setFiles(result.files);
+      // Build a single notice covering both client-side rejections
+      // (extension deny-list) and per-file server-side errors (magic
+      // sniff / size cap / write fail) so the user sees every file
+      // that didn't land instead of just the first one.
+      const notices: string[] = [];
       if (rejected.length > 0) {
-        // Partial pick — show a soft warning so the user can decide
-        // whether to convert the dropped files (xlsx → csv, hwp →
-        // pdf, etc.) before pressing reindex.
+        notices.push(
+          `차단된 확장자 ${rejected.length}개 (${_summarizeRejectedExts(rejected)})`,
+        );
+      }
+      if (result.errors.length > 0) {
+        const sample = result.errors
+          .slice(0, 3)
+          .map((e) => `${e.filename}: ${e.reason}`)
+          .join(" / ");
+        const more =
+          result.errors.length > 3
+            ? ` (외 ${result.errors.length - 3}개)`
+            : "";
+        notices.push(`서버 거부 ${result.errors.length}개 — ${sample}${more}`);
+      }
+      if (notices.length > 0) {
         setErr(
-          `${picked.length}개 중 ${filtered.length}개 추가됨 — ${rejected.length}개 미지원 확장자 제외 (${_summarizeRejectedExts(rejected)})`,
+          `${picked.length}개 중 ${result.files.length}개 추가됨 — ${notices.join(" · ")}`,
         );
       }
       await onAfterChange?.();
@@ -2310,7 +2328,28 @@ function AddProjectForm({
       // files didn't make it.
       if (sourceType === "upload" && created && uploadFiles.length > 0) {
         try {
-          await api.uploadProjectFiles(created.id, uploadFiles);
+          const result = await api.uploadProjectFiles(
+            created.id,
+            uploadFiles,
+          );
+          if (result.errors.length > 0) {
+            // Surface per-file rejections even when the batch
+            // overall succeeded — the user just made the project,
+            // they need to know which docs to fix/convert before
+            // re-uploading.
+            const sample = result.errors
+              .slice(0, 3)
+              .map((e) => `${e.filename}: ${e.reason}`)
+              .join(" / ");
+            const more =
+              result.errors.length > 3
+                ? ` (외 ${result.errors.length - 3}개)`
+                : "";
+            window.alert(
+              `${uploadFiles.length}개 중 ${result.files.length}개 업로드됨 — ` +
+                `${result.errors.length}개 거부: ${sample}${more}`,
+            );
+          }
           await api.reindexProject(created.id);
         } catch (uploadErr) {
           setError(
