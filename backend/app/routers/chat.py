@@ -254,13 +254,18 @@ def _build_history(
     new_user_prompt: str,
     new_user_images: list[str] | None = None,
 ) -> list[ChatMessage]:
-    # Sliding window: keep only the last N persisted messages so the
-    # context length sent to Ollama doesn't grow unbounded across a long
-    # conversation. The new user prompt is always appended on top, and
-    # — when the current attachments include image bytes — the base64
-    # blobs ride along on that message so vision models can see them.
+    # Sliding window: keep only the last N *visible* persisted messages
+    # so the context length sent to Ollama doesn't grow unbounded across
+    # a long conversation. Messages marked hidden=True (e.g., the raw
+    # whisper transcript persisted alongside its summary) are excluded
+    # because they're typically huge bodies that crowd out real intent
+    # — the summary alone is enough for follow-up Q&A about the meeting.
+    # The new user prompt is always appended on top, and — when the
+    # current attachments include image bytes — the base64 blobs ride
+    # along on that message so vision models can see them.
     limit = max(1, settings.max_history_messages)
-    recent = list(session.messages)[-limit:]
+    visible = [m for m in session.messages if not getattr(m, "hidden", False)]
+    recent = visible[-limit:]
     history: list[ChatMessage] = [
         ChatMessage(role=m.role, content=m.content) for m in recent
     ]
