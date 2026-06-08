@@ -133,9 +133,12 @@ async def update_message(
     if msg is None:
         raise HTTPException(404, "message not found")
     msg.content = payload.content
-    # Editing a message un-hides it — the user actively touched it,
-    # they expect to see the result in the bubble row immediately.
-    msg.hidden = False
+    # Don't un-hide on edit — the hidden flag also marks transcript-
+    # derived ("meeting") sessions for Cowork's orphan-row backfill,
+    # so flipping it on a routine fix to the raw transcript would
+    # make the meeting disappear from Cowork after the audio is
+    # deleted. The bubble's own collapsed state opens optimistically
+    # on save, which is what the user actually wants visually.
     await db.commit()
     await db.refresh(msg)
     return msg

@@ -493,7 +493,7 @@ export interface Transcript {
   source_filename: string;
   size_bytes: number;
   duration_sec: number | null;
-  status: "pending" | "transcribing" | "diarizing" | "summarizing" | "ok" | "failed";
+  status: "pending" | "transcribing" | "diarizing" | "summarizing" | "ok" | "failed" | "archived";
   progress: number | null;
   language: string | null;
   diarized: boolean;

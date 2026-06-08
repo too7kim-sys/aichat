@@ -80,6 +80,10 @@ const STATUS_LABEL: Record<Transcript["status"], string> = {
   summarizing: "요약 중",
   ok: "완료",
   failed: "실패",
+  // Orphan rows — audio Transcript record was deleted but the
+  // chat session (회의록) still lives. Keep showing them so the
+  // meeting doesn't vanish from Cowork.
+  archived: "보관됨",
 };
 
 
@@ -991,7 +995,7 @@ function CoworkPane({
   // is in flight.
   useEffect(() => {
     const inFlight = transcripts.some(
-      (t) => !["ok", "failed"].includes(t.status),
+      (t) => !["ok", "failed", "archived"].includes(t.status),
     );
     if (!inFlight) return;
     const id = window.setInterval(async () => {
@@ -999,7 +1003,7 @@ function CoworkPane({
       if (next) {
         setTranscripts(next);
         const stillInFlight = next.some(
-          (t) => !["ok", "failed"].includes(t.status),
+          (t) => !["ok", "failed", "archived"].includes(t.status),
         );
         if (!stillInFlight) {
           await onSessionRefresh?.();
@@ -1068,11 +1072,20 @@ function CoworkPane({
   }
 
   async function deleteTranscript(t: Transcript) {
-    if (!window.confirm("이 전사 기록을 삭제할까요?")) return;
+    const isArchived = t.status === "archived";
+    const message = isArchived
+      ? "보관된 회의록(채팅 세션)을 완전히 삭제할까요?\n삭제 후에는 복구할 수 없습니다."
+      : "이 전사 기록을 삭제할까요?\n채팅 세션 자체는 그대로 남아 Cowork 보관 목록에 표시됩니다.";
+    if (!window.confirm(message)) return;
     setBusyId(t.id);
     try {
       await api.deleteTranscript(t.id);
       await refreshAll();
+      if (isArchived) {
+        // Removing the underlying session — Chat sidebar needs a
+        // refresh too so the row disappears there.
+        await onSessionRefresh?.();
+      }
     } catch (e) {
       window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -1585,7 +1598,7 @@ function TranscriptRow({
             >
               <IconEdit size={11} />
             </button>
-            {t.status === "ok" && t.session_id && (
+            {(t.status === "ok" || t.status === "archived") && t.session_id && (
               <button
                 type="button"
                 className="cowork-item-run"
@@ -1601,7 +1614,11 @@ function TranscriptRow({
               className="cowork-item-run"
               onClick={onDelete}
               disabled={busy || busyId === t.id}
-              title="삭제"
+              title={
+                t.status === "archived"
+                  ? "회의록 완전 삭제 (채팅 세션 포함)"
+                  : "전사 기록 삭제 (채팅 세션은 보관됨)"
+              }
             >
               <IconX size={13} />
             </button>
@@ -1618,12 +1635,16 @@ function TranscriptRow({
             ? ` · ${formatDuration(Math.round(t.duration_sec))}`
             : ""}
         </span>
-        {t.status === "ok" && t.session_id ? (
+        {(t.status === "ok" || t.status === "archived") && t.session_id ? (
           <button
             type="button"
             className="cowork-run-badge ok"
             onClick={onOpen}
-            title="결과 세션 열기 (채팅에서 내용을 수정한 뒤 다시 받으면 반영됩니다)"
+            title={
+              t.status === "archived"
+                ? "보관된 회의록 열기 (음원은 삭제됨)"
+                : "결과 세션 열기 (채팅에서 내용을 수정한 뒤 다시 받으면 반영됩니다)"
+            }
           >
             <IconCheckCircle size={11} /> 보기
           </button>
