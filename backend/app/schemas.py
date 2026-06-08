@@ -23,6 +23,10 @@ class MessageOut(BaseModel):
     attachments_summary: list[AttachmentSummary] | None = None
     tokens_out: int | None = None
     latency_ms: int | None = None
+    # True when the message should be rendered collapsed by default
+    # — set by the transcription pipeline so the raw whisper text
+    # doesn't dominate the chat panel.
+    hidden: bool = False
     created_at: datetime
 
     @field_validator("attachments_summary", mode="before")
@@ -76,6 +80,14 @@ class SessionCreate(BaseModel):
 
 class SessionUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+
+
+class MessageUpdate(BaseModel):
+    """PATCH body for editing a single message. The chat panel's
+    pencil button + transcript modal both use this — they let the
+    user tighten the AI summary or fix a whisper mis-transcription
+    without having to ask the model to redo it."""
+    content: str = Field(min_length=1, max_length=200_000)
 
 
 class SessionMove(BaseModel):

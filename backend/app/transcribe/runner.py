@@ -179,9 +179,14 @@ async def _run_transcription(transcript_id: str, audio_path: str) -> None:
         session = models.Session(user_id=tr.user_id, title=title)
         db.add(session)
         await db.flush()
-        # User message = full transcript (chunker-friendly).
+        # User message = full transcript (chunker-friendly). Marked
+        # hidden so the chat panel collapses it into a "원문 전사 —
+        # 클릭해서 펼치기" placeholder instead of flooding the bubble
+        # row. The row stays in the DB for the export modal and the
+        # RAG indexer.
         db.add(models.Message(
             session_id=session.id, role="user", content=transcript_md,
+            hidden=True,
         ))
         await db.commit()
 

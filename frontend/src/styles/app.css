@@ -6344,6 +6344,108 @@ body {
 
 /* Inline rename input on a transcript row — matches the cowork-item
  * font so the row layout doesn't jump when the user toggles edit. */
+/* Inline message editing — pencil button on bubbles swaps the body
+ * for a textarea + save/cancel actions. Reused for user (raw
+ * transcript) + assistant (summary) bubbles. */
+.bubble-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.bubble-edit-text {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.55;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  resize: vertical;
+  min-height: 60px;
+}
+.bubble-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.bubble-edit-cancel,
+.bubble-edit-save {
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.bubble-edit-cancel:hover { background: var(--bg-sidebar); }
+.bubble-edit-save {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.bubble-edit-save:hover:not(:disabled) { filter: brightness(1.05); }
+.bubble-edit-save:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Tiny ✏ / 🗗 / 📋 button row in the bubble action footer — used by
+ * the inline edit + re-collapse + copy controls. */
+.bubble-tiny-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.bubble-tiny-btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.bubble-action-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Collapsed placeholder for hidden messages (raw transcript). One
+ * click expands the bubble into the regular layout. */
+.bubble-collapsed { padding: 4px 0; }
+.bubble-collapse-toggle {
+  background: var(--bg-sidebar);
+  border: 1px dashed var(--border-strong);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bubble-collapse-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.bubble-collapse-meta {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 .cowork-item-name-input {
   flex: 1;
   min-width: 0;

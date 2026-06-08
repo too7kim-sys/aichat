@@ -113,6 +113,34 @@ async def move_session_to_chat_project(
     return session
 
 
+@router.patch(
+    "/{session_id}/messages/{message_id}",
+    response_model=schemas.MessageOut,
+)
+async def update_message(
+    session_id: str,
+    message_id: str,
+    payload: schemas.MessageUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Edit a single message's content in place. Chat panel uses
+    this from the pencil action on assistant bubbles + the
+    transcript export flow uses it to fix a mis-transcription
+    before downloading the 회의록."""
+    session = await _load_owned(db, session_id, user.id)
+    msg = next((m for m in session.messages if m.id == message_id), None)
+    if msg is None:
+        raise HTTPException(404, "message not found")
+    msg.content = payload.content
+    # Editing a message un-hides it — the user actively touched it,
+    # they expect to see the result in the bubble row immediately.
+    msg.hidden = False
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,

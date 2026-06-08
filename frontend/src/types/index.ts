@@ -13,6 +13,10 @@ export interface Message {
   provider: string | null;
   content: string;
   attachments_summary: AttachmentSummary[] | null;
+  /** When true, the chat panel renders this message as a collapsed
+   *  "원문 전사 — 펼치기" placeholder. Set by the transcription
+   *  pipeline so the raw whisper output doesn't flood the bubble row. */
+  hidden?: boolean;
   created_at: string;
 }
 

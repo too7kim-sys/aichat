@@ -980,9 +980,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 <MessageBubble
                   key={m.id}
                   messageId={m.id}
+                  sessionId={session.id}
                   role={m.role}
                   provider={m.provider}
                   content={m.content}
+                  hidden={!!m.hidden}
                   attachments={m.attachments_summary ?? null}
                   artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
                 />

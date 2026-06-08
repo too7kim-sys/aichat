@@ -568,6 +568,24 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ title }),
     }),
+  /** Edit a message in place — the chat bubble's pencil action
+   *  posts the new content here so the user can fix a mis-
+   *  transcription or tighten the AI summary without asking the
+   *  model to redo the turn. */
+  updateMessage: (
+    sessionId: string,
+    messageId: string,
+    content: string,
+  ) =>
+    json<{
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      hidden: boolean;
+    }>(`/sessions/${sessionId}/messages/${messageId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content }),
+    }),
   /** Move a session into a chat project (folder), or detach by
    *  passing null. The sidebar uses this from each session row. */
   moveSessionToChatProject: (sessionId: string, projectId: string | null) =>

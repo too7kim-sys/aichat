@@ -81,6 +81,17 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_chat_project_id "
                     "ON sessions(chat_project_id)"
                 )
+            # Message-hidden flag for the transcription pipeline — the
+            # raw whisper output stores hidden=1 so the chat panel
+            # collapses it by default while keeping the row available
+            # for the 회의록 export modal + RAG indexer.
+            mcols = await conn.exec_driver_sql("PRAGMA table_info(messages)")
+            mexisting = {row[1] for row in mcols.fetchall()}
+            if mexisting and "hidden" not in mexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN hidden "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
             # Projects table may exist without corpus_type from the
             # original RAG ship — default existing rows to "code".
             pcols = await conn.exec_driver_sql("PRAGMA table_info(projects)")

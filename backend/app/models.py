@@ -642,6 +642,12 @@ class Message(Base):
     )
     tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # When true, the chat panel hides the message body in a collapsed
+    # placeholder ("원문 전사 — 클릭해서 펼치기"). Used by the
+    # transcription pipeline so the raw whisper output doesn't flood
+    # the bubble row, while keeping the message in the DB so the
+    # export modal / RAG indexer can still see it.
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="messages")
