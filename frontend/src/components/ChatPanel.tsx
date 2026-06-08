@@ -974,6 +974,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
           {(() => {
             let turn = 0;
+            // Inline edit is intended for the 회의록(transcript) chat
+            // where users tidy a mis-transcribed line or tighten the
+            // summary before exporting. Detect transcript sessions by
+            // the hidden-message marker the transcription pipeline
+            // sets — regular chats stay read-only so model history
+            // doesn't drift from what was actually sent.
+            const isTranscriptSession = session.messages.some(
+              (m) => m.hidden,
+            );
             return session.messages.map((m) => {
               if (m.role === "user") turn += 1;
               return (
@@ -985,6 +994,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   provider={m.provider}
                   content={m.content}
                   hidden={!!m.hidden}
+                  editable={isTranscriptSession}
+                  onEdited={(next) =>
+                    setSession((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            messages: prev.messages.map((row) =>
+                              row.id === m.id
+                                ? { ...row, content: next, hidden: false }
+                                : row,
+                            ),
+                          }
+                        : prev,
+                    )
+                  }
                   attachments={m.attachments_summary ?? null}
                   artifactTitlePrefix={m.role === "assistant" ? `턴 ${turn}` : undefined}
                 />

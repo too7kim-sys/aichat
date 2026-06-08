@@ -25,9 +25,13 @@ interface Props {
    *  matching bubble into view after navigating. */
   messageId?: string;
   /** Session id, threaded through so the inline edit can PATCH the
-   *  right URL. When set together with messageId, the bubble shows
-   *  a pencil button + a hidden-collapse affordance. */
+   *  right URL. When set together with messageId + editable, the
+   *  bubble shows a pencil button + a hidden-collapse affordance. */
   sessionId?: string;
+  /** Gate for the inline edit affordance. Only the 회의록(transcript)
+   *  chat enables this — regular chats stay read-only so the model
+   *  history isn't accidentally rewritten. */
+  editable?: boolean;
   /** True when this message is the raw transcript (or any other
    *  body the backend chose to keep but not show by default).
    *  Renders as a collapsed "원문 보기" placeholder until clicked. */
@@ -91,6 +95,7 @@ export function MessageBubble({
   onToggleSelect,
   messageId,
   sessionId,
+  editable = false,
   hidden = false,
   onEdited,
 }: Props) {
@@ -103,10 +108,13 @@ export function MessageBubble({
   const [draft, setDraft] = useState(content);
   const [saving, setSaving] = useState(false);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
+  // Sync local body only when the parent's `content` prop actually
+  // changes (e.g., after a refetch). Closing the editor used to be
+  // in this dep list, which reset body to the *stale* prop value
+  // right after a successful save and wiped the optimistic update.
   useEffect(() => {
     setBody(content);
-    if (!editing) setDraft(content);
-  }, [content, editing]);
+  }, [content]);
   useEffect(() => {
     // Honor the parent's hidden flag whenever it flips (e.g., parent
     // refetched after an edit and the row is now visible).
@@ -123,7 +131,15 @@ export function MessageBubble({
   }, [editing]);
 
   const canEdit =
-    !!sessionId && !!messageId && !streaming && !selectionMode;
+    editable && !!sessionId && !!messageId && !streaming && !selectionMode;
+
+  function startEditing() {
+    // Seed the draft from the displayed body so re-opening after a
+    // successful save starts from the *new* content, not from the
+    // stale `content` prop.
+    setDraft(body);
+    setEditing(true);
+  }
 
   async function commitEdit() {
     if (!sessionId || !messageId) return;
@@ -253,7 +269,7 @@ export function MessageBubble({
               <button
                 type="button"
                 className="bubble-tiny-btn"
-                onClick={() => setEditing(true)}
+                onClick={startEditing}
                 title="메시지 수정"
               >
                 <IconEdit size={11} />
@@ -314,7 +330,7 @@ export function MessageBubble({
               <button
                 type="button"
                 className="bubble-tiny-btn"
-                onClick={() => setEditing(true)}
+                onClick={startEditing}
                 title="요약 수정"
               >
                 <IconEdit size={11} /> 수정
