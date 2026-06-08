@@ -963,6 +963,34 @@ export const api = {
 
   // Transcripts (회의록/강의 전사 + 요약)
   listTranscripts: () => json<Transcript[]>("/transcripts"),
+  /** Whisper model availability — admin-only. The Cowork meetings
+   *  pane uses this to show a "모델 다운로드" CTA when the closed-
+   *  network install hasn't been completed yet. */
+  whisperStatus: () =>
+    json<{
+      enabled: boolean;
+      offline: boolean;
+      model: string;
+      model_dir: string;
+      cached_snapshot: string | null;
+      ready: boolean;
+      download: {
+        status: "idle" | "running" | "done" | "failed";
+        model: string;
+        local_dir: string;
+        error: string | null;
+      };
+    }>("/transcripts/_whisper-status"),
+  /** Kick off a background snapshot_download into WHISPER_MODEL_DIR.
+   *  Admin-only. Returns the running state — poll whisperStatus()
+   *  until status flips to "done" / "failed". */
+  whisperDownload: () =>
+    json<{
+      status: "idle" | "running" | "done" | "failed";
+      model: string;
+      local_dir: string;
+      error: string | null;
+    }>("/transcripts/_whisper-download", { method: "POST" }),
   uploadTranscript: async (file: File | Blob, filename?: string): Promise<Transcript> => {
     const fd = new FormData();
     fd.append("file", file, filename || (file instanceof File ? file.name : "녹음.webm"));

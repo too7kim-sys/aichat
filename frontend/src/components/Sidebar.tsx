@@ -1141,6 +1141,9 @@ function CoworkPane({
 
       {tab === "meetings" && (
         <div className="sidebar-sessions">
+          {isAdmin && (
+            <WhisperBootstrapBanner />
+          )}
           <div className="sidebar-actions">
             {recording ? (
               <button className="primary recording" onClick={stopRecording}>
@@ -1501,5 +1504,105 @@ function CoworkKnowledgeModal({
       adminMode={false}
       initialAddOpen={addOpen}
     />
+  );
+}
+
+
+/** Closed-network Whisper bootstrap — checks whether the model is on
+ *  disk and exposes a one-click download CTA. Polls while a download
+ *  is running so the admin doesn't have to refresh. Shown only when
+ *  ENABLE_TRANSCRIPTION is on AND the model isn't already cached. */
+function WhisperBootstrapBanner() {
+  type Status = Awaited<ReturnType<typeof api.whisperStatus>>;
+  const [status, setStatus] = useState<Status | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try {
+      setStatus(await api.whisperStatus());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+  useEffect(() => {
+    refresh();
+  }, []);
+  // Poll every 3s while a download is running so the row updates
+  // without the admin having to refresh.
+  useEffect(() => {
+    if (status?.download.status !== "running") return;
+    const id = window.setInterval(refresh, 3000);
+    return () => window.clearInterval(id);
+  }, [status?.download.status]);
+
+  if (!status || !status.enabled || status.ready) {
+    // Transcription disabled OR model already on disk → nothing to show.
+    return null;
+  }
+  const dl = status.download;
+  return (
+    <div className="whisper-banner">
+      <div className="whisper-banner-head">
+        <strong>Whisper 모델 준비 필요</strong>
+        <span className="whisper-banner-model">{status.model}</span>
+      </div>
+      {dl.status === "running" ? (
+        <div className="whisper-banner-msg">
+          ⏳ 다운로드 중… ({dl.model})
+          <br />
+          <code>{dl.local_dir}</code>
+        </div>
+      ) : dl.status === "failed" ? (
+        <div className="whisper-banner-msg whisper-banner-err">
+          ⚠ 실패: {dl.error}
+        </div>
+      ) : dl.status === "done" ? (
+        <div className="whisper-banner-msg">
+          ✓ 다운로드 완료. .env 에 다음을 추가하고 백엔드를 재시작하세요:
+          <br />
+          <code>WHISPER_MODEL={dl.local_dir}</code>
+        </div>
+      ) : (
+        <div className="whisper-banner-msg">
+          {status.offline
+            ? "오프라인 모드입니다 — 다운로드하려면 일시적으로 TRANSCRIPTION_OFFLINE=false 로 두거나, 인터넷 PC에서 받아서 복사하세요."
+            : `백엔드가 ${status.model_dir} 에 다운로드합니다 (약 3 GB, 수 분 소요).`}
+        </div>
+      )}
+      {err && (
+        <div className="whisper-banner-msg whisper-banner-err">{err}</div>
+      )}
+      <div className="whisper-banner-actions">
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || dl.status === "running"}
+          onClick={async () => {
+            setErr(null);
+            setBusy(true);
+            try {
+              await api.whisperDownload();
+              await refresh();
+            } catch (e) {
+              setErr(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {dl.status === "running" ? "다운로드 중…" : "📥 모델 다운로드"}
+        </button>
+        <button
+          type="button"
+          className="cowork-upload-btn"
+          onClick={refresh}
+          disabled={busy}
+          title="상태 새로고침"
+        >
+          ↻
+        </button>
+      </div>
+    </div>
   );
 }

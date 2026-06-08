@@ -6185,6 +6185,49 @@ body {
   padding: 12px;
   line-height: 1.55;
 }
+
+/* Closed-network Whisper bootstrap — shown in the meetings tab when
+ * ENABLE_TRANSCRIPTION is on but the model isn't on disk yet. Admin
+ * clicks "📥 모델 다운로드" and we poll status until it lands. */
+.whisper-banner {
+  margin: 10px 12px;
+  padding: 10px 12px;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  border-radius: 8px;
+  color: #78350f;
+  font-size: 12px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.whisper-banner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.whisper-banner-model {
+  font: 11px ui-monospace, monospace;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.whisper-banner-msg code {
+  font: 11px ui-monospace, monospace;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+.whisper-banner-err {
+  color: #991b1b;
+}
+.whisper-banner-actions {
+  display: flex;
+  gap: 6px;
+}
 .cowork-list {
   list-style: none;
   padding: 0;
