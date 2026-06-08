@@ -263,6 +263,14 @@ class TranscriptOut(BaseModel):
         from_attributes = True
 
 
+class TranscriptUpdate(BaseModel):
+    """PATCH body for renaming a transcript. The new title overwrites
+    `source_filename` (which is how the Cowork list labels each row)
+    AND the linked chat session's title — both surfaces show the
+    rename in one go."""
+    title: str = Field(min_length=1, max_length=200)
+
+
 class WorkflowOut(BaseModel):
     id: str
     name: str

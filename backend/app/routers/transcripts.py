@@ -147,6 +147,212 @@ async def delete_transcript(
     await db.commit()
 
 
+@router.patch("/{transcript_id}", response_model=schemas.TranscriptOut)
+async def rename_transcript(
+    transcript_id: str,
+    payload: schemas.TranscriptUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Rename a transcript. Updates source_filename (the row's
+    visible label) AND the linked chat session's title — keeping
+    both surfaces in sync so the sidebar's session list and the
+    Cowork meetings list show the same name."""
+    tr = (
+        await db.execute(
+            select(models.Transcript).where(
+                models.Transcript.id == transcript_id,
+                models.Transcript.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if tr is None:
+        raise HTTPException(404, "transcript not found")
+    new_title = payload.title.strip()
+    tr.source_filename = new_title
+    if tr.session_id:
+        sess = await db.scalar(
+            select(models.Session).where(
+                models.Session.id == tr.session_id,
+                models.Session.user_id == user.id,
+            )
+        )
+        if sess:
+            sess.title = new_title
+    await db.commit()
+    await db.refresh(tr)
+    return tr
+
+
+@router.get("/{transcript_id}/export.docx")
+async def export_transcript_docx(
+    transcript_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Render the transcript's linked chat session as a Korean
+    회의록 DOCX and stream it back. Each user message becomes a
+    `## 발언 / 전사 N` block (the raw whisper output); each
+    assistant message becomes an `## 요약 / 정리 N` block (the
+    polished AI summary the user may have iterated on in chat).
+    Edit the chat content via the regular chat surface — this
+    endpoint always reflects whatever messages exist on the linked
+    session at export time."""
+    import io
+    import urllib.parse
+
+    tr = (
+        await db.execute(
+            select(models.Transcript).where(
+                models.Transcript.id == transcript_id,
+                models.Transcript.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if tr is None:
+        raise HTTPException(404, "transcript not found")
+    if not tr.session_id:
+        raise HTTPException(409, "전사가 아직 완료되지 않았습니다")
+    sess = await db.scalar(
+        select(models.Session).where(
+            models.Session.id == tr.session_id,
+            models.Session.user_id == user.id,
+        )
+    )
+    if sess is None:
+        raise HTTPException(404, "연결된 채팅 세션을 찾을 수 없습니다")
+    msg_rows = (
+        await db.execute(
+            select(models.Message)
+            .where(models.Message.session_id == sess.id)
+            .order_by(models.Message.created_at.asc())
+        )
+    ).scalars().all()
+
+    try:
+        from docx import Document
+        from docx.shared import Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    except ImportError as exc:
+        raise HTTPException(
+            500,
+            "python-docx 가 설치돼 있지 않습니다. "
+            "백엔드 의존성 설치를 확인하세요.",
+        ) from exc
+
+    doc = Document()
+
+    # Title page
+    title = doc.add_heading("회의록", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitle = doc.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = subtitle.add_run(tr.source_filename or sess.title or "녹음")
+    run.bold = True
+    run.font.size = Pt(14)
+
+    meta = doc.add_paragraph()
+    meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    meta_bits: list[str] = []
+    meta_bits.append(f"작성 일시: {tr.created_at.strftime('%Y-%m-%d %H:%M')}")
+    if tr.duration_sec:
+        m, s = divmod(int(tr.duration_sec), 60)
+        h, m = divmod(m, 60)
+        if h:
+            meta_bits.append(f"녹음 길이: {h}h {m:02d}m {s:02d}s")
+        else:
+            meta_bits.append(f"녹음 길이: {m}m {s:02d}s")
+    if tr.language:
+        meta_bits.append(f"언어: {tr.language}")
+    if tr.diarized:
+        meta_bits.append("화자 분리: 적용")
+    meta_run = meta.add_run("  ·  ".join(meta_bits))
+    meta_run.italic = True
+    meta_run.font.size = Pt(10)
+
+    doc.add_paragraph()  # spacer
+
+    if not msg_rows:
+        doc.add_paragraph(
+            "세션에 본문이 없습니다. 채팅창에서 내용을 수정·작성한 뒤 다시 받아주세요."
+        )
+    else:
+        # Group messages — typically there's exactly one user message
+        # (the raw transcript) and one assistant message (the
+        # summary), but the user may have continued the chat with
+        # additional clarifications / Q&A turns. Render every turn
+        # so manual edits show up in the export.
+        user_idx = 0
+        asst_idx = 0
+        for m in msg_rows:
+            content = (m.content or "").strip()
+            if not content:
+                continue
+            if m.role == "assistant":
+                asst_idx += 1
+                doc.add_heading(
+                    f"요약 / 정리"
+                    + (f" {asst_idx}" if asst_idx > 1 else ""),
+                    level=1,
+                )
+            else:
+                user_idx += 1
+                # The first user message is the raw transcript; later
+                # ones are follow-up questions / context the user
+                # added in chat.
+                if user_idx == 1:
+                    doc.add_heading("전체 전사", level=1)
+                else:
+                    doc.add_heading(f"추가 메모 {user_idx - 1}", level=1)
+            for para in content.split("\n\n"):
+                line = para.strip()
+                if not line:
+                    continue
+                # Very light markdown handling — strip leading "## "
+                # so heading markers don't appear as literal text in
+                # the body. The chunker doesn't keep headings within
+                # the chat bubble anyway.
+                if line.startswith("# "):
+                    doc.add_heading(line[2:].strip(), level=2)
+                elif line.startswith("## "):
+                    doc.add_heading(line[3:].strip(), level=2)
+                elif line.startswith("### "):
+                    doc.add_heading(line[4:].strip(), level=3)
+                else:
+                    p = doc.add_paragraph()
+                    p.add_run(line)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    # Korean-safe Content-Disposition — both legacy filename + RFC-5987
+    # filename* so old clients get something readable and modern ones
+    # get the original Korean title.
+    base = (tr.source_filename or sess.title or "회의록").rsplit(".", 1)[0]
+    leaf = f"{base} 회의록.docx"
+    ascii_fallback = (
+        leaf.encode("ascii", errors="replace")
+        .decode("ascii")
+        .replace('"', "_")
+    )
+    encoded = urllib.parse.quote(leaf, safe="")
+    disposition = (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{encoded}"
+    )
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        buf,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        headers={"Content-Disposition": disposition},
+    )
+
+
 # ── Whisper model bootstrap (admin) ──────────────────────────────────
 
 _DOWNLOAD_BACKGROUND: set[asyncio.Task] = set()

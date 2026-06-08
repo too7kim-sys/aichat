@@ -1011,6 +1011,43 @@ export const api = {
   },
   deleteTranscript: (id: string) =>
     json<void>(`/transcripts/${id}`, { method: "DELETE" }),
+  renameTranscript: (id: string, title: string) =>
+    json<Transcript>(`/transcripts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  /** Download the transcript's chat session as a Korean 회의록 DOCX.
+   *  Fetches with the bearer token, then triggers a synthesised
+   *  <a download> click so the file lands in the user's downloads
+   *  folder with the original Korean title. */
+  exportTranscriptDocx: async (id: string, title: string) => {
+    const res = await fetch(
+      `${BASE}/transcripts/${id}/export.docx`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      let detail = body;
+      try {
+        detail = JSON.parse(body).detail ?? body;
+      } catch {
+        // not JSON
+      }
+      throw new Error(detail || `${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // Server already attaches the right filename via Content-
+    // Disposition; this is just a sensible fallback when the
+    // browser ignores it on blob: URLs.
+    a.download = `${title} 회의록.docx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
 
   listWorkspaces: () => json<Workspace[]>("/code/workspaces"),
   createWorkspace: (payload: {

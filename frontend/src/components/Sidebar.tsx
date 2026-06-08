@@ -66,6 +66,22 @@ interface Props {
   onChatProjectsRefresh?: () => Promise<void> | void;
 }
 
+function formatDuration(s: number): string {
+  const m = Math.floor(s / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return `${m}:${ss}`;
+}
+
+const STATUS_LABEL: Record<Transcript["status"], string> = {
+  pending: "대기",
+  transcribing: "전사 중",
+  diarizing: "화자 분리 중",
+  summarizing: "요약 중",
+  ok: "완료",
+  failed: "실패",
+};
+
+
 function groupByDate(sessions: Session[]) {
   const now = Date.now();
   const today: Session[] = [];
@@ -1057,20 +1073,6 @@ function CoworkPane({
     }
   }
 
-  function formatDuration(s: number): string {
-    const m = Math.floor(s / 60);
-    const ss = String(s % 60).padStart(2, "0");
-    return `${m}:${ss}`;
-  }
-
-  const STATUS_LABEL: Record<Transcript["status"], string> = {
-    pending: "대기",
-    transcribing: "전사 중",
-    diarizing: "화자 분리 중",
-    summarizing: "요약 중",
-    ok: "완료",
-    failed: "실패",
-  };
 
   useEffect(() => {
     refreshAll();
@@ -1195,58 +1197,16 @@ function CoworkPane({
           ) : (
             <ul className="cowork-list">
               {transcripts.map((t) => (
-                <li
+                <TranscriptRow
                   key={t.id}
-                  className={`cowork-item status-${t.status}`}
-                >
-                  <div className="cowork-item-head">
-                    <span
-                      className="cowork-item-name"
-                      title={t.source_filename}
-                    >
-                      {t.source_filename}
-                    </span>
-                    <button
-                      type="button"
-                      className="cowork-item-run"
-                      onClick={() => deleteTranscript(t)}
-                      disabled={busyId === t.id}
-                      title="삭제"
-                    >
-                      <IconX size={13} />
-                    </button>
-                  </div>
-                  <div className="cowork-item-meta">
-                    <span>
-                      {STATUS_LABEL[t.status]}
-                      {typeof t.progress === "number" && t.status === "transcribing"
-                        ? ` ${Math.round(t.progress * 100)}%`
-                        : ""}
-                      {t.duration_sec
-                        ? ` · ${formatDuration(Math.round(t.duration_sec))}`
-                        : ""}
-                    </span>
-                    {t.status === "ok" && t.session_id ? (
-                      <button
-                        type="button"
-                        className="cowork-run-badge ok"
-                        onClick={() =>
-                          t.session_id && onOpenSession(t.session_id)
-                        }
-                        title="결과 세션 열기"
-                      >
-                        <IconCheckCircle size={11} /> 보기
-                      </button>
-                    ) : t.status === "failed" ? (
-                      <span
-                        className="cowork-run-badge failed"
-                        title={t.error ?? "실패"}
-                      >
-                        실패
-                      </span>
-                    ) : null}
-                  </div>
-                </li>
+                  transcript={t}
+                  busyId={busyId}
+                  onOpen={() => t.session_id && onOpenSession(t.session_id)}
+                  onDelete={() => deleteTranscript(t)}
+                  onRenamed={async () => {
+                    await refreshAll();
+                  }}
+                />
               ))}
             </ul>
           )}
@@ -1504,6 +1464,168 @@ function CoworkKnowledgeModal({
       adminMode={false}
       initialAddOpen={addOpen}
     />
+  );
+}
+
+
+/** One row in the Cowork meetings list. Inline rename (double-click
+ *  the name or click ✏) + 회의록 DOCX export (📄) + open-session +
+ *  delete. Encapsulated so the parent loop stays readable. */
+function TranscriptRow({
+  transcript: t,
+  busyId,
+  onOpen,
+  onDelete,
+  onRenamed,
+}: {
+  transcript: Transcript;
+  busyId: string | null;
+  onOpen: () => void;
+  onDelete: () => void;
+  onRenamed: () => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(t.source_filename);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+  useEffect(() => {
+    if (!editing) setDraft(t.source_filename);
+  }, [t.source_filename, editing]);
+
+  async function commit() {
+    const next = draft.trim();
+    if (!next || next === t.source_filename) {
+      setEditing(false);
+      setDraft(t.source_filename);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.renameTranscript(t.id, next);
+      await onRenamed();
+      setEditing(false);
+    } catch (e) {
+      window.alert(
+        `이름 변경 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function download() {
+    setBusy(true);
+    try {
+      await api.exportTranscriptDocx(t.id, t.source_filename);
+    } catch (e) {
+      window.alert(
+        `다운로드 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className={`cowork-item status-${t.status}`}>
+      <div className="cowork-item-head">
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="cowork-item-name-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setEditing(false);
+                setDraft(t.source_filename);
+              }
+            }}
+            maxLength={200}
+            disabled={busy}
+          />
+        ) : (
+          <span
+            className="cowork-item-name"
+            title={`${t.source_filename}\n(더블클릭하여 이름 수정)`}
+            onDoubleClick={() => setEditing(true)}
+          >
+            {t.source_filename}
+          </span>
+        )}
+        {!editing && (
+          <>
+            <button
+              type="button"
+              className="cowork-item-run"
+              onClick={() => setEditing(true)}
+              disabled={busy || busyId === t.id}
+              title="이름 수정"
+            >
+              <IconEdit size={11} />
+            </button>
+            {t.status === "ok" && t.session_id && (
+              <button
+                type="button"
+                className="cowork-item-run"
+                onClick={download}
+                disabled={busy || busyId === t.id}
+                title="회의록 DOCX 다운로드"
+              >
+                <IconFileText size={12} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="cowork-item-run"
+              onClick={onDelete}
+              disabled={busy || busyId === t.id}
+              title="삭제"
+            >
+              <IconX size={13} />
+            </button>
+          </>
+        )}
+      </div>
+      <div className="cowork-item-meta">
+        <span>
+          {STATUS_LABEL[t.status]}
+          {typeof t.progress === "number" && t.status === "transcribing"
+            ? ` ${Math.round(t.progress * 100)}%`
+            : ""}
+          {t.duration_sec
+            ? ` · ${formatDuration(Math.round(t.duration_sec))}`
+            : ""}
+        </span>
+        {t.status === "ok" && t.session_id ? (
+          <button
+            type="button"
+            className="cowork-run-badge ok"
+            onClick={onOpen}
+            title="결과 세션 열기 (채팅에서 내용을 수정한 뒤 다시 받으면 반영됩니다)"
+          >
+            <IconCheckCircle size={11} /> 보기
+          </button>
+        ) : t.status === "failed" ? (
+          <span
+            className="cowork-run-badge failed"
+            title={t.error ?? "실패"}
+          >
+            실패
+          </span>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
