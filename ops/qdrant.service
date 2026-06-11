@@ -1,0 +1,34 @@
+[Unit]
+# Qdrant vector store (docker 컨테이너를 systemd 가 잡고 흔든다)
+# - docker 가 떠 있어야 의미가 있으므로 Requires + After
+# - aichat-backend.service 가 After=qdrant.service 로 잡고 있으니
+#   aichat 일괄 기동 시 qdrant → backend 순으로 깨어남
+Description=Qdrant vector store (docker)
+Documentation=https://qdrant.tech/documentation/
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+TimeoutStartSec=120
+TimeoutStopSec=60
+
+# `docker run` 을 foreground 로 띄워 systemd 가 PID 직접 잡음.
+# --rm 으로 컨테이너가 종료되면 깨끗이 사라져서 재기동 시 이름 충돌 X.
+# 이미지 태그·포트·볼륨 경로는 운영 환경에 맞춰 수정.
+ExecStartPre=-/usr/bin/docker stop qdrant
+ExecStartPre=-/usr/bin/docker rm qdrant
+ExecStart=/usr/bin/docker run --rm \
+    --name qdrant \
+    -p 6333:6333 \
+    -p 6334:6334 \
+    -v /data/projects/aichat/qdrant_data:/qdrant/storage \
+    qdrant/qdrant:v1.12.0
+ExecStop=/usr/bin/docker stop qdrant
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

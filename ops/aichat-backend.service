@@ -1,10 +1,12 @@
 [Unit]
 # aichat FastAPI backend. Ollama·nginx 는 별도 서버이므로 의존성에서 제외.
-# qdrant 는 같은 박스의 docker 컨테이너 — docker 가 떠야 우리도 의미가 있음.
+# qdrant 는 같은 박스의 docker 컨테이너 — qdrant.service 로 systemd 가
+# 감싸뒀으므로 After=qdrant.service 로 잡아두고, Wants= 로 자동 동반
+# 기동되게 한다.
 Description=aichat FastAPI backend
 Documentation=https://github.com/too7kim-sys/aichat
-After=network-online.target docker.service
-Wants=network-online.target
+After=network-online.target docker.service qdrant.service
+Wants=network-online.target qdrant.service
 
 [Service]
 Type=simple

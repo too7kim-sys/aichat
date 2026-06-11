@@ -1,65 +1,46 @@
 #!/usr/bin/env bash
 # 사용법:
-#   ./ops/aichat.sh start      # 전체 기동
-#   ./ops/aichat.sh stop       # 전체 중지
+#   ./ops/aichat.sh start      # qdrant → backend 순서로 일괄 기동
+#   ./ops/aichat.sh stop       # 역순으로 일괄 중지
 #   ./ops/aichat.sh restart    # 전체 재기동
 #   ./ops/aichat.sh status     # 한눈에 상태 확인
 #
-# 운영 환경에 맞춰 환경변수로 토글:
-#   QDRANT_DOCKER=1            # qdrant를 docker로 띄우는 경우
-#   /etc/default/aichat 에 위 줄을 넣어두면 systemd에서도 일관되게 적용
+# 사전 등록 (1회):
+#   sudo cp ops/qdrant.service          /etc/systemd/system/
+#   sudo cp ops/aichat-backend.service  /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable qdrant aichat-backend
 set -euo pipefail
 
-# 환경 파일이 있으면 로드 (QDRANT_DOCKER 등)
-[ -f /etc/default/aichat ] && . /etc/default/aichat
-
-ACT="${1:-status}"
-
-# 이 서버에서 직접 관리할 서비스만 (ollama·nginx 는 별도 서버에 있음).
-# 기동 순서: qdrant → backend
-# 중지 순서: 역순 — 사용자 요청 받는 backend 부터 끊는다.
+# ollama·nginx 는 별도 서버. 이 서버에서 직접 잡는 건 둘뿐.
+# qdrant 도 systemd 가 docker 컨테이너를 wrapping (ops/qdrant.service)
+# 하므로 일관되게 systemctl 로 다룬다.
 SERVICES_UP=(qdrant aichat-backend)
 SERVICES_DN=(aichat-backend qdrant)
 
-QDRANT_DOCKER="${QDRANT_DOCKER:-0}"
+unit_exists() {
+    systemctl list-unit-files | grep -q "^${1}\.service"
+}
 
 start_one() {
     local s="$1"
-    if [[ "$s" == "qdrant" && "$QDRANT_DOCKER" == "1" ]]; then
-        # 컨테이너 존재 여부 먼저 확인 — 없으면 친절한 안내
-        if ! sudo docker ps -a --format '{{.Names}}' | grep -qx qdrant; then
-            echo "  ⏭ qdrant (docker) — 컨테이너 없음. 최초 1회 생성 필요:"
-            echo "      sudo docker run -d --restart=always --name qdrant \\"
-            echo "          -p 6333:6333 -p 6334:6334 \\"
-            echo "          -v /data/projects/aichat/qdrant_data:/qdrant/storage \\"
-            echo "          qdrant/qdrant:v1.12.0"
-            return
-        fi
-        sudo docker start qdrant >/dev/null 2>&1 \
-            && echo "  ✅ qdrant (docker)" \
-            || echo "  ⚠ qdrant (docker) 기동 실패 — docker logs qdrant 확인"
-        return
-    fi
-    if systemctl list-unit-files | grep -q "^${s}\.service"; then
-        sudo systemctl start "$s" && echo "  ✅ $s" || echo "  ⚠ $s 실패"
+    if unit_exists "$s"; then
+        sudo systemctl start "$s" && echo "  ✅ $s" || echo "  ⚠ $s 기동 실패"
     else
-        echo "  ⏭ $s (unit 없음, 건너뜀)"
+        echo "  ⏭ $s (systemd unit 없음, 등록 필요)"
     fi
 }
 
 stop_one() {
     local s="$1"
-    if [[ "$s" == "qdrant" && "$QDRANT_DOCKER" == "1" ]]; then
-        sudo docker stop qdrant >/dev/null 2>&1 && echo "  ⛔ qdrant (docker)" \
-            || echo "  ⏭ qdrant"
-        return
-    fi
-    if systemctl list-unit-files | grep -q "^${s}\.service"; then
+    if unit_exists "$s"; then
         sudo systemctl stop "$s" && echo "  ⛔ $s" || echo "  ⚠ $s 중지 실패"
     else
-        echo "  ⏭ $s (unit 없음)"
+        echo "  ⏭ $s (systemd unit 없음)"
     fi
 }
+
+ACT="${1:-status}"
 
 case "$ACT" in
     start)
@@ -81,24 +62,24 @@ case "$ACT" in
     status)
         echo "── 서비스 (이 서버) ──"
         for s in qdrant aichat-backend; do
-            if [[ "$s" == "qdrant" && "$QDRANT_DOCKER" == "1" ]]; then
-                state=$(sudo docker inspect -f '{{.State.Status}}' qdrant 2>/dev/null \
-                        || echo "absent")
-                printf "  %-18s %s\n" "$s (docker)" "$state"
+            if unit_exists "$s"; then
+                printf "  %-18s %s\n" "$s" "$(systemctl is-active "$s")"
             else
-                if systemctl list-unit-files | grep -q "^${s}\.service"; then
-                    printf "  %-18s %s\n" "$s" "$(systemctl is-active "$s")"
-                fi
+                printf "  %-18s %s\n" "$s" "unit 없음"
             fi
         done
 
         echo "── 헬스 ──"
+        # backend
         curl -fsS --max-time 3 http://127.0.0.1:9000/api/health >/dev/null \
             && echo "  ✅ backend  /api/health" \
             || echo "  ❌ backend  /api/health"
-        # ollama는 별도 서버 — .env의 OLLAMA_BASE_URL을 따라 원격으로 확인.
-        # tr -d '\r' 로 윈도우 CRLF 줄바꿈을 강제 제거 (개발기에서 작성된
-        # .env가 그대로 SFTP 로 올라온 경우 curl 이 URL 거부함).
+        # qdrant — 자기 자신 localhost 로 한 번 찔러봄
+        curl -fsS --max-time 3 http://127.0.0.1:6333/ >/dev/null \
+            && echo "  ✅ qdrant   :6333/" \
+            || echo "  ❌ qdrant   :6333/"
+        # ollama — .env 의 OLLAMA_BASE_URL 을 따라 원격 확인.
+        # CRLF / 따옴표 / 앞뒤 공백 제거 (Windows 에서 작성된 .env 대응)
         OLLAMA_URL="${OLLAMA_BASE_URL:-}"
         if [ -z "$OLLAMA_URL" ] && [ -f /data/projects/aichat/backend/.env ]; then
             OLLAMA_URL=$(grep -E '^OLLAMA_BASE_URL=' /data/projects/aichat/backend/.env \
@@ -106,8 +87,8 @@ case "$ACT" in
         fi
         if [ -n "$OLLAMA_URL" ]; then
             curl -fsS --max-time 3 "$OLLAMA_URL/api/tags" >/dev/null \
-                && echo "  ✅ ollama   $OLLAMA_URL/api/tags" \
-                || echo "  ❌ ollama   $OLLAMA_URL/api/tags  (원격 응답 없음)"
+                && echo "  ✅ ollama   $OLLAMA_URL" \
+                || echo "  ❌ ollama   $OLLAMA_URL  (원격 응답 없음)"
         else
             echo "  ⏭ ollama   (OLLAMA_BASE_URL 미설정)"
         fi
