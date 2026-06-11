@@ -26,8 +26,18 @@ QDRANT_DOCKER="${QDRANT_DOCKER:-0}"
 start_one() {
     local s="$1"
     if [[ "$s" == "qdrant" && "$QDRANT_DOCKER" == "1" ]]; then
-        sudo docker start qdrant >/dev/null && echo "  ✅ qdrant (docker)" \
-            || echo "  ⚠ qdrant (docker) 실패"
+        # 컨테이너 존재 여부 먼저 확인 — 없으면 친절한 안내
+        if ! sudo docker ps -a --format '{{.Names}}' | grep -qx qdrant; then
+            echo "  ⏭ qdrant (docker) — 컨테이너 없음. 최초 1회 생성 필요:"
+            echo "      sudo docker run -d --restart=always --name qdrant \\"
+            echo "          -p 6333:6333 -p 6334:6334 \\"
+            echo "          -v /data/projects/aichat/qdrant_data:/qdrant/storage \\"
+            echo "          qdrant/qdrant:v1.12.0"
+            return
+        fi
+        sudo docker start qdrant >/dev/null 2>&1 \
+            && echo "  ✅ qdrant (docker)" \
+            || echo "  ⚠ qdrant (docker) 기동 실패 — docker logs qdrant 확인"
         return
     fi
     if systemctl list-unit-files | grep -q "^${s}\.service"; then
@@ -87,10 +97,12 @@ case "$ACT" in
             && echo "  ✅ backend  /api/health" \
             || echo "  ❌ backend  /api/health"
         # ollama는 별도 서버 — .env의 OLLAMA_BASE_URL을 따라 원격으로 확인.
+        # tr -d '\r' 로 윈도우 CRLF 줄바꿈을 강제 제거 (개발기에서 작성된
+        # .env가 그대로 SFTP 로 올라온 경우 curl 이 URL 거부함).
         OLLAMA_URL="${OLLAMA_BASE_URL:-}"
         if [ -z "$OLLAMA_URL" ] && [ -f /data/projects/aichat/backend/.env ]; then
             OLLAMA_URL=$(grep -E '^OLLAMA_BASE_URL=' /data/projects/aichat/backend/.env \
-                         | cut -d= -f2- | tr -d '"' | tr -d "'")
+                         | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r' | xargs)
         fi
         if [ -n "$OLLAMA_URL" ]; then
             curl -fsS --max-time 3 "$OLLAMA_URL/api/tags" >/dev/null \
