@@ -15,10 +15,10 @@ set -euo pipefail
 
 ACT="${1:-status}"
 
-# 기동 순서: ollama → qdrant → backend → nginx
-# 중지 순서: 역순 — 사용자 접근부터 끊고, LLM은 가장 마지막
-SERVICES_UP=(ollama qdrant aichat-backend nginx)
-SERVICES_DN=(nginx aichat-backend qdrant ollama)
+# 기동 순서: ollama → qdrant → backend
+# 중지 순서: 역순 — 사용자 요청 받는 backend 부터 끊고, LLM은 가장 마지막
+SERVICES_UP=(ollama qdrant aichat-backend)
+SERVICES_DN=(aichat-backend qdrant ollama)
 
 QDRANT_DOCKER="${QDRANT_DOCKER:-0}"
 
@@ -52,14 +52,14 @@ stop_one() {
 
 case "$ACT" in
     start)
-        echo "▶ 기동 (ollama → qdrant → backend → nginx)"
+        echo "▶ 기동 (ollama → qdrant → backend)"
         for s in "${SERVICES_UP[@]}"; do start_one "$s"; sleep 1; done
         echo
         sleep 2
         "$0" status
         ;;
     stop)
-        echo "▶ 중지 (nginx → backend → qdrant → ollama)"
+        echo "▶ 중지 (backend → qdrant → ollama)"
         for s in "${SERVICES_DN[@]}"; do stop_one "$s"; done
         ;;
     restart)
@@ -69,7 +69,7 @@ case "$ACT" in
         ;;
     status)
         echo "── 서비스 ──"
-        for s in ollama qdrant aichat-backend nginx; do
+        for s in ollama qdrant aichat-backend; do
             if [[ "$s" == "qdrant" && "$QDRANT_DOCKER" == "1" ]]; then
                 state=$(sudo docker inspect -f '{{.State.Status}}' qdrant 2>/dev/null \
                         || echo "absent")
@@ -88,9 +88,6 @@ case "$ACT" in
         curl -fsS --max-time 3 http://127.0.0.1:11434/api/tags >/dev/null \
             && echo "  ✅ ollama   /api/tags" \
             || echo "  ❌ ollama   /api/tags"
-        curl -fsS --max-time 3 http://127.0.0.1/ >/dev/null \
-            && echo "  ✅ nginx    /" \
-            || echo "  ❌ nginx    /"
 
         echo "── 디스크 ──"
         df -h /data 2>/dev/null | tail -1 || df -h / | tail -1
