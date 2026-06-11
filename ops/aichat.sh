@@ -19,7 +19,13 @@ SERVICES_UP=(qdrant aichat-backend)
 SERVICES_DN=(aichat-backend qdrant)
 
 unit_exists() {
-    systemctl list-unit-files | grep -q "^${1}\.service"
+    # systemctl list-unit-files 가 환경에 따라 페이저·로케일·캐시 영향을
+    # 받아 grep 매칭이 어긋나는 경우가 있어 파일 실재로 직접 확인한다.
+    local s="$1"
+    [ -f "/etc/systemd/system/${s}.service" ]      || \
+    [ -f "/lib/systemd/system/${s}.service" ]      || \
+    [ -f "/usr/lib/systemd/system/${s}.service" ]  || \
+    [ -f "/run/systemd/system/${s}.service" ]
 }
 
 start_one() {
