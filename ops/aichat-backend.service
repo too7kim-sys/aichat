@@ -15,6 +15,10 @@ Group=root
 WorkingDirectory=/data/projects/aichat/backend
 EnvironmentFile=/data/projects/aichat/backend/.env
 
+# 로그 디렉터리가 없으면 systemd 가 stdout 파일을 못 열어서 즉시 죽고
+# Restart=on-failure 로 무한 재시도 폭주에 빠진다. 미리 만들어 둔다.
+ExecStartPre=/usr/bin/install -d -m 755 /data/projects/aichat/logs
+
 # uvicorn — 내부망 127.0.0.1 만 listen (외부 노출은 별도 서버의 nginx 가 담당)
 ExecStart=/data/projects/aichat/backend/.venv/bin/uvicorn app.main:app \
     --host 0.0.0.0 \
