@@ -216,6 +216,13 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:5173"
 
+    # 클라이언트 IP 허용 목록 (콤마 구분). 단일 IP 와 CIDR 범위 모두
+    # 가능. 비어 있으면 제한 없음 (= 기본).
+    #   ALLOWED_CLIENT_IPS=192.168.45.0/24,10.0.0.5,2001:db8::/64
+    # 항상 loopback(127.0.0.1, ::1)은 자동 허용 — 같은 박스에서 도는
+    # 헬스체크가 막히지 않게.
+    allowed_client_ips: str = ""
+
     # When set to a non-empty path, the backend also serves the built
     # frontend (`frontend/dist/index.html` + assets) from `/`. Lets a
     # single uvicorn host both the API and the SPA — handy on
@@ -250,6 +257,25 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def allowed_client_networks(self):
+        """`ALLOWED_CLIENT_IPS` 파싱 결과 — IPv4Network / IPv6Network 리스트.
+        IP 단일 값도 /32 또는 /128 으로 변환. 형식이 잘못된 토큰은
+        부팅 시 무시되지만 main.py 의 init 단계에서 한 번 로깅한다.
+        """
+        import ipaddress
+        out = []
+        for tok in self.allowed_client_ips.split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            try:
+                out.append(ipaddress.ip_network(tok, strict=False))
+            except ValueError:
+                # 잘못된 토큰은 조용히 무시 — main.py 에서 안내 로깅.
+                pass
+        return out
 
     @property
     def workspace_allowed_host_list(self) -> list[str]:

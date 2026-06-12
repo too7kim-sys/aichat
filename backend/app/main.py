@@ -1,8 +1,10 @@
+import ipaddress
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
@@ -74,6 +76,45 @@ async def lifespan(app: FastAPI):
                 pass
 
 
+class IPAllowlistMiddleware(BaseHTTPMiddleware):
+    """`.env` 의 ALLOWED_CLIENT_IPS 가 채워져 있으면 그 안에 들지 않은
+    클라이언트의 모든 요청을 403 으로 즉시 거절한다. loopback (같은
+    박스에서 도는 헬스체크) 은 항상 허용.
+
+    request.client.host 만 신뢰한다 — uvicorn 의 --proxy-headers 가
+    켜져 있어 nginx 같은 신뢰된 프록시 뒤에서는 X-Forwarded-For 의
+    실제 클라이언트 IP 가 자동으로 채워진다. 프록시가 없는 운영(=
+    이 박스 직접 노출)에서는 그대로 TCP 피어의 IP 가 들어온다."""
+
+    def __init__(self, app, networks):
+        super().__init__(app)
+        self.networks = networks
+
+    async def dispatch(self, request: Request, call_next):
+        client = request.client
+        host = client.host if client else None
+        if not host:
+            return JSONResponse(
+                {"detail": "client IP missing"}, status_code=403
+            )
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return JSONResponse(
+                {"detail": f"invalid client IP: {host}"}, status_code=403
+            )
+        # 로컬 헬스체크가 죽지 않게 loopback 무조건 통과.
+        if ip.is_loopback:
+            return await call_next(request)
+        for net in self.networks:
+            if ip in net:
+                return await call_next(request)
+        log.warning("IP allowlist: denied %s for %s", host, request.url.path)
+        return JSONResponse(
+            {"detail": "Access denied by IP allowlist"}, status_code=403
+        )
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -120,6 +161,27 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
     max_age=600,
 )
+
+# IP allowlist 는 모든 요청을 가장 먼저 보도록 add_middleware 는 가장
+# 늦게 — Starlette 가 미들웨어를 LIFO 로 감싸기 때문에, 마지막에 추가
+# 한 것이 가장 바깥(첫 번째)에 들어간다. ALLOWED_CLIENT_IPS 가 비어
+# 있으면 미들웨어 자체를 등록 안 함 → 오버헤드 0.
+_allowed_nets = settings.allowed_client_networks
+if _allowed_nets:
+    app.add_middleware(IPAllowlistMiddleware, networks=_allowed_nets)
+    log.info(
+        "IP allowlist enabled (%d 항목): %s",
+        len(_allowed_nets),
+        settings.allowed_client_ips,
+    )
+elif settings.allowed_client_ips.strip():
+    # 비어 있지 않은데 파싱이 다 실패한 경우 — 사용자가 가두려 했는데
+    # 모든 IP 가 통과하는 위험한 상태이므로 명시적으로 경고.
+    log.warning(
+        "ALLOWED_CLIENT_IPS 값이 비어있지 않은데 유효한 IP/CIDR이 "
+        "없습니다. 허용 목록이 비활성화된 채로 부팅합니다. 값: %r",
+        settings.allowed_client_ips,
+    )
 
 app.include_router(auth.router)
 app.include_router(auth.me_router)
