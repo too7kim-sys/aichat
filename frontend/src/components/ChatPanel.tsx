@@ -259,6 +259,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [linkedProjectId, setLinkedProjectId] = useState<string | null>(
     () => localStorage.getItem(projectStorageKey),
   );
+  // RAG 파일명 필터 (선택). 채워지면 청크의 source filename 에 포함된
+  // 것만 검색에 사용 — "billing/" 같은 서브트리 좁히기.
+  const ragFilterKey = `chat:session:${sessionId}:ragfilter`;
+  const [ragFilenameFilter, setRagFilenameFilter] = useState<string>(
+    () => localStorage.getItem(ragFilterKey) || "",
+  );
+  useEffect(() => {
+    if (ragFilenameFilter) localStorage.setItem(ragFilterKey, ragFilenameFilter);
+    else localStorage.removeItem(ragFilterKey);
+  }, [ragFilenameFilter, ragFilterKey]);
   useEffect(() => {
     function onLinked(e: Event) {
       const ev = e as CustomEvent<{ sessionId: string; projectId: string | null }>;
@@ -744,6 +754,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         image_b64: a.image_b64 ?? null,
       })),
       projectId: linkedProjectId,
+      ragFilenameFilter: ragFilenameFilter.trim() || undefined,
     });
   }
 
@@ -1102,6 +1113,33 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           </div>
         )}
         <div className="composer">
+          {linkedProjectId && (
+            <div className="rag-filter-row">
+              <span className="rag-filter-label" title="이 채팅에 RAG 지식베이스가 연결되어 있습니다">📚 RAG</span>
+              <input
+                type="text"
+                className="rag-filter-input"
+                placeholder="파일명 필터 (예: billing/)"
+                value={ragFilenameFilter}
+                onChange={(e) => setRagFilenameFilter(e.target.value)}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                maxLength={200}
+                title="채워지면 청크의 파일명에 이 문자열이 포함된 것만 검색에 사용"
+              />
+              {ragFilenameFilter && (
+                <button
+                  type="button"
+                  className="rag-filter-clear"
+                  onClick={() => setRagFilenameFilter("")}
+                  title="필터 지우기"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          )}
           {(attachments.length > 0 || uploading) && (
             <div className="attachments">
               {attachments.length > 0 && (

@@ -1349,19 +1349,24 @@ async def search_project(
     project_id: str,
     q: str,
     snapshot_id: str | None = None,
+    filename: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
     """Debug endpoint — runs retrieval without invoking the LLM.
-    Pass snapshot_id to query a historical snapshot instead of the
-    current one (useful for the compare-with-old workflow)."""
-    # 공유 KB 도 검색 가능해야 한다 (chat 도 같은 retrieve 를 쓴다).
+    Pass snapshot_id to query a historical snapshot, or `filename` to
+    restrict matches to chunks whose source filename contains that
+    substring (case-insensitive) — handy for "billing/" type filtering."""
     project = await _project_with_snapshots_for_read(db, project_id, user)
     if not project:
         raise HTTPException(404, "project not found")
     if snapshot_id is None and project.status != "ready":
         raise HTTPException(409, f"인덱싱 상태: {project.status}")
-    chunks = await retrieve(project_id, q, snapshot_id=snapshot_id)
+    chunks = await retrieve(
+        project_id, q,
+        snapshot_id=snapshot_id,
+        filename_pattern=filename,
+    )
     return [
         {
             "filename": c.filename,

@@ -79,13 +79,21 @@ async def retrieve(
     project_id: str,
     query: str,
     snapshot_id: str | None = None,
+    *,
+    filename_pattern: str | None = None,
 ) -> list[RetrievedChunk]:
     """Top-K vector search against a project's CURRENT snapshot.
 
     Pass snapshot_id explicitly to query a historical snapshot
     instead — useful for comparison/audit. When neither the
     snapshot id arg nor a current_snapshot_id is available, returns
-    an empty list (chat path skips retrieval cleanly)."""
+    an empty list (chat path skips retrieval cleanly).
+
+    Optional metadata filter:
+      filename_pattern — substring (case-insensitive) that must
+        appear in payload.filename. Use to scope search to a single
+        sub-tree (e.g. "billing/" → 결제 모듈만).
+    """
     if not settings.rag_enabled:
         return []
     target_snapshot = snapshot_id or await _resolve_snapshot_id(project_id)
@@ -98,16 +106,26 @@ async def retrieve(
         return []
     client = get_client()
     cname = collection_name(target_snapshot)
+    # filename 필터는 Qdrant payload 인덱스가 없을 수 있어 서버측에서
+    # 후처리 — 큰 collection 에서는 top_k 를 넉넉히 받아 거른 뒤 자른다.
+    # (전체 청크 수가 십만 단위까지는 이 방식이 단순하고 충분히 빠르다.)
+    raw_limit = settings.rag_top_k * 5 if filename_pattern else settings.rag_top_k
     try:
         results = client.search(
             collection_name=cname,
             query_vector=qvec,
-            limit=settings.rag_top_k,
+            limit=raw_limit,
             with_payload=True,
         )
     except Exception as exc:  # noqa: BLE001 - collection may not exist yet
         log.warning("RAG retrieval: qdrant search failed (%s)", exc)
         return []
+    if filename_pattern:
+        needle = filename_pattern.lower()
+        results = [
+            r for r in results
+            if r.payload and needle in str(r.payload.get("filename", "")).lower()
+        ][: settings.rag_top_k]
     hits = [
         RetrievedChunk(
             filename=str(r.payload.get("filename", "")),

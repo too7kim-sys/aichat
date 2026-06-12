@@ -1362,6 +1362,7 @@ export async function streamChat(
     webSearch?: boolean;
     attachments?: { filename: string; text: string; image_b64?: string | null }[];
     projectId?: string | null;
+    ragFilenameFilter?: string;
     signal?: AbortSignal;
   } & StreamHandlers
 ) {
@@ -1375,6 +1376,7 @@ export async function streamChat(
       web_search: !!opts.webSearch,
       attachments: opts.attachments ?? [],
       project_id: opts.projectId ?? undefined,
+      rag_filename_filter: opts.ragFilenameFilter ?? undefined,
     }),
     signal: opts.signal,
     openWhenHidden: true,

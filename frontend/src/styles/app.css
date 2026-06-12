@@ -3201,6 +3201,42 @@ body {
 .admin-error-what {
   font-weight: 500;
 }
+.rag-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle, rgba(0,0,0,0.02));
+  font-size: 12px;
+}
+.rag-filter-label {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.rag-filter-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  padding: 2px 4px;
+  min-width: 0;
+}
+.rag-filter-input::placeholder { color: var(--text-faint); }
+.rag-filter-clear {
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0 6px;
+}
+.rag-filter-clear:hover { color: var(--accent); }
+
 .citation-chip {
   display: inline-block;
   font-size: 10px;

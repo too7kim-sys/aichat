@@ -1064,10 +1064,17 @@ async def chat_single(
             project_id = session_row.project_id
 
     chunks: list = []
+    rag_filename = (
+        (payload.rag_filename_filter or "").strip() or None
+        if hasattr(payload, "rag_filename_filter") else None
+    )
     if project_id:
         # Explicit link — search just that project (existing behaviour).
         try:
-            chunks = await retrieve(project_id, payload.prompt)
+            chunks = await retrieve(
+                project_id, payload.prompt,
+                filename_pattern=rag_filename,
+            )
         except Exception as exc:  # noqa: BLE001
             chunks = []
             log.warning("RAG retrieve failed: %s", exc)

@@ -153,6 +153,9 @@ class ChatRequest(BaseModel):
     # chat router runs a vector search before generation and injects the
     # top-K matching chunks as system context.
     project_id: str | None = None
+    # RAG 메타데이터 필터 (선택). 비어 있으면 무필터, 채워지면 청크의
+    # 파일명에 이 문자열이 포함된 것만 후보로 한다.
+    rag_filename_filter: str | None = Field(default=None, max_length=200)
 
 
 # ── RAG / Projects ────────────────────────────────────────────────────

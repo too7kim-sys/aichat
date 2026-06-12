@@ -71,6 +71,7 @@ class StreamStore {
     webSearch?: boolean;
     attachments?: { filename: string; text: string; image_b64?: string | null }[];
     projectId?: string | null;
+    ragFilenameFilter?: string;
     onComplete?: (errors: string[]) => void;
   }): boolean {
     if (this.isStreaming(params.sessionId)) return false;
@@ -115,6 +116,7 @@ class StreamStore {
       webSearch: params.webSearch,
       attachments: params.attachments,
       projectId: params.projectId ?? undefined,
+      ragFilenameFilter: params.ragFilenameFilter,
       signal: controller.signal,
       onToken: (_p, delta) => {
         buffer += delta;
