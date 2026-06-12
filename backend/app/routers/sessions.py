@@ -298,6 +298,66 @@ async def export_session_docx(
     )
 
 
+@router.get("/{session_id}/export.hwpx")
+async def export_session_hwpx(
+    session_id: str,
+    include: str = "all",
+    mask_pii: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """세션을 HWPX (한컴 오픈 XML) 로 내보내기. include = all | summary
+    | starred. mask_pii=true 면 PII 자동 마스킹."""
+    import urllib.parse
+    from fastapi.responses import Response
+    from .. import hwpx_export, pii_mask
+
+    sess = await _load_owned(db, session_id, user.id)
+    msgs = [m for m in sess.messages if not m.hidden]
+    if include == "summary":
+        msgs = [m for m in msgs if m.role == "assistant"]
+    elif include == "starred":
+        msgs = [m for m in msgs if m.starred]
+
+    def _maybe_mask(s: str | None) -> str:
+        return pii_mask.mask(s or "") if mask_pii else (s or "")
+
+    paragraphs: list[str] = []
+    paragraphs.append(sess.title or "대화 내보내기")
+    paragraphs.append("")
+    paragraphs.append(
+        f"작성 일시: {sess.updated_at.strftime('%Y-%m-%d %H:%M')}"
+        f"   ·   메시지 {len(msgs)}건"
+    )
+    paragraphs.append("")
+
+    for m in msgs:
+        role_label = "[사용자]" if m.role == "user" else "[답변]"
+        marks = []
+        if m.feedback == 1:
+            marks.append("👍")
+        elif m.feedback == -1:
+            marks.append("👎")
+        if m.starred:
+            marks.append("★")
+        head = role_label + ("   " + " ".join(marks) if marks else "")
+        paragraphs.append(head)
+        paragraphs.append(_maybe_mask(m.content))
+        if m.feedback_note:
+            paragraphs.append("  메모: " + _maybe_mask(m.feedback_note))
+        paragraphs.append("")
+
+    data = hwpx_export.build_hwpx(sess.title or "대화", paragraphs)
+    safe = urllib.parse.quote((sess.title or "session").replace("/", "_"))
+    return Response(
+        content=data,
+        media_type="application/hwp+zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{safe}.hwpx"
+        },
+    )
+
+
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,

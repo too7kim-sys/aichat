@@ -35,6 +35,7 @@ export function TranscriptExportModal({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [maskPii, setMaskPii] = useState(false);
+  const [format, setFormat] = useState<"docx" | "hwpx">("docx");
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -113,10 +114,12 @@ export function TranscriptExportModal({
       const orderedIds = msgs
         .filter((m) => picked.has(m.id))
         .map((m) => m.id);
-      await api.exportTranscriptDocx(transcript.id, transcript.source_filename, {
-        messageIds: orderedIds,
-        maskPii,
-      });
+      const opts = { messageIds: orderedIds, maskPii };
+      if (format === "hwpx") {
+        await api.exportTranscriptHwpx(transcript.id, transcript.source_filename, opts);
+      } else {
+        await api.exportTranscriptDocx(transcript.id, transcript.source_filename, opts);
+      }
       onClose();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -281,6 +284,28 @@ export function TranscriptExportModal({
                 />
                 <span>개인정보 마스킹</span>
               </label>
+              <div
+                className="export-menu-format"
+                style={{ marginRight: 8 }}
+                title="DOCX = MS Word / Hangul 모두 호환. HWPX = 한컴오피스 네이티브."
+              >
+                <button
+                  type="button"
+                  className={`export-menu-format-tab${format === "docx" ? " active" : ""}`}
+                  onClick={() => setFormat("docx")}
+                  disabled={busy}
+                >
+                  .docx
+                </button>
+                <button
+                  type="button"
+                  className={`export-menu-format-tab${format === "hwpx" ? " active" : ""}`}
+                  onClick={() => setFormat("hwpx")}
+                  disabled={busy}
+                >
+                  .hwpx
+                </button>
+              </div>
               <button
                 type="button"
                 className="pm-btn-secondary"

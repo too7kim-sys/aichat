@@ -3201,6 +3201,27 @@ body {
 .admin-error-what {
   font-weight: 500;
 }
+.export-menu-format {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 6px 8px 4px;
+}
+.export-menu-format-tab {
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.export-menu-format-tab.active {
+  background: var(--accent);
+  color: white;
+}
+
 .export-menu-toggle {
   display: flex;
   align-items: center;

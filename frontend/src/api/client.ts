@@ -677,6 +677,63 @@ export const api = {
       feedback: number;
       feedback_note: string | null;
     }>>("/sessions/_starred"),
+  /** 세션을 HWPX (한컴 오픈 XML) 로 내보내기. 한글 2014 SE+ 에서
+   *  직접 열림. include / maskPii 동작은 docx 와 동일. */
+  exportSessionHwpx: async (
+    sessionId: string,
+    title: string,
+    include: "all" | "summary" | "starred" = "all",
+    maskPii = false,
+  ) => {
+    const qs = new URLSearchParams({ include, mask_pii: String(maskPii) });
+    const res = await fetch(
+      `${BASE}/sessions/${sessionId}/export.hwpx?${qs.toString()}`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title || "session"}.hwpx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+  /** 회의록을 HWPX 로 다운로드. opts 는 docx 와 동일. */
+  exportTranscriptHwpx: async (
+    id: string,
+    title: string,
+    opts?: {
+      messageIds?: string[];
+      include?: "summary" | "all";
+      maskPii?: boolean;
+    },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.messageIds && opts.messageIds.length > 0) {
+      params.set("message_ids", opts.messageIds.join(","));
+    } else if (opts?.include) {
+      params.set("include", opts.include);
+    }
+    if (opts?.maskPii) params.set("mask_pii", "true");
+    const qs = params.toString();
+    const res = await fetch(
+      `${BASE}/transcripts/${id}/export.hwpx${qs ? "?" + qs : ""}`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title || "transcript"}.hwpx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   /** 세션을 DOCX 로 내보내기. include: all | summary | starred.
    *  maskPii=true 면 주민번호 · 전화 · 이메일 · 카드번호 · 여권번호를
    *  비대칭 마스킹해서 저장 (원문 복구 불가). */

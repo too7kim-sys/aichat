@@ -1567,11 +1567,16 @@ function ExportSessionMenu({ sessionId, title }: { sessionId: string; title: str
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [maskPii, setMaskPii] = useState(false);
+  const [format, setFormat] = useState<"docx" | "hwpx">("docx");
   async function download(include: "all" | "summary" | "starred") {
     setBusy(true);
     setOpen(false);
     try {
-      await api.exportSessionDocx(sessionId, title, include, maskPii);
+      if (format === "hwpx") {
+        await api.exportSessionHwpx(sessionId, title, include, maskPii);
+      } else {
+        await api.exportSessionDocx(sessionId, title, include, maskPii);
+      }
     } catch (e) {
       window.alert(`내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -1585,12 +1590,32 @@ function ExportSessionMenu({ sessionId, title }: { sessionId: string; title: str
         className="panel-toggle"
         onClick={() => setOpen(v => !v)}
         disabled={busy}
-        title="대화를 DOCX 로 내보내기"
+        title="대화를 문서 파일로 내보내기"
       >
         <IconDownload size={14} /> {busy ? "내보내는 중…" : "내보내기"}
       </button>
       {open && (
         <div className="export-menu" role="menu">
+          <div
+            className="export-menu-format"
+            onClick={(e) => e.stopPropagation()}
+            title="DOCX = Word / Google Docs / Hangul 모두 호환. HWPX = 한컴오피스 네이티브."
+          >
+            <button
+              type="button"
+              className={`export-menu-format-tab${format === "docx" ? " active" : ""}`}
+              onClick={() => setFormat("docx")}
+            >
+              .docx
+            </button>
+            <button
+              type="button"
+              className={`export-menu-format-tab${format === "hwpx" ? " active" : ""}`}
+              onClick={() => setFormat("hwpx")}
+            >
+              .hwpx
+            </button>
+          </div>
           <label
             className="export-menu-toggle"
             onClick={(e) => e.stopPropagation()}

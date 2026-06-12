@@ -285,6 +285,88 @@ async def rename_transcript(
     return tr
 
 
+@router.get("/{transcript_id}/export.hwpx")
+async def export_transcript_hwpx(
+    transcript_id: str,
+    include: str = "summary",
+    message_ids: str = "",
+    mask_pii: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """회의록을 HWPX (한컴 오픈 XML) 로 다운로드. include / message_ids /
+    mask_pii 동작은 export.docx 와 동일."""
+    import urllib.parse
+    from fastapi.responses import Response
+    from .. import hwpx_export, pii_mask
+
+    orphan_sess = await _resolve_orphan_session(db, transcript_id, user.id)
+    if orphan_sess is not None:
+        sess = orphan_sess
+        title = sess.title or "회의록"
+    else:
+        tr = (
+            await db.execute(
+                select(models.Transcript).where(
+                    models.Transcript.id == transcript_id,
+                    models.Transcript.user_id == user.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if tr is None:
+            raise HTTPException(404, "transcript not found")
+        if not tr.session_id:
+            raise HTTPException(409, "전사가 아직 완료되지 않았습니다")
+        sess = await db.scalar(
+            select(models.Session).where(
+                models.Session.id == tr.session_id,
+                models.Session.user_id == user.id,
+            )
+        )
+        if sess is None:
+            raise HTTPException(404, "연결된 채팅 세션을 찾을 수 없습니다")
+        title = tr.source_filename or sess.title or "회의록"
+
+    msg_rows = (
+        await db.execute(
+            select(models.Message)
+            .where(models.Message.session_id == sess.id)
+            .order_by(models.Message.created_at.asc())
+        )
+    ).scalars().all()
+
+    picked_ids: set[str] | None = None
+    if message_ids.strip():
+        picked_ids = {x.strip() for x in message_ids.split(",") if x.strip()}
+    if picked_ids is not None:
+        selected = [m for m in msg_rows if m.id in picked_ids]
+    elif include == "all":
+        selected = list(msg_rows)
+    else:
+        selected = [m for m in msg_rows if m.role == "assistant"]
+
+    paragraphs = ["회의록", title, ""]
+    for m in selected:
+        text = (m.content or "").strip()
+        if not text:
+            continue
+        if mask_pii:
+            text = pii_mask.mask(text)
+        paragraphs.append("[요약]" if m.role == "assistant" else "[원문/메모]")
+        paragraphs.append(text)
+        paragraphs.append("")
+
+    data = hwpx_export.build_hwpx(title, paragraphs)
+    safe = urllib.parse.quote((title or "회의록").replace("/", "_"))
+    return Response(
+        content=data,
+        media_type="application/hwp+zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{safe}.hwpx"
+        },
+    )
+
+
 @router.get("/{transcript_id}/export.docx")
 async def export_transcript_docx(
     transcript_id: str,
