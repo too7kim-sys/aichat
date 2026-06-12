@@ -34,6 +34,7 @@ export function TranscriptExportModal({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [maskPii, setMaskPii] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -114,6 +115,7 @@ export function TranscriptExportModal({
         .map((m) => m.id);
       await api.exportTranscriptDocx(transcript.id, transcript.source_filename, {
         messageIds: orderedIds,
+        maskPii,
       });
       onClose();
     } catch (e) {
@@ -266,6 +268,19 @@ export function TranscriptExportModal({
               <IconChat size={13} /> 채팅에서 수정
             </button>
             <div className="cp-edit-actions-right">
+              <label
+                className="export-menu-toggle"
+                style={{ marginRight: 8 }}
+                title="주민번호 · 전화 · 이메일 · 카드 · 여권번호 자동 마스킹"
+              >
+                <input
+                  type="checkbox"
+                  checked={maskPii}
+                  onChange={(e) => setMaskPii(e.target.checked)}
+                  disabled={busy}
+                />
+                <span>개인정보 마스킹</span>
+              </label>
               <button
                 type="button"
                 className="pm-btn-secondary"

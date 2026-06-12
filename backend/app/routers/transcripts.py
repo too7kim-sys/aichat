@@ -290,6 +290,7 @@ async def export_transcript_docx(
     transcript_id: str,
     include: str = "summary",
     message_ids: str = "",
+    mask_pii: bool = False,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -421,10 +422,13 @@ async def export_transcript_docx(
             role_counts[m.role] += 1
         a_idx = 0
         u_idx = 0
+        from .. import pii_mask
         for m in selected_msgs:
             content = (m.content or "").strip()
             if not content:
                 continue
+            if mask_pii:
+                content = pii_mask.mask(content)
             if m.role == "assistant":
                 a_idx += 1
                 label = "요약"

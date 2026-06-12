@@ -676,14 +676,18 @@ export const api = {
       feedback: number;
       feedback_note: string | null;
     }>>("/sessions/_starred"),
-  /** 세션을 DOCX 로 내보내기. include: all | summary | starred. */
+  /** 세션을 DOCX 로 내보내기. include: all | summary | starred.
+   *  maskPii=true 면 주민번호 · 전화 · 이메일 · 카드번호 · 여권번호를
+   *  비대칭 마스킹해서 저장 (원문 복구 불가). */
   exportSessionDocx: async (
     sessionId: string,
     title: string,
     include: "all" | "summary" | "starred" = "all",
+    maskPii = false,
   ) => {
+    const qs = new URLSearchParams({ include, mask_pii: String(maskPii) });
     const res = await fetch(
-      `${BASE}/sessions/${sessionId}/export.docx?include=${include}`,
+      `${BASE}/sessions/${sessionId}/export.docx?${qs.toString()}`,
       { headers: authHeaders() },
     );
     if (!res.ok) {
@@ -1158,6 +1162,7 @@ export const api = {
     opts?: {
       messageIds?: string[];
       include?: "summary" | "all";
+      maskPii?: boolean;
     },
   ) => {
     const params = new URLSearchParams();
@@ -1166,6 +1171,7 @@ export const api = {
     } else if (opts?.include) {
       params.set("include", opts.include);
     }
+    if (opts?.maskPii) params.set("mask_pii", "true");
     const qs = params.toString();
     const res = await fetch(
       `${BASE}/transcripts/${id}/export.docx${qs ? "?" + qs : ""}`,

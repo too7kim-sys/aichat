@@ -1566,11 +1566,12 @@ function RagChunksBox({
 function ExportSessionMenu({ sessionId, title }: { sessionId: string; title: string }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [maskPii, setMaskPii] = useState(false);
   async function download(include: "all" | "summary" | "starred") {
     setBusy(true);
     setOpen(false);
     try {
-      await api.exportSessionDocx(sessionId, title, include);
+      await api.exportSessionDocx(sessionId, title, include, maskPii);
     } catch (e) {
       window.alert(`내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -1590,6 +1591,18 @@ function ExportSessionMenu({ sessionId, title }: { sessionId: string; title: str
       </button>
       {open && (
         <div className="export-menu" role="menu">
+          <label
+            className="export-menu-toggle"
+            onClick={(e) => e.stopPropagation()}
+            title="주민번호 · 전화 · 이메일 · 카드 · 여권번호 자동 마스킹"
+          >
+            <input
+              type="checkbox"
+              checked={maskPii}
+              onChange={(e) => setMaskPii(e.target.checked)}
+            />
+            <span>개인정보 마스킹</span>
+          </label>
           <button type="button" onClick={() => download("all")}>📄 전체 대화</button>
           <button type="button" onClick={() => download("summary")}>🤖 어시스턴트 답변만</button>
           <button type="button" onClick={() => download("starred")}>★ 별표한 메시지만</button>

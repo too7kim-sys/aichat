@@ -209,6 +209,7 @@ async def list_starred_messages(
 async def export_session_docx(
     session_id: str,
     include: str = "all",
+    mask_pii: bool = False,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -253,6 +254,10 @@ async def export_session_docx(
     mr.font.size = Pt(10)
     doc.add_paragraph()  # spacer
 
+    from .. import pii_mask
+    def _maybe_mask(s: str | None) -> str:
+        return pii_mask.mask(s or "") if mask_pii else (s or "")
+
     for m in msgs:
         role_label = "🧑 사용자" if m.role == "user" else "🤖 답변"
         head = doc.add_paragraph()
@@ -265,11 +270,11 @@ async def export_session_docx(
             head.add_run("   👎")
         if m.starred:
             head.add_run("   ★")
-        body = doc.add_paragraph(m.content or "")
+        body = doc.add_paragraph(_maybe_mask(m.content))
         body.paragraph_format.space_after = Pt(8)
         if m.feedback_note:
             note = doc.add_paragraph()
-            nr = note.add_run("  메모: " + m.feedback_note)
+            nr = note.add_run("  메모: " + _maybe_mask(m.feedback_note))
             nr.italic = True
             nr.font.size = Pt(9)
         doc.add_paragraph()  # spacer

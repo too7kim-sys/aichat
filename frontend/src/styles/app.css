@@ -3201,6 +3201,18 @@ body {
 .admin-error-what {
   font-weight: 500;
 }
+.export-menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.export-menu-toggle input { margin: 0; }
+
 .patch-preview-modal {
   max-width: min(960px, 92vw);
   max-height: 86vh;
