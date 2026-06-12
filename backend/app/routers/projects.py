@@ -582,6 +582,19 @@ async def create_project(
             "코드 코퍼스는 Code 탭의 워크스페이스 기능으로 이전되었습니다. "
             "사이드바의 Code 탭에서 워크스페이스를 추가하세요.",
         )
+    # DB 코퍼스 + 서버 폴더 소스는 관리자 전용. 일반 사용자가 UI 우회로
+    # corpus_type=db 또는 source_type=folder 를 POST 해도 여기서 거른다.
+    # UI 측에서는 ProjectModal 이 해당 탭을 admin 모드일 때만 노출한다.
+    if payload.corpus_type == "db" and not await _is_admin(db, user):
+        raise HTTPException(
+            403,
+            "DB 코퍼스는 관리자만 등록할 수 있습니다.",
+        )
+    if payload.source_type == "folder" and not await _is_admin(db, user):
+        raise HTTPException(
+            403,
+            "서버 폴더 소스는 관리자만 등록할 수 있습니다.",
+        )
     allowed = _ALLOWED_SOURCE_BY_CORPUS.get(payload.corpus_type, set())
     if payload.source_type not in allowed:
         raise HTTPException(

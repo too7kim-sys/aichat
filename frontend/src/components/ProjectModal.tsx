@@ -2073,9 +2073,18 @@ function AddProjectForm({
 
   // When the corpus tab changes, snap the source picker to a value
   // that's actually allowed for that corpus.
+  // 서버 폴더(folder) 와 DB 코퍼스(connection) 는 관리자 전용으로 제한.
+  // 일반 사용자가 서버 절대경로를 직접 적거나 사내 DB 에 임의 접속하는
+  // 시도를 막는다.
+  const visibleSources = (arr: SourceType[]) =>
+    adminMode ? arr : arr.filter((s) => s !== "folder");
+  const visibleCorpusTabs = (["document", "api", "db"] as const).filter(
+    (t) => adminMode || t !== "db",
+  );
+
   function onCorpusChange(t: CorpusType) {
     setCorpusType(t);
-    const allowed = CORPUS_META[t].sources;
+    const allowed = visibleSources(CORPUS_META[t].sources);
     if (!allowed.includes(sourceType)) {
       setSourceType(allowed[0]);
     }
@@ -2402,7 +2411,7 @@ function AddProjectForm({
       <div className="pm-field">
         <label>코퍼스 유형</label>
         <div className="pm-corpus-tabs" role="tablist">
-          {(["document", "api", "db"] as const).map((t) => {
+          {visibleCorpusTabs.map((t) => {
             const m = CORPUS_META[t];
             return (
               <button
@@ -2432,7 +2441,7 @@ function AddProjectForm({
       <div className="pm-field">
         <label>연결 방식</label>
         <div className="pm-source-tabs" role="tablist">
-          {corpusMeta.sources.map((st) => {
+          {visibleSources(corpusMeta.sources).map((st) => {
             const m = SOURCE_META[st];
             return (
               <button
