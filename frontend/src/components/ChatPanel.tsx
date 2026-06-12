@@ -19,6 +19,7 @@ import {
 } from "./Icon";
 import type { LocalAttachment } from "../export/MergeAttachmentsDialog";
 import { MessageBubble } from "./MessageBubble";
+import { BrandLogo } from "./BrandLogo";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
 import { useArtifacts } from "../artifact/ArtifactContext";
@@ -1311,6 +1312,9 @@ function EmptyGreeting({ userName }: { userName: string | null }) {
 
   return (
     <div className="empty-greeting">
+      <div className="empty-greeting-logo" aria-hidden="true">
+        <BrandLogo size={64} />
+      </div>
       <div className="empty-greeting-headline">{headline}</div>
       <div className="empty-greeting-sub">{sub}</div>
       <ul className="empty-greeting-suggestions">
