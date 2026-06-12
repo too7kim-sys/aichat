@@ -283,6 +283,14 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_workflows_user_id "
                 "ON workflows(user_id)"
             )
+            # 공휴일 스킵 토글 (워크플로별)
+            wcols = await conn.exec_driver_sql("PRAGMA table_info(workflows)")
+            wexisting = {row[1] for row in wcols.fetchall()}
+            if wexisting and "skip_holidays" not in wexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE workflows ADD COLUMN skip_holidays "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
             # role→project access table — created by create_all when
             # the model registers, but belt-and-suspenders for older
             # DBs so the chat auto-search join doesn't crash.

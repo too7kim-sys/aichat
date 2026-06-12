@@ -541,6 +541,7 @@ export interface Workflow {
   model: string | null;
   schedule_interval_minutes: number;
   enabled: boolean;
+  skip_holidays: boolean;
   last_run_at: string | null;
   last_run_status: string | null;
   last_session_id: string | null;
@@ -1069,6 +1070,7 @@ export const api = {
     model?: string | null;
     schedule_interval_minutes?: number;
     enabled?: boolean;
+    skip_holidays?: boolean;
   }) =>
     json<Workflow>("/workflows", {
       method: "POST",
@@ -1085,6 +1087,7 @@ export const api = {
       model: string | null;
       schedule_interval_minutes: number;
       enabled: boolean;
+      skip_holidays: boolean;
     }>,
   ) =>
     json<Workflow>(`/workflows/${id}`, {

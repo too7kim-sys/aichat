@@ -310,6 +310,7 @@ class WorkflowOut(BaseModel):
     model: str | None = None
     schedule_interval_minutes: int = 0
     enabled: bool = True
+    skip_holidays: bool = False
     last_run_at: datetime | None = None
     last_run_status: str | None = None
     last_session_id: str | None = None
@@ -330,6 +331,7 @@ class WorkflowCreate(BaseModel):
     model: str | None = Field(default=None, max_length=120)
     schedule_interval_minutes: int = 0
     enabled: bool = True
+    skip_holidays: bool = False
 
 
 class WorkflowUpdate(BaseModel):
@@ -341,6 +343,7 @@ class WorkflowUpdate(BaseModel):
     model: str | None = Field(default=None, max_length=120)
     schedule_interval_minutes: int | None = None
     enabled: bool | None = None
+    skip_holidays: bool | None = None
 
 
 class ProjectAccessUpdate(BaseModel):

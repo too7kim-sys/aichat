@@ -50,10 +50,20 @@ async def _tick() -> None:
         )
         candidates = list(rows.scalars())
     now = datetime.now(timezone.utc)
+    from . import holidays as _hol
+    # 워크플로 스케줄은 로컬 시간 기준이라 공휴일 판정도 로컬 날짜로.
+    local_today = datetime.now().date()
+    holiday_label = _hol.label_for(local_today)
     for wf in candidates:
         if not _due_for_refresh(
             wf.schedule_interval_minutes, wf.last_run_at, now
         ):
+            continue
+        if wf.skip_holidays and holiday_label is not None:
+            log.info(
+                "workflow scheduler skipping %s — 오늘은 %s",
+                wf.id, holiday_label,
+            )
             continue
         log.info(
             "workflow scheduler firing %s (interval=%dm)",

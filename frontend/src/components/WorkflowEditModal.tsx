@@ -48,6 +48,7 @@ export function WorkflowEditModal({
     workflow?.schedule_interval_minutes ?? 0,
   );
   const [enabled, setEnabled] = useState(workflow?.enabled ?? true);
+  const [skipHolidays, setSkipHolidays] = useState(workflow?.skip_holidays ?? false);
   // {var_name: value} editor — variables are detected from the
   // selected prompt's body and rendered as key-value rows so the
   // operator only fills in the placeholders the run actually needs.
@@ -108,6 +109,7 @@ export function WorkflowEditModal({
           model: model.trim() || null,
           schedule_interval_minutes: scheduleMins,
           enabled,
+          skip_holidays: skipHolidays,
         });
       } else {
         await api.updateWorkflow(workflow!.id, {
@@ -119,6 +121,7 @@ export function WorkflowEditModal({
           model: model.trim() || null,
           schedule_interval_minutes: scheduleMins,
           enabled,
+          skip_holidays: skipHolidays,
         });
       }
       await onSaved();
@@ -309,6 +312,21 @@ export function WorkflowEditModal({
                 <b>활성화</b>
                 <span className="pm-help">
                   비활성화하면 예약 시간이 와도 실행되지 않습니다.
+                </span>
+              </span>
+            </label>
+            <label className="pm-share-toggle" style={{ marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={skipHolidays}
+                onChange={(e) => setSkipHolidays(e.target.checked)}
+                disabled={busy}
+              />
+              <span>
+                <b>공휴일 자동 실행 안 함</b>
+                <span className="pm-help">
+                  한국 공휴일 + 사내 휴일(.env WORKFLOW_EXTRA_HOLIDAYS) 인
+                  날에는 스케줄이 와도 건너뜁니다.
                 </span>
               </span>
             </label>

@@ -536,6 +536,10 @@ class Workflow(Base):
     # 0 = manual only.
     schedule_interval_minutes: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 공휴일에는 자동 실행 안 함 (한국 공휴일 + .env 사내 휴일). 사용자가
+    # 워크플로별로 켜고 끌 수 있게 — 새벽 보고 같은 데일리 잡은 끄는 게
+    # 보통, 시스템 헬스체크 같은 건 그대로 두는 게 보통.
+    skip_holidays: Mapped[bool] = mapped_column(Boolean, default=False)
     last_run_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
