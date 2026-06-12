@@ -1029,7 +1029,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
           {streaming && liveAssistant !== null && liveAssistant === "" ? (
             <div className="bubble assistant">
-              <div className="avatar">A</div>
+              <div className="avatar avatar-brand thinking" aria-hidden="true">
+                <BrandLogo size={20} />
+              </div>
               <div className="body">
                 <div className="bubble-header">{activeProviderLabel}</div>
                 <div className="content thinking">

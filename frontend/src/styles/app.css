@@ -1218,6 +1218,39 @@ body {
   font-weight: 600;
   margin-top: 2px;
 }
+/* 브랜드 로고를 아바타로 쓸 때 — 배경 + 글자색 초기화. 로고가 가진
+   초록·파랑 두 색이 단색 accent 위에 올리면 죽으니 transparent + 살짝
+   링으로 분리감만 준다. */
+.bubble.assistant .avatar.avatar-brand {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border);
+  padding: 3px;
+  box-sizing: border-box;
+}
+/* "생각 중" 상태 — 로고 자체가 두근거리듯 펄스. spinner 텍스트와 함께
+   사용자에게 작업이 진행 중임을 시각적으로 알린다. */
+.bubble.assistant .avatar.avatar-brand.thinking {
+  animation: avatar-brand-pulse 1.4s ease-in-out infinite;
+}
+@keyframes avatar-brand-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(38, 169, 56, 0.0);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.06);
+    box-shadow: 0 0 0 4px rgba(38, 169, 56, 0.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble.assistant .avatar.avatar-brand.thinking {
+    animation: none;
+    opacity: 0.7;
+  }
+}
 .bubble.assistant .body {
   flex: 1;
   min-width: 0;

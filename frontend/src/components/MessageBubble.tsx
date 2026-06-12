@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { api, type AttachmentSummary } from "../api/client";
+import { BrandLogo } from "./BrandLogo";
 import { BubbleContent } from "./BubbleContent";
 import { IconChevronDown, IconChevronRight, IconEdit, IconFileText, IconImage, IconX } from "./Icon";
 
@@ -285,7 +286,12 @@ export function MessageBubble({
   return (
     <div className="bubble assistant" data-message-id={messageId || undefined}>
       {selectCheckbox}
-      <div className="avatar">A</div>
+      <div
+        className={`avatar avatar-brand${streaming ? " thinking" : ""}`}
+        aria-hidden="true"
+      >
+        <BrandLogo size={20} />
+      </div>
       <div className="body">
         {provider && <div className="bubble-header">{provider}</div>}
         <div className="content">
