@@ -280,3 +280,29 @@ export function IconEdit({ size, ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function IconStar({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+}
+
+export function IconThumbsUp({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <path d="M7 10v12" />
+      <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l5-9 1.34 1.34A2 2 0 0 1 14 4.07V5.88z" />
+    </svg>
+  );
+}
+
+export function IconThumbsDown({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <path d="M17 14V2" />
+      <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-5 9-1.34-1.34A2 2 0 0 1 10 19.93v-1.81z" />
+    </svg>
+  );
+}

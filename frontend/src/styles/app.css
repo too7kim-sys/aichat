@@ -3201,6 +3201,28 @@ body {
 .admin-error-what {
   font-weight: 500;
 }
+.admin-audit-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.admin-audit-filters input,
+.admin-audit-filters select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+}
+.admin-btn-danger {
+  color: #c0392b !important;
+  border-color: #c0392b !important;
+}
+.admin-btn-danger:hover {
+  background: rgba(192, 57, 43, 0.06) !important;
+}
+
 .admin-error-msg {
   display: block;
   white-space: pre-wrap;
@@ -6523,6 +6545,77 @@ body {
 .bubble-tiny-btn:hover {
   color: var(--accent);
   background: var(--accent-soft);
+}
+.bubble-tiny-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.bubble-tiny-btn.active.starred {
+  color: #e0a800;
+  background: rgba(224, 168, 0, 0.12);
+}
+.bubble-tiny-btn.active.starred svg {
+  fill: currentColor;
+}
+
+.bubble-feedback-note {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle, rgba(0,0,0,0.02));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bubble-feedback-note-input {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+.bubble-feedback-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.export-menu-wrap {
+  position: relative;
+  display: inline-block;
+}
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  min-width: 180px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+.export-menu button {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text);
+}
+.export-menu button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .bubble-action-row {
   display: inline-flex;

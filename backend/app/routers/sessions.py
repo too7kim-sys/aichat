@@ -144,6 +144,155 @@ async def update_message(
     return msg
 
 
+@router.patch(
+    "/{session_id}/messages/{message_id}/meta",
+    response_model=schemas.MessageOut,
+)
+async def update_message_meta(
+    session_id: str,
+    message_id: str,
+    payload: schemas.MessageMetaUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """별표(starred) + 답변 평가(feedback) 토글. 본문 수정과 분리해서
+    독립 엔드포인트로 둬 — 별표 한 번 누르는 데 content 전체 페이로드
+    를 보낼 필요가 없게."""
+    session = await _load_owned(db, session_id, user.id)
+    msg = next((m for m in session.messages if m.id == message_id), None)
+    if msg is None:
+        raise HTTPException(404, "message not found")
+    if payload.starred is not None:
+        msg.starred = bool(payload.starred)
+    if payload.feedback is not None:
+        msg.feedback = int(payload.feedback)
+        # 평가가 0 으로 돌아가면 메모도 자동 정리.
+        if msg.feedback == 0:
+            msg.feedback_note = None
+    if payload.feedback_note is not None:
+        note = payload.feedback_note.strip()
+        msg.feedback_note = note or None
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
+@router.get(
+    "/_starred",
+    response_model=list[schemas.MessageOut],
+)
+async def list_starred_messages(
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    limit: int = 100,
+):
+    """사용자가 별표한 메시지 모음 (최신순). 사이드바의 "별표한 답변"
+    탭이 사용. 다른 세션의 메시지를 한 화면에 모으는 게 핵심."""
+    from sqlalchemy.orm import aliased
+    SessAlias = aliased(models.Session)
+    rows = (
+        await db.execute(
+            select(models.Message)
+            .join(SessAlias, models.Message.session_id == SessAlias.id)
+            .where(
+                SessAlias.user_id == user.id,
+                models.Message.starred.is_(True),
+            )
+            .order_by(models.Message.created_at.desc())
+            .limit(max(1, min(int(limit or 100), 500)))
+        )
+    ).scalars().all()
+    return rows
+
+
+@router.get("/{session_id}/export.docx")
+async def export_session_docx(
+    session_id: str,
+    include: str = "all",
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """현재 세션을 DOCX 로 내보내기. include:
+      · all (기본)  — 모든 메시지 (숨김 제외)
+      · summary    — 어시스턴트 답변만
+      · starred    — 사용자가 별표한 메시지만
+    """
+    import io
+    import urllib.parse
+    try:
+        from docx import Document
+        from docx.shared import Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    except ImportError as exc:
+        raise HTTPException(
+            500, "python-docx 가 설치돼 있지 않습니다."
+        ) from exc
+
+    sess = await _load_owned(db, session_id, user.id)
+    msgs = [m for m in sess.messages if not m.hidden]
+    if include == "summary":
+        msgs = [m for m in msgs if m.role == "assistant"]
+    elif include == "starred":
+        msgs = [m for m in msgs if m.starred]
+
+    doc = Document()
+    title = doc.add_heading(sess.title or "대화 내보내기", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    meta = doc.add_paragraph()
+    meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    bits = [
+        f"작성 일시: {sess.updated_at.strftime('%Y-%m-%d %H:%M')}",
+        f"메시지 수: {len(msgs)}",
+    ]
+    if include != "all":
+        bits.append(
+            "범위: " + ("어시스턴트 답변만" if include == "summary" else "별표한 메시지만")
+        )
+    mr = meta.add_run("  ·  ".join(bits))
+    mr.italic = True
+    mr.font.size = Pt(10)
+    doc.add_paragraph()  # spacer
+
+    for m in msgs:
+        role_label = "🧑 사용자" if m.role == "user" else "🤖 답변"
+        head = doc.add_paragraph()
+        hr = head.add_run(role_label)
+        hr.bold = True
+        hr.font.size = Pt(11)
+        if m.feedback == 1:
+            head.add_run("   👍")
+        elif m.feedback == -1:
+            head.add_run("   👎")
+        if m.starred:
+            head.add_run("   ★")
+        body = doc.add_paragraph(m.content or "")
+        body.paragraph_format.space_after = Pt(8)
+        if m.feedback_note:
+            note = doc.add_paragraph()
+            nr = note.add_run("  메모: " + m.feedback_note)
+            nr.italic = True
+            nr.font.size = Pt(9)
+        doc.add_paragraph()  # spacer
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    safe = urllib.parse.quote((sess.title or "session").replace("/", "_"))
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{safe}.docx"
+    }
+    from fastapi.responses import Response
+    return Response(
+        content=buf.read(),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        headers=headers,
+    )
+
+
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,

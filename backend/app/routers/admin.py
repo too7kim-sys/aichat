@@ -781,6 +781,134 @@ async def list_errors(
     }
 
 
+# ── 감사 로그 뷰어 ─────────────────────────────────────────────────────
+# audit_log 테이블에 이미 로그인/회원가입/비번변경 같은 이벤트가 쌓여
+# 있다. 관리자가 검색·필터해서 한 화면에서 볼 수 있게 노출.
+
+
+@router.get("/audit")
+async def list_audit(
+    limit: int = 100,
+    event: str | None = None,
+    user_q: str | None = None,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """감사 로그 검색. `event` 와 `user_q`(email 부분 일치) 로 좁힐 수
+    있고 항상 최신순. 기본 100건."""
+    limit = max(1, min(int(limit or 100), 500))
+
+    q = select(models.AuditLog).order_by(models.AuditLog.created_at.desc())
+    if event:
+        q = q.where(models.AuditLog.event == event.strip())
+    if user_q and user_q.strip():
+        sub = (
+            select(models.User.id)
+            .where(models.User.email.ilike(f"%{user_q.strip()}%"))
+        )
+        q = q.where(models.AuditLog.user_id.in_(sub))
+    rows = (await db.execute(q.limit(limit))).scalars().all()
+
+    user_ids = {r.user_id for r in rows if r.user_id}
+    emails: dict[str, str] = {}
+    if user_ids:
+        for uid, em in (
+            await db.execute(
+                select(models.User.id, models.User.email)
+                .where(models.User.id.in_(user_ids))
+            )
+        ).all():
+            emails[uid] = em
+
+    return [
+        {
+            "id": r.id,
+            "user_id": r.user_id,
+            "user_email": emails.get(r.user_id, "(deleted)" if r.user_id else "—"),
+            "event": r.event,
+            "ip": r.ip,
+            "user_agent": r.user_agent,
+            "detail": r.detail,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+# ── 강제 로그아웃 + 토큰 무효화 ─────────────────────────────────────────
+# users.tokens_invalidated_at 컬럼을 now() 로 업데이트 → JWT 의 iat 가
+# 그보다 이전인 토큰은 다음 요청에서 401. 사용자별 / 전체 둘 다 가능.
+
+
+@router.post("/users/{user_id}/logout-all")
+async def force_logout_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    actor: models.User = Depends(require_admin),
+):
+    """특정 사용자가 발급받은 모든 활성 JWT 를 즉시 무효화."""
+    user = await _load_target(db, user_id)
+    user.tokens_invalidated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {
+        "user_id": user_id,
+        "email": user.email,
+        "tokens_invalidated_at": user.tokens_invalidated_at.isoformat(),
+        "by": actor.email,
+    }
+
+
+@router.get("/active-sessions")
+async def list_active_sessions(
+    _admin: models.User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """현재 토큰이 유효해 보이는 사용자 목록 (= status approved AND
+    (tokens_invalidated_at IS NULL OR 마지막 로그인 이후). 토큰은 stateless 라
+    실제 "활성 세션 목록" 은 만들 수 없지만, 잠재적 활성 사용자 + 마지막
+    로그인 시각으로 근사."""
+    # last_login_at 같은 칼럼이 없어서 audit_log 의 login_ok 가장 최근 행으로 대체.
+    last_login_rows = await db.execute(
+        select(
+            models.AuditLog.user_id,
+            func.max(models.AuditLog.created_at).label("last_login"),
+        )
+        .where(models.AuditLog.event == "login_ok")
+        .group_by(models.AuditLog.user_id)
+    )
+    last_by_uid: dict[str, datetime] = {
+        uid: dt for uid, dt in last_login_rows.all() if uid
+    }
+    users = (
+        await db.execute(
+            select(models.User)
+            .where(models.User.status == "approved")
+            .order_by(models.User.email)
+        )
+    ).scalars().all()
+    out = []
+    for u in users:
+        last = last_by_uid.get(u.id)
+        if last is None:
+            continue
+        invalidated = u.tokens_invalidated_at
+        if invalidated is not None:
+            cutoff = invalidated.replace(tzinfo=timezone.utc) if invalidated.tzinfo is None else invalidated
+            last_aware = last.replace(tzinfo=timezone.utc) if last.tzinfo is None else last
+            if last_aware < cutoff:
+                continue
+        out.append({
+            "user_id": u.id,
+            "email": u.email,
+            "role": u.role,
+            "last_login_at": last.isoformat(),
+            "tokens_invalidated_at": (
+                invalidated.isoformat() if invalidated else None
+            ),
+        })
+    return out
+
+
 # Suppress an unused-import lint when the file is imported for its
 # router only — `get_current_user` is referenced via require_staff /
 # require_admin transitively.

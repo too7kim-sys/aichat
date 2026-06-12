@@ -17,6 +17,12 @@ export interface Message {
    *  "원문 전사 — 펼치기" placeholder. Set by the transcription
    *  pipeline so the raw whisper output doesn't flood the bubble row. */
   hidden?: boolean;
+  /** 즐겨찾기 토글 — 별표 한 메시지를 다른 세션 가리지 않고 한 곳에 모음. */
+  starred?: boolean;
+  /** 답변 평가: 1 (👍) / -1 (👎) / 0 (미평가). */
+  feedback?: number;
+  /** 평가에 덧붙인 자유 메모. 500자 한도. */
+  feedback_note?: string | null;
   created_at: string;
 }
 

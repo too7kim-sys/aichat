@@ -893,6 +893,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
+          <ExportSessionMenu sessionId={session.id} title={session.title} />
           {session.workspace_id && (
             <button
               type="button"
@@ -996,6 +997,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   content={m.content}
                   hidden={!!m.hidden}
                   editable={isTranscriptSession}
+                  starred={!!m.starred}
+                  feedback={m.feedback ?? 0}
+                  feedbackNote={m.feedback_note ?? null}
+                  onMetaChanged={(patch) =>
+                    setSession((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            messages: prev.messages.map((row) =>
+                              row.id === m.id ? { ...row, ...patch } : row,
+                            ),
+                          }
+                        : prev,
+                    )
+                  }
                   onEdited={(next) =>
                     setSession((prev) =>
                       prev
@@ -1504,6 +1520,43 @@ function RagChunksBox({
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+
+function ExportSessionMenu({ sessionId, title }: { sessionId: string; title: string }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  async function download(include: "all" | "summary" | "starred") {
+    setBusy(true);
+    setOpen(false);
+    try {
+      await api.exportSessionDocx(sessionId, title, include);
+    } catch (e) {
+      window.alert(`내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="export-menu-wrap" onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        className="panel-toggle"
+        onClick={() => setOpen(v => !v)}
+        disabled={busy}
+        title="대화를 DOCX 로 내보내기"
+      >
+        <IconDownload size={14} /> {busy ? "내보내는 중…" : "내보내기"}
+      </button>
+      {open && (
+        <div className="export-menu" role="menu">
+          <button type="button" onClick={() => download("all")}>📄 전체 대화</button>
+          <button type="button" onClick={() => download("summary")}>🤖 어시스턴트 답변만</button>
+          <button type="button" onClick={() => download("starred")}>★ 별표한 메시지만</button>
+        </div>
+      )}
     </div>
   );
 }

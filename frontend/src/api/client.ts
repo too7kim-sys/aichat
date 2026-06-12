@@ -289,6 +289,38 @@ export const admin = {
     return json<AdminUser[]>(`/admin/users${qs ? "?" + qs : ""}`);
   },
   pendingCount: () => json<{ count: number }>("/admin/pending-count"),
+  listAudit: (opts?: { event?: string; userQ?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.event) params.set("event", opts.event);
+    if (opts?.userQ) params.set("user_q", opts.userQ);
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return json<Array<{
+      id: string;
+      user_id: string | null;
+      user_email: string;
+      event: string;
+      ip: string;
+      user_agent: string;
+      detail: string;
+      created_at: string | null;
+    }>>(`/admin/audit${qs ? "?" + qs : ""}`);
+  },
+  forceLogoutUser: (userId: string) =>
+    json<{
+      user_id: string;
+      email: string;
+      tokens_invalidated_at: string;
+      by: string;
+    }>(`/admin/users/${userId}/logout-all`, { method: "POST" }),
+  listActiveSessions: () =>
+    json<Array<{
+      user_id: string;
+      email: string;
+      role: string;
+      last_login_at: string;
+      tokens_invalidated_at: string | null;
+    }>>("/admin/active-sessions"),
   listErrors: (limit = 50) =>
     json<{
       transcripts: Array<{
@@ -615,6 +647,58 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ content }),
     }),
+  /** 별표(starred) + 답변 평가(feedback). 본문 수정과 분리된 가벼운 PATCH —
+   *  한 번에 부분 필드만 보낸다 (서버에서 null = 그대로). */
+  updateMessageMeta: (
+    sessionId: string,
+    messageId: string,
+    patch: { starred?: boolean; feedback?: -1 | 0 | 1; feedback_note?: string | null },
+  ) =>
+    json<{
+      id: string;
+      starred: boolean;
+      feedback: number;
+      feedback_note: string | null;
+    }>(`/sessions/${sessionId}/messages/${messageId}/meta`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  /** 사용자가 별표한 메시지를 다른 세션 가리지 않고 한 번에 모아 옴. */
+  listStarredMessages: () =>
+    json<Array<{
+      id: string;
+      role: "user" | "assistant";
+      provider: string | null;
+      content: string;
+      session_id?: string;
+      created_at: string;
+      starred: boolean;
+      feedback: number;
+      feedback_note: string | null;
+    }>>("/sessions/_starred"),
+  /** 세션을 DOCX 로 내보내기. include: all | summary | starred. */
+  exportSessionDocx: async (
+    sessionId: string,
+    title: string,
+    include: "all" | "summary" | "starred" = "all",
+  ) => {
+    const res = await fetch(
+      `${BASE}/sessions/${sessionId}/export.docx?include=${include}`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) {
+      throw new Error(`Export failed: ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title || "session"}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   /** Move a session into a chat project (folder), or detach by
    *  passing null. The sidebar uses this from each session row. */
   moveSessionToChatProject: (sessionId: string, projectId: string | null) =>

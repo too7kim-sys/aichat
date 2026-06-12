@@ -104,6 +104,40 @@ async def init_db() -> None:
                     "ALTER TABLE messages ADD COLUMN hidden "
                     "BOOLEAN NOT NULL DEFAULT 0"
                 )
+            if mexisting and "starred" not in mexisting:
+                # 별표(즐겨찾기). 사용자가 채팅 안에서 1-click 으로
+                # 토글 — 별표한 메시지를 모아 보는 보조 화면용.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN starred "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_messages_starred "
+                    "ON messages(starred) WHERE starred = 1"
+                )
+            if mexisting and "feedback" not in mexisting:
+                # 답변 평가 (1 / 0 / -1) + 자유 메모. 운영 피드백 모음
+                # → 향후 프롬프트 / RAG 튜닝 근거.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN feedback "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN feedback_note "
+                    "VARCHAR(500)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_messages_feedback "
+                    "ON messages(feedback) WHERE feedback != 0"
+                )
+            # Users: 토큰 무효화 컷오프 (강제 로그아웃·비번 변경).
+            ucols = await conn.exec_driver_sql("PRAGMA table_info(users)")
+            uexisting = {row[1] for row in ucols.fetchall()}
+            if uexisting and "tokens_invalidated_at" not in uexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN tokens_invalidated_at "
+                    "DATETIME"
+                )
             # Projects table may exist without corpus_type from the
             # original RAG ship — default existing rows to "code".
             pcols = await conn.exec_driver_sql("PRAGMA table_info(projects)")

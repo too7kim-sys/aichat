@@ -61,6 +61,13 @@ class User(Base):
     signup_reason: Mapped[str | None] = mapped_column(
         Text, nullable=True,
     )
+    # 토큰 무효화 컷오프. JWT 의 iat (issued-at) 이 이 시각보다 이전인
+    # 토큰은 무효 처리. 관리자가 "강제 로그아웃" 을 누르면 여기를 now()
+    # 로 갱신해 발급된 모든 토큰을 즉시 만료. 사용자 본인이 비밀번호
+    # 변경 시에도 같은 작업으로 옛 세션 모두 끊긴다.
+    tokens_invalidated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -657,6 +664,14 @@ class Message(Base):
     # the bubble row, while keeping the message in the DB so the
     # export modal / RAG indexer can still see it.
     hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 사용자가 별표(즐겨찾기)한 메시지. "내가 별표한 답변" 모아보기에 사용.
+    starred: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 답변 평가 — 1 (좋아요) / -1 (싫어요) / 0 (미평가).
+    feedback: Mapped[int] = mapped_column(Integer, default=0)
+    # 평가에 덧붙이는 자유 메모 (선택). 최대 500 자.
+    feedback_note: Mapped[str | None] = mapped_column(
+        String(500), nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="messages")

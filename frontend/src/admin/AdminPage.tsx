@@ -20,7 +20,7 @@ interface Props {
   onBack: () => void;
 }
 
-type View = "users" | "roles" | "knowledge" | "errors";
+type View = "users" | "roles" | "knowledge" | "errors" | "audit" | "sessions";
 
 type Tab = "pending" | "approved" | "suspended" | "rejected" | "all";
 
@@ -29,6 +29,8 @@ const VIEW_LABELS: Record<View, string> = {
   roles: "역할 코드",
   knowledge: "지식베이스",
   errors: "오류 모니터링",
+  audit: "감사 로그",
+  sessions: "활성 세션",
 };
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -324,6 +326,8 @@ export function AdminPage({ onBack }: Props) {
       {view === "knowledge" && <KnowledgePanel isAdmin={isAdmin} />}
 
       {view === "errors" && <ErrorsPanel />}
+      {view === "audit" && <AuditPanel />}
+      {view === "sessions" && <ActiveSessionsPanel />}
 
       {view === "users" && appSettings && (
         <div className="admin-policy">
@@ -1376,5 +1380,203 @@ function ErrorSection({
         </table>
       )}
     </section>
+  );
+}
+
+/**
+ * 감사 로그 뷰어 — audit_log 테이블의 모든 행을 검색·필터해서 본다.
+ * event / 사용자 이메일 부분 일치 / 최대 행수.
+ */
+function AuditPanel() {
+  type Row = Awaited<ReturnType<typeof admin.listAudit>>[number];
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [event, setEvent] = useState("");
+  const [userQ, setUserQ] = useState("");
+  const [limit, setLimit] = useState(100);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const r = await admin.listAudit({
+        event: event || undefined,
+        userQ: userQ || undefined,
+        limit,
+      });
+      setRows(r);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+
+  return (
+    <div className="admin-errors">
+      <div className="admin-errors-head">
+        <div>
+          <h2>감사 로그</h2>
+          <p>로그인·회원가입·비밀번호 변경·계정 삭제 등 사용자 활동 이력입니다.</p>
+        </div>
+      </div>
+      <div className="admin-audit-filters">
+        <input
+          type="text"
+          placeholder="이벤트 (예: login_ok)"
+          value={event}
+          onChange={(e) => setEvent(e.target.value.trim())}
+          onKeyDown={(e) => { if (e.key === "Enter") refresh(); }}
+        />
+        <input
+          type="text"
+          placeholder="이메일 검색"
+          value={userQ}
+          onChange={(e) => setUserQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") refresh(); }}
+        />
+        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+          <option value={50}>최근 50</option>
+          <option value={100}>최근 100</option>
+          <option value={200}>최근 200</option>
+          <option value={500}>최근 500</option>
+        </select>
+        <button type="button" className="admin-btn" onClick={refresh}>검색</button>
+      </div>
+
+      {loading ? (
+        <div className="admin-empty">불러오는 중...</div>
+      ) : err ? (
+        <div className="admin-empty admin-error">오류: {err}</div>
+      ) : rows.length === 0 ? (
+        <div className="admin-empty">조건에 맞는 기록이 없습니다.</div>
+      ) : (
+        <table className="admin-table admin-error-table">
+          <thead>
+            <tr>
+              <th style={{ width: "16%" }}>시각</th>
+              <th style={{ width: "12%" }}>이벤트</th>
+              <th style={{ width: "20%" }}>사용자</th>
+              <th style={{ width: "12%" }}>IP</th>
+              <th>상세</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="admin-error-when">
+                  {r.created_at ? new Date(r.created_at).toLocaleString() : "-"}
+                </td>
+                <td><code>{r.event}</code></td>
+                <td className="admin-error-who" title={r.user_id ?? ""}>{r.user_email}</td>
+                <td><code>{r.ip || "-"}</code></td>
+                <td>{r.detail || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 활성 세션 + 강제 로그아웃. JWT 가 stateless 라 "지금 떠 있는" 세션
+ * 목록은 정확히 만들 수 없고, 마지막 로그인 시각이 토큰 컷오프 이후인
+ * 사용자를 근사로 본다. 강제 로그아웃을 누르면 그 사용자의 모든 토큰
+ * 이 즉시 만료된다.
+ */
+function ActiveSessionsPanel() {
+  type Row = Awaited<ReturnType<typeof admin.listActiveSessions>>[number];
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const r = await admin.listActiveSessions();
+      setRows(r);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function forceLogout(r: Row) {
+    if (!window.confirm(`${r.email} 의 모든 활성 토큰을 즉시 무효화합니다.\n계속할까요?`)) return;
+    setBusyId(r.user_id);
+    try {
+      await admin.forceLogoutUser(r.user_id);
+      await refresh();
+    } catch (e) {
+      window.alert(`실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="admin-errors">
+      <div className="admin-errors-head">
+        <div>
+          <h2>활성 세션</h2>
+          <p>
+            마지막 로그인 시각이 토큰 무효화 시점보다 이후인 사용자입니다.
+            강제 로그아웃을 누르면 해당 사용자의 모든 JWT 가 즉시 만료됩니다.
+          </p>
+        </div>
+        <button type="button" className="admin-btn" onClick={refresh}>새로고침</button>
+      </div>
+      {loading ? (
+        <div className="admin-empty">불러오는 중...</div>
+      ) : err ? (
+        <div className="admin-empty admin-error">오류: {err}</div>
+      ) : rows.length === 0 ? (
+        <div className="admin-empty">현재 활성 세션이 없습니다.</div>
+      ) : (
+        <table className="admin-table admin-error-table">
+          <thead>
+            <tr>
+              <th>이메일</th>
+              <th>역할</th>
+              <th>마지막 로그인</th>
+              <th>마지막 무효화</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.user_id}>
+                <td>{r.email}</td>
+                <td><code>{r.role}</code></td>
+                <td className="admin-error-when">{new Date(r.last_login_at).toLocaleString()}</td>
+                <td className="admin-error-when">
+                  {r.tokens_invalidated_at
+                    ? new Date(r.tokens_invalidated_at).toLocaleString()
+                    : "—"}
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn-danger"
+                    onClick={() => forceLogout(r)}
+                    disabled={busyId === r.user_id}
+                  >
+                    {busyId === r.user_id ? "처리 중…" : "강제 로그아웃"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }

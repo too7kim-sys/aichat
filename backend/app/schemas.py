@@ -27,6 +27,9 @@ class MessageOut(BaseModel):
     # — set by the transcription pipeline so the raw whisper text
     # doesn't dominate the chat panel.
     hidden: bool = False
+    starred: bool = False
+    feedback: int = 0
+    feedback_note: str | None = None
     created_at: datetime
 
     @field_validator("attachments_summary", mode="before")
@@ -88,6 +91,15 @@ class MessageUpdate(BaseModel):
     user tighten the AI summary or fix a whisper mis-transcription
     without having to ask the model to redo it."""
     content: str = Field(min_length=1, max_length=200_000)
+
+
+class MessageMetaUpdate(BaseModel):
+    """PATCH body for star + feedback on a single message. All fields
+    optional — pass only what changed. `feedback` accepts 1 (👍) /
+    -1 (👎) / 0 (clear)."""
+    starred: bool | None = None
+    feedback: int | None = Field(default=None, ge=-1, le=1)
+    feedback_note: str | None = Field(default=None, max_length=500)
 
 
 class SessionMove(BaseModel):

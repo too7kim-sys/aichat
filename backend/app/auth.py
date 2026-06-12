@@ -44,7 +44,11 @@ def create_access_token(user_id: str) -> tuple[str, datetime]:
     expires = datetime.now(timezone.utc) + timedelta(
         hours=settings.access_token_expire_hours
     )
-    payload = {"sub": user_id, "exp": expires}
+    # iat 를 박아 둬야 강제 로그아웃 시 컷오프 비교가 가능. utcnow 로
+    # 박지 말고 timezone-aware now 로 일관되게 — 비교 시 naive/aware
+    # 충돌 방지.
+    issued_at = datetime.now(timezone.utc)
+    payload = {"sub": user_id, "iat": issued_at, "exp": expires}
     token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return token, expires
 
@@ -71,6 +75,7 @@ async def get_current_user(
             token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
         )
         user_id = payload.get("sub")
+        token_iat = payload.get("iat")
     except JWTError:
         raise HTTPException(401, "Invalid token")
 
@@ -87,6 +92,22 @@ async def get_current_user(
     # JWTs.
     if user.status != "approved":
         raise HTTPException(403, "계정이 활성 상태가 아닙니다")
+    # 토큰 무효화 컷오프. 관리자가 "강제 로그아웃" 을 눌렀거나 사용자
+    # 본인이 비번을 바꿨다면 그 이전에 발급된 토큰은 거부. iat 가 없는
+    # 옛 토큰(이 칼럼이 들어가기 전 발급)은 같은 정책으로 즉시 만료.
+    if user.tokens_invalidated_at is not None:
+        if token_iat is None:
+            raise HTTPException(401, "Token revoked")
+        try:
+            iat_dt = datetime.fromtimestamp(int(token_iat), tz=timezone.utc)
+        except (TypeError, ValueError):
+            raise HTTPException(401, "Token revoked")
+        # DB 컬럼이 naive datetime 일 수 있어 UTC 로 통일.
+        cutoff = user.tokens_invalidated_at
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+        if iat_dt < cutoff:
+            raise HTTPException(401, "Token revoked")
     return user
 
 

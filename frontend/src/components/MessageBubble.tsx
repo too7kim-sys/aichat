@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import { api, type AttachmentSummary } from "../api/client";
 import { BrandLogo } from "./BrandLogo";
 import { BubbleContent } from "./BubbleContent";
-import { IconChevronDown, IconChevronRight, IconEdit, IconFileText, IconImage, IconX } from "./Icon";
+import { IconChevronDown, IconChevronRight, IconEdit, IconFileText, IconImage, IconStar, IconThumbsDown, IconThumbsUp, IconX } from "./Icon";
 
 interface Props {
   role: "user" | "assistant";
@@ -41,6 +41,17 @@ interface Props {
    *  session.messages. The bubble updates its own local content
    *  optimistically too. */
   onEdited?: (newContent: string) => void;
+  /** 별표 + 답변 평가 초기값. 본문이 아니라 메타라 별도 prop 으로. */
+  starred?: boolean;
+  feedback?: number;
+  feedbackNote?: string | null;
+  /** 별표/평가 토글 — 부모가 session.messages 를 갱신할 수 있게.
+   *  meta 만 PATCH 하는 가벼운 API 가 따로 있다 (api.updateMessageMeta). */
+  onMetaChanged?: (next: {
+    starred?: boolean;
+    feedback?: number;
+    feedback_note?: string | null;
+  }) => void;
 }
 
 function bubbleAttachmentBasename(filename: string): string {
@@ -99,6 +110,10 @@ export function MessageBubble({
   editable = false,
   hidden = false,
   onEdited,
+  starred = false,
+  feedback = 0,
+  feedbackNote = null,
+  onMetaChanged,
 }: Props) {
   // Local optimistic content + collapsed/edit state. Re-seeds when
   // the parent's `content` changes (e.g., after streaming completes
@@ -109,6 +124,71 @@ export function MessageBubble({
   const [draft, setDraft] = useState(content);
   const [saving, setSaving] = useState(false);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // 별표 / 평가 / 메모 (낙관적 토글 — 서버 round-trip 이 끝나기 전에
+  // UI 가 먼저 바뀐다. 실패 시 롤백).
+  const [starredLocal, setStarredLocal] = useState(starred);
+  const [feedbackLocal, setFeedbackLocal] = useState<number>(feedback);
+  const [noteLocal, setNoteLocal] = useState<string | null>(feedbackNote);
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(feedbackNote ?? "");
+  useEffect(() => setStarredLocal(starred), [starred]);
+  useEffect(() => setFeedbackLocal(feedback), [feedback]);
+  useEffect(() => {
+    setNoteLocal(feedbackNote);
+    if (!showNoteEditor) setNoteDraft(feedbackNote ?? "");
+  }, [feedbackNote, showNoteEditor]);
+
+  async function toggleStar() {
+    if (!sessionId || !messageId) return;
+    const next = !starredLocal;
+    setStarredLocal(next);
+    try {
+      await api.updateMessageMeta(sessionId, messageId, { starred: next });
+      onMetaChanged?.({ starred: next });
+    } catch (e) {
+      setStarredLocal(!next);
+      window.alert(
+        `별표 토글 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  async function setFeedback(value: 1 | -1) {
+    if (!sessionId || !messageId) return;
+    const next = feedbackLocal === value ? 0 : value;
+    setFeedbackLocal(next);
+    try {
+      await api.updateMessageMeta(sessionId, messageId, { feedback: next as -1 | 0 | 1 });
+      onMetaChanged?.({ feedback: next });
+      if (next === 0) {
+        setNoteLocal(null);
+        onMetaChanged?.({ feedback_note: null });
+      }
+    } catch (e) {
+      setFeedbackLocal(feedback);
+      window.alert(
+        `평가 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  async function commitNote() {
+    if (!sessionId || !messageId) return;
+    const next = noteDraft.trim() || null;
+    try {
+      await api.updateMessageMeta(sessionId, messageId, {
+        feedback_note: next,
+      });
+      setNoteLocal(next);
+      onMetaChanged?.({ feedback_note: next });
+      setShowNoteEditor(false);
+    } catch (e) {
+      window.alert(
+        `메모 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
   // Sync local body only when the parent's `content` prop actually
   // changes (e.g., after a refetch). Closing the editor used to be
   // in this dep list, which reset body to the *stale* prop value
@@ -332,6 +412,47 @@ export function MessageBubble({
         </div>
         {!streaming && body && !editing && (
           <div className="bubble-actions">
+            {sessionId && messageId && (
+              <>
+                <button
+                  type="button"
+                  className={`bubble-tiny-btn${feedbackLocal === 1 ? " active" : ""}`}
+                  onClick={() => setFeedback(1)}
+                  title={feedbackLocal === 1 ? "좋아요 취소" : "좋아요"}
+                >
+                  <IconThumbsUp size={11} />
+                </button>
+                <button
+                  type="button"
+                  className={`bubble-tiny-btn${feedbackLocal === -1 ? " active" : ""}`}
+                  onClick={() => setFeedback(-1)}
+                  title={feedbackLocal === -1 ? "싫어요 취소" : "싫어요"}
+                >
+                  <IconThumbsDown size={11} />
+                </button>
+                {feedbackLocal !== 0 && (
+                  <button
+                    type="button"
+                    className={`bubble-tiny-btn${noteLocal ? " active" : ""}`}
+                    onClick={() => {
+                      setNoteDraft(noteLocal ?? "");
+                      setShowNoteEditor((v) => !v);
+                    }}
+                    title={noteLocal ? "메모 보기/수정" : "메모 추가"}
+                  >
+                    📝
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`bubble-tiny-btn${starredLocal ? " active starred" : ""}`}
+                  onClick={toggleStar}
+                  title={starredLocal ? "별표 해제" : "별표"}
+                >
+                  <IconStar size={11} />
+                </button>
+              </>
+            )}
             {canEdit && (
               <button
                 type="button"
@@ -343,6 +464,35 @@ export function MessageBubble({
               </button>
             )}
             <CopyButton text={body} />
+          </div>
+        )}
+        {showNoteEditor && sessionId && messageId && (
+          <div className="bubble-feedback-note">
+            <textarea
+              className="bubble-feedback-note-input"
+              value={noteDraft}
+              maxLength={500}
+              rows={2}
+              placeholder="어떤 점이 좋았는지 / 아쉬웠는지 (선택)"
+              onChange={(e) => setNoteDraft(e.target.value)}
+              autoFocus
+            />
+            <div className="bubble-feedback-note-actions">
+              <button
+                type="button"
+                className="bubble-edit-cancel"
+                onClick={() => setShowNoteEditor(false)}
+              >
+                닫기
+              </button>
+              <button
+                type="button"
+                className="bubble-edit-save"
+                onClick={commitNote}
+              >
+                저장
+              </button>
+            </div>
           </div>
         )}
       </div>
