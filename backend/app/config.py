@@ -216,6 +216,15 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:5173"
 
+    # When set to a non-empty path, the backend also serves the built
+    # frontend (`frontend/dist/index.html` + assets) from `/`. Lets a
+    # single uvicorn host both the API and the SPA — handy on
+    # closed-network single-server deploys that don't put nginx in
+    # front. Leave empty in dev so vite handles HMR.
+    #   Example (production):
+    #     FRONTEND_DIST_DIR=/data/projects/aichat/frontend/dist
+    frontend_dist_dir: str = ""
+
     # Sliding window: only the most recent N messages (user + assistant)
     # are sent to the LLM. System messages (attachments, web search)
     # are always kept and don't count against this limit.

@@ -156,3 +156,25 @@ async def providers():
         )
         for p in all_providers()
     ]
+
+
+# ── Optional frontend hosting ─────────────────────────────────────────
+# When FRONTEND_DIST_DIR is set in .env and the directory exists, mount
+# the built SPA at /. Lets a single uvicorn host both the API and the
+# UI — useful for nginx-less single-server deploys. The mount comes
+# AFTER every include_router() / @app.get above so /api/* still wins.
+# StaticFiles(html=True) returns index.html for any unmatched path so
+# client-side React routing works on hard refresh.
+if settings.frontend_dist_dir:
+    from pathlib import Path
+    from fastapi.staticfiles import StaticFiles
+    _dist = Path(settings.frontend_dist_dir)
+    if _dist.is_dir() and (_dist / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
+        log.info("frontend mounted from %s", _dist)
+    else:
+        log.warning(
+            "FRONTEND_DIST_DIR=%s but the directory or index.html is missing — "
+            "SPA hosting disabled",
+            _dist,
+        )
