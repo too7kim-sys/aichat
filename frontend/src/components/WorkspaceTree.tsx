@@ -118,6 +118,7 @@ export function WorkspaceTree({
   return (
     <>
       <div className="ws-tree-toolbar">
+        <TestRunnerButton workspaceId={workspaceId} />
         <button
           type="button"
           className="ws-tree-btn"
@@ -323,5 +324,119 @@ function TreeNode({
         <span className="ws-tn-name">{entry.name}</span>
       </button>
     </li>
+  );
+}
+
+/**
+ * 단위테스트 자동 실행 버튼. 서버가 WORKSPACE_TESTS_ENABLED=true 이고
+ * 워크스페이스 루트에서 알려진 러너(pytest / npm test / cargo / mvn /
+ * gradle / go) 가 감지될 때만 노출. 실행 결과는 모달에 stdout/stderr +
+ * exit code 로 표시 — 사용자가 그대로 채팅에 복붙해 다음 턴 컨텍스트로.
+ */
+function TestRunnerButton({ workspaceId }: { workspaceId: string }) {
+  type Info = Awaited<ReturnType<typeof api.workspaceTestRunner>>;
+  type Result = Awaited<ReturnType<typeof api.runWorkspaceTests>>;
+  const [info, setInfo] = useState<Info | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<Result | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.workspaceTestRunner(workspaceId).then((r) => {
+      if (alive) setInfo(r);
+    }).catch(() => { /* skip */ });
+    return () => { alive = false; };
+  }, [workspaceId]);
+
+  if (!info?.enabled || !info?.runner) return null;
+
+  async function run() {
+    setBusy(true);
+    setOpen(true);
+    setResult(null);
+    try {
+      const r = await api.runWorkspaceTests(workspaceId);
+      setResult(r);
+    } catch (e) {
+      setResult({
+        runner: info!.runner, ok: false, skipped: false,
+        exit_code: null, stdout: "",
+        stderr: e instanceof Error ? e.message : String(e),
+        duration_ms: 0,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="ws-tree-btn"
+        onClick={run}
+        disabled={busy}
+        title={`${info.runner} 한 번 실행 (강제 timeout 적용)`}
+      >
+        {busy ? "⏳ 테스트…" : `🧪 테스트 (${info.runner})`}
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>테스트 결과</h3>
+              {result && (
+                <code className="patch-preview-path">
+                  {result.runner} · {result.ok ? "✅ pass" : "❌ fail"}
+                  {result.exit_code !== null && ` (exit ${result.exit_code})`}
+                  {` · ${result.duration_ms} ms`}
+                </code>
+              )}
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setOpen(false)}
+                aria-label="닫기"
+              >×</button>
+            </header>
+            <div className="patch-preview-body">
+              {busy ? (
+                <div className="patch-preview-empty">실행 중…</div>
+              ) : result ? (
+                <>
+                  {result.stdout && (
+                    <>
+                      <div className="patch-preview-meta">STDOUT</div>
+                      <pre className="patch-preview-diff">{result.stdout}</pre>
+                    </>
+                  )}
+                  {result.stderr && (
+                    <>
+                      <div className="patch-preview-meta" style={{ marginTop: 10 }}>STDERR</div>
+                      <pre className="patch-preview-diff">{result.stderr}</pre>
+                    </>
+                  )}
+                  {!result.stdout && !result.stderr && (
+                    <div className="patch-preview-empty">
+                      출력이 없습니다 (exit {String(result.exit_code)}).
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+            <footer>
+              <button
+                type="button"
+                className="pm-btn-secondary"
+                onClick={() => setOpen(false)}
+              >
+                닫기
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

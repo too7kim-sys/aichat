@@ -18,6 +18,7 @@ from ..code.workspace import (
     apply_file_write,
     clone_repo,
     collect_workspace_files,
+    detect_test_runner,
     git_commit,
     git_diff,
     git_push,
@@ -26,6 +27,7 @@ from ..code.workspace import (
     is_git_workdir,
     read_file,
     remove_repo,
+    run_workspace_tests,
     sync_repo,
     validate_local_folder,
     walk_tree,
@@ -748,6 +750,47 @@ async def workspace_preview(
         "diff": "".join(diff_lines),
         "old_lines": len(old_text.splitlines()),
         "new_lines": len(new_text.splitlines()),
+    }
+
+
+@router.post("/workspaces/{workspace_id}/run-tests")
+async def workspace_run_tests(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """WORKSPACE_TESTS_ENABLED=true 일 때만 동작. 알려진 러너 (pytest /
+    npm test / cargo test / mvn / gradle / go test) 를 자동 감지해 한
+    번 실행하고 stdout/stderr/exit_code 를 돌려준다. 강제 timeout."""
+    if not settings.workspace_tests_enabled:
+        raise HTTPException(
+            503,
+            "단위테스트 자동 실행이 꺼져 있습니다 "
+            "(.env: WORKSPACE_TESTS_ENABLED=true)",
+        )
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    return await asyncio.get_running_loop().run_in_executor(
+        None, run_workspace_tests, dest, settings.workspace_test_timeout_sec,
+    )
+
+
+@router.get("/workspaces/{workspace_id}/test-runner")
+async def workspace_test_runner_info(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """어떤 러너가 감지됐는지만 미리 알려준다 (UI 가 버튼을 보일지
+    판단)."""
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    pick = detect_test_runner(dest) if dest.is_dir() else None
+    return {
+        "enabled": settings.workspace_tests_enabled,
+        "runner": pick[0] if pick else None,
     }
 
 

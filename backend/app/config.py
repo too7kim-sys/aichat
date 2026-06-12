@@ -243,6 +243,14 @@ class Settings(BaseSettings):
     # 0 으로 두면 보존(=정리 안 함).
     workflow_auto_session_retention: int = 10
 
+    # 워크스페이스에서 자동 단위테스트 실행을 허용할지. 켜면 사용자가
+    # 패치 적용 후 `pytest` / `npm test` / `cargo test` 같은 알려진
+    # 러너를 워크스페이스 안에서 한 번 돌려 결과를 볼 수 있다. 운영
+    # 서버에서 자원·보안 부담이 생길 수 있으니 기본 off, 명시적 opt-in.
+    workspace_tests_enabled: bool = False
+    # 테스트 실행 hard timeout (초). 늘리고 싶으면 .env 로 조정.
+    workspace_test_timeout_sec: int = 60
+
     # RAG SFTP 소스의 허용 호스트 목록 (콤마 구분). 비어 있으면 SSRF
     # 가드가 자동으로 동작 — 내부망/loopback/link-local 거부. 사내
     # SFTP 서버를 정당하게 쓰려면 그 호스트만 명시 (예:

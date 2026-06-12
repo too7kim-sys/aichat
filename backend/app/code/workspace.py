@@ -689,6 +689,96 @@ async def _run_in_thread(func, *args):
     return await asyncio.get_running_loop().run_in_executor(None, func, *args)
 
 
+def detect_test_runner(root: Path) -> tuple[str, list[str]] | None:
+    """워크스페이스 안에서 어떤 단위테스트 러너를 돌릴 수 있는지 추정.
+    파일 시그니처만 보고 결정 — 임의 명령은 절대 받지 않는다.
+
+    Returns (label, argv) 또는 None.
+    """
+    if (root / "pyproject.toml").is_file() or (root / "tests").is_dir() \
+       or any(root.glob("test_*.py")) or any(root.glob("*_test.py")):
+        return ("pytest", ["python3", "-m", "pytest", "-q", "--maxfail=5"])
+    if (root / "package.json").is_file():
+        # npm test 가 실제로 정의돼 있어야 의미가 있지만, 없으면 그대로
+        # 비-제로 종료라 호출자가 알아서 처리한다.
+        return ("npm test", ["npm", "test", "--silent"])
+    if (root / "Cargo.toml").is_file():
+        return ("cargo test", ["cargo", "test", "--quiet"])
+    if (root / "pom.xml").is_file():
+        return ("mvn test", ["mvn", "-q", "test"])
+    if (root / "build.gradle").is_file() or (root / "build.gradle.kts").is_file():
+        return ("gradle test", ["./gradlew", "test", "-q"])
+    if (root / "go.mod").is_file():
+        return ("go test", ["go", "test", "./...", "-count=1"])
+    return None
+
+
+def run_workspace_tests(root: Path, timeout_sec: int) -> dict:
+    """알려진 러너를 한 번 돌리고 결과를 dict 로. 호출자(라우터)가 settings
+    의 enabled 토글을 확인했다고 가정한다."""
+    pick = detect_test_runner(root)
+    if pick is None:
+        return {
+            "runner": None,
+            "ok": False,
+            "skipped": True,
+            "reason": "테스트 러너를 자동 감지하지 못했습니다.",
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "duration_ms": 0,
+        }
+    label, argv = pick
+    import time as _time
+    started = _time.monotonic()
+    try:
+        proc = subprocess.run(
+            argv,
+            cwd=str(root),
+            timeout=timeout_sec,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                **os.environ,
+                "CI": "1",
+                "NO_COLOR": "1",
+                "PYTHONIOENCODING": "utf-8",
+            },
+        )
+        duration = int((_time.monotonic() - started) * 1000)
+        return {
+            "runner": label,
+            "ok": proc.returncode == 0,
+            "skipped": False,
+            "exit_code": proc.returncode,
+            "stdout": (proc.stdout or "")[-20_000:],
+            "stderr": (proc.stderr or "")[-20_000:],
+            "duration_ms": duration,
+        }
+    except subprocess.TimeoutExpired:
+        duration = int((_time.monotonic() - started) * 1000)
+        return {
+            "runner": label,
+            "ok": False,
+            "skipped": False,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": f"⏱ {timeout_sec}초 timeout — 더 큰 값은 WORKSPACE_TEST_TIMEOUT_SEC.",
+            "duration_ms": duration,
+        }
+    except FileNotFoundError as exc:
+        return {
+            "runner": label,
+            "ok": False,
+            "skipped": False,
+            "exit_code": 127,
+            "stdout": "",
+            "stderr": f"명령을 찾을 수 없음: {exc}",
+            "duration_ms": 0,
+        }
+
+
 def remove_repo(local_path: str) -> int:
     """rm -rf the working copy. Returns the bytes freed (best effort).
 

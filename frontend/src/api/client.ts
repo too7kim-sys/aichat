@@ -1218,6 +1218,22 @@ export const api = {
       file_count: number;
       size_bytes: number;
     }>(`/code/workspaces/${id}/tree`),
+  /** 어떤 테스트 러너가 감지됐는지 — 트리 툴바가 버튼을 보일지 결정. */
+  workspaceTestRunner: (id: string) =>
+    json<{ enabled: boolean; runner: string | null }>(
+      `/code/workspaces/${id}/test-runner`,
+    ),
+  runWorkspaceTests: (id: string) =>
+    json<{
+      runner: string | null;
+      ok: boolean;
+      skipped: boolean;
+      reason?: string;
+      exit_code: number | null;
+      stdout: string;
+      stderr: string;
+      duration_ms: number;
+    }>(`/code/workspaces/${id}/run-tests`, { method: "POST" }),
   /** 워크스페이스 전체를 zip 으로 받는다. .git / node_modules / 빌드
    *  산출물 자동 제외, 50 MB 초과 시 서버가 409. */
   downloadWorkspaceZip: async (id: string) => {
