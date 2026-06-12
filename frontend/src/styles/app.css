@@ -1218,14 +1218,14 @@ body {
   font-weight: 600;
   margin-top: 2px;
 }
-/* 브랜드 로고를 아바타로 쓸 때 — 배경 + 글자색 초기화. 로고가 가진
-   초록·파랑 두 색이 단색 accent 위에 올리면 죽으니 transparent + 살짝
-   링으로 분리감만 준다. */
+/* 브랜드 로고를 아바타로 쓸 때 — 배경·테두리 제거하고 로고만 깔끔히
+   띄운다. 단색 accent 배경 위에 올리면 로고의 두 가지 브랜드 색이
+   죽기 때문. */
 .bubble.assistant .avatar.avatar-brand {
   background: transparent;
   color: inherit;
-  border: 1px solid var(--border);
-  padding: 3px;
+  border: none;
+  padding: 0;
   box-sizing: border-box;
 }
 /* "생각 중" 상태 — 로고 자체가 두근거리듯 펄스. spinner 텍스트와 함께
