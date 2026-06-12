@@ -683,6 +683,104 @@ async def update_settings(
     )
 
 
+# ── 오류 모니터링 ──────────────────────────────────────────────────────
+# 운영자가 SSH·로그 안 보고도 최근에 실패한 작업을 한 화면에서 볼 수
+# 있게 transcripts / projects / workflows 의 실패 행을 모아 반환한다.
+# 각 카테고리별로 가장 최근 50건까지.
+
+
+@router.get("/errors")
+async def list_errors(
+    limit: int = 50,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """관리자 화면용 — 최근 실패한 작업을 카테고리별로 모아 반환.
+
+    Returns:
+      {
+        "transcripts": [{id, user_email, source_filename, error, updated_at}, ...],
+        "projects":    [{id, owner_email, name, error, updated_at}, ...],
+        "workflows":   [{id, user_email, name, last_error, last_run_at}, ...],
+      }
+    """
+    limit = max(1, min(int(limit or 50), 200))
+
+    # 사용자 id → email 캐시. 작은 매핑이라 한 번에 다 끌어와 in-memory 매칭.
+    users_q = await db.execute(select(models.User.id, models.User.email))
+    email_of = {uid: em for (uid, em) in users_q.all()}
+
+    # 1. 전사 실패
+    tr_rows = (
+        await db.execute(
+            select(models.Transcript)
+            .where(models.Transcript.status == "failed")
+            .order_by(models.Transcript.updated_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    # 2. RAG 프로젝트 실패
+    pr_rows = (
+        await db.execute(
+            select(models.Project)
+            .where(models.Project.status == "failed")
+            .order_by(models.Project.updated_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    # 3. 워크플로 마지막 실행 실패
+    wf_rows = (
+        await db.execute(
+            select(models.Workflow)
+            .where(models.Workflow.last_run_status == "failed")
+            .order_by(models.Workflow.last_run_at.desc().nullslast())
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    return {
+        "transcripts": [
+            {
+                "id": t.id,
+                "user_email": email_of.get(t.user_id, "(unknown)"),
+                "source_filename": t.source_filename,
+                "session_id": t.session_id,
+                "error": (t.error or "")[:2000],
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            }
+            for t in tr_rows
+        ],
+        "projects": [
+            {
+                "id": p.id,
+                "owner_email": email_of.get(p.user_id, "(unknown)"),
+                "name": p.name,
+                "source_type": p.source_type,
+                "error": (p.error or "")[:2000],
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            }
+            for p in pr_rows
+        ],
+        "workflows": [
+            {
+                "id": w.id,
+                "user_email": email_of.get(w.user_id, "(unknown)"),
+                "name": w.name,
+                "last_error": (w.last_error or "")[:2000],
+                "last_session_id": w.last_session_id,
+                "last_run_at": (
+                    w.last_run_at.isoformat() if w.last_run_at else None
+                ),
+            }
+            for w in wf_rows
+        ],
+    }
+
+
 # Suppress an unused-import lint when the file is imported for its
 # router only — `get_current_user` is referenced via require_staff /
 # require_admin transitively.

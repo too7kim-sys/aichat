@@ -289,6 +289,35 @@ export const admin = {
     return json<AdminUser[]>(`/admin/users${qs ? "?" + qs : ""}`);
   },
   pendingCount: () => json<{ count: number }>("/admin/pending-count"),
+  listErrors: (limit = 50) =>
+    json<{
+      transcripts: Array<{
+        id: string;
+        user_email: string;
+        source_filename: string;
+        session_id: string | null;
+        error: string;
+        created_at: string | null;
+        updated_at: string | null;
+      }>;
+      projects: Array<{
+        id: string;
+        owner_email: string;
+        name: string;
+        source_type: string;
+        error: string;
+        created_at: string | null;
+        updated_at: string | null;
+      }>;
+      workflows: Array<{
+        id: string;
+        user_email: string;
+        name: string;
+        last_error: string;
+        last_session_id: string | null;
+        last_run_at: string | null;
+      }>;
+    }>(`/admin/errors?limit=${limit}`),
   approve: (userId: string) =>
     json<AdminUser>(`/admin/users/${userId}/approve`, { method: "POST" }),
   reject: (userId: string, reason: string) =>
