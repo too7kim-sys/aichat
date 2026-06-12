@@ -271,10 +271,10 @@ function WorkspaceView({
           <div className="cw-view-name">{workspace.name}</div>
           <div
             className="cw-view-url"
-            title={workspace.source_type === "local" ? workspace.local_path : workspace.git_url}
+            title={workspace.source_type === "local" ? "인앱 작업공간 (서버 자동 관리)" : workspace.git_url}
           >
             {workspace.source_type === "local" ? (
-              <>📁 {workspace.local_path}</>
+              <>📁 인앱 작업공간</>
             ) : (
               <>
                 {workspace.git_url}
@@ -384,12 +384,6 @@ function tryParseHost(url: string): string | null {
   }
 }
 
-function isUnderRoot(path: string, root: string): boolean {
-  const a = path.replace(/[\\/]+$/, "");
-  const b = root.replace(/[\\/]+$/, "");
-  return a === b || a.startsWith(b + "/") || a.startsWith(b + "\\");
-}
-
 function AddWorkspaceForm({
   onCancel,
   onSubmit,
@@ -411,7 +405,6 @@ function AddWorkspaceForm({
   const [branch, setBranch] = useState("");
   const [user, setUser] = useState("");
   const [token, setToken] = useState("");
-  const [localPath, setLocalPath] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Live server-side constraints — populated on mount so the form
@@ -437,29 +430,20 @@ function AddWorkspaceForm({
   // Returns a user-facing message or null if it looks fine. Server
   // validation is still authoritative — this is just an early signal
   // so the user can fix it without round-tripping.
+  // Local-folder workspaces no longer take a server path (the previous
+  // input exposed the server filesystem to users). They're auto-
+  // provisioned as an empty managed directory, so there's nothing to
+  // preflight on that side.
   function preflight(): string | null {
     if (!constraints) return null;
-    if (sourceType === "git") {
-      const host = tryParseHost(gitUrl.trim());
-      if (!host) return "유효한 http(s) URL이 아닙니다";
-      if (
-        constraints.allowed_hosts.length > 0 &&
-        !constraints.allowed_hosts.includes(host)
-      ) {
-        return `호스트 '${host}'는 허용 목록에 없습니다. 허용: ${constraints.allowed_hosts.join(", ")}`;
-      }
-    } else {
-      const p = localPath.trim();
-      if (constraints.local_roots.length === 0) {
-        return "로컬 폴더 소스가 비활성화되어 있습니다 (관리자에게 WORKSPACE_LOCAL_ROOTS 설정을 요청하세요)";
-      }
-      if (!p.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(p)) {
-        return "절대 경로를 입력하세요";
-      }
-      const ok = constraints.local_roots.some((r) => isUnderRoot(p, r));
-      if (!ok) {
-        return `허용된 루트 안의 경로가 아닙니다. 허용 루트: ${constraints.local_roots.join(", ")}`;
-      }
+    if (sourceType !== "git") return null;
+    const host = tryParseHost(gitUrl.trim());
+    if (!host) return "유효한 http(s) URL이 아닙니다";
+    if (
+      constraints.allowed_hosts.length > 0 &&
+      !constraints.allowed_hosts.includes(host)
+    ) {
+      return `호스트 '${host}'는 허용 목록에 없습니다. 허용: ${constraints.allowed_hosts.join(", ")}`;
     }
     return null;
   }
@@ -473,11 +457,6 @@ function AddWorkspaceForm({
     if (sourceType === "git") {
       if (!gitUrl.trim()) {
         setError("Git URL을 입력하세요");
-        return;
-      }
-    } else {
-      if (!localPath.trim()) {
-        setError("폴더 경로를 입력하세요");
         return;
       }
     }
@@ -501,7 +480,6 @@ function AddWorkspaceForm({
         await onSubmit({
           name: name.trim(),
           source_type: "local",
-          local_path: localPath.trim(),
         });
       }
       setName("");
@@ -509,7 +487,6 @@ function AddWorkspaceForm({
       setBranch("");
       setUser("");
       setToken("");
-      setLocalPath("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -573,20 +550,17 @@ function AddWorkspaceForm({
             ) : (
               <>
                 <li>
-                  <span className="cw-c-key">허용 루트</span>
+                  <span className="cw-c-key">저장 위치</span>
                   <span className="cw-c-val">
-                    {constraints.local_roots.length === 0 ? (
-                      <span className="cw-c-warn">
-                        비활성 — WORKSPACE_LOCAL_ROOTS 미설정
-                      </span>
-                    ) : (
-                      constraints.local_roots.join(", ")
-                    )}
+                    서버 안 작업공간 (자동 관리). 채팅에서 생성한 코드가
+                    여기로 저장되고 트리에 보입니다.
                   </span>
                 </li>
                 <li>
-                  <span className="cw-c-key">경로 형식</span>
-                  <span className="cw-c-val">절대경로만 (심볼릭 링크는 resolve 후 검증)</span>
+                  <span className="cw-c-key">삭제 정책</span>
+                  <span className="cw-c-val">
+                    워크스페이스 삭제 시 서버 파일도 함께 정리됩니다.
+                  </span>
                 </li>
               </>
             )}
@@ -675,23 +649,13 @@ function AddWorkspaceForm({
           </div>
         </>
       ) : (
-        <div className="pm-field">
-          <label>폴더 경로 (서버에서 접근 가능한 절대경로)</label>
-          <input
-            type="text"
-            placeholder="/home/user/projects/my-app"
-            value={localPath}
-            onChange={(e) => setLocalPath(e.target.value)}
-            disabled={submitting}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-          />
+        <div className="pm-field cw-local-info">
+          <label>인앱 작업공간</label>
           <div className="pm-help">
-            서버의 <code>WORKSPACE_LOCAL_ROOTS</code> 환경변수에 허용된 루트
-            안의 절대경로만 등록할 수 있습니다. 클론·다운로드 없이 폴더를 그대로
-            사용하므로 삭제해도 디스크의 파일은 남습니다. <code>.git</code>이 있는
-            폴더라면 커밋·푸시도 가능합니다.
+            서버 안에 빈 작업공간이 자동으로 만들어집니다. 별도 폴더 경로를
+            입력할 필요가 없고, 채팅에서 생성한 소스 파일이 이 작업공간 트리에
+            그대로 보입니다. 워크스페이스를 삭제하면 서버의 파일도 함께
+            정리됩니다.
           </div>
         </div>
       )}
@@ -713,7 +677,9 @@ function AddWorkspaceForm({
           onClick={submit}
           disabled={submitting}
         >
-          {submitting ? "clone 중…" : "추가 + clone"}
+          {submitting
+            ? sourceType === "git" ? "clone 중…" : "생성 중…"
+            : sourceType === "git" ? "추가 + clone" : "작업공간 생성"}
         </button>
       </div>
     </section>

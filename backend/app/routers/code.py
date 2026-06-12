@@ -178,40 +178,36 @@ async def create_workspace(
 ):
     source_type = payload.source_type
     if source_type == "local":
-        # ── Local-folder source ──
-        # No clone, no background task — the directory already exists
-        # on disk. We validate the path against the allow-list, walk
-        # the tree synchronously to populate file_count/size_bytes,
-        # and persist with status="ready" immediately.
-        try:
-            resolved = validate_local_folder(payload.local_path)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-
+        # ── In-app local workspace ──
+        # 사용자가 서버 경로를 직접 입력하지 않는다 (예전엔 입력했지만
+        # 서버 파일 시스템이 사용자에게 노출됐다). 대신 git 클론과 같은
+        # 자동 생성 경로 (WORKSPACE_DIR/<user>/<workspace_id>) 를 비어
+        # 있는 채로 만들고 채팅이 거기다 파일을 생성하게 한다.
         ws = models.CodeWorkspace(
             user_id=user.id,
             name=payload.name.strip(),
             source_type="local",
             git_url="",
             branch="",
-            local_path=str(resolved),
+            local_path="",   # ws.id 가 정해진 뒤 채움
             auth_username=None,
             auth_token_encrypted=None,
             status="ready",
         )
         db.add(ws)
         await db.flush()
+        local_dir = workspace_path_for(user.id, ws.id)
         try:
-            _tree, file_count, total = await asyncio.get_running_loop().run_in_executor(
-                None, walk_tree, resolved
-            )
-            ws.file_count = file_count
-            ws.size_bytes = total
-            ws.last_synced_at = datetime.now(timezone.utc)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Local workspace tree walk failed: %s", exc)
-            ws.error = str(exc)[:500]
-            ws.status = "failed"
+            local_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise HTTPException(
+                500,
+                f"워크스페이스 디렉터리 생성 실패: {exc}",
+            ) from exc
+        ws.local_path = str(local_dir)
+        ws.file_count = 0
+        ws.size_bytes = 0
+        ws.last_synced_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(ws)
         return ws
@@ -258,10 +254,13 @@ async def delete_workspace(
     if not ws:
         raise HTTPException(404, "workspace not found")
     freed = 0
-    # Only delete on-disk content for git clones we created. A local-
-    # folder source points at a directory the user owns — removing it
-    # would be data loss.
-    if ws.source_type == "git" and ws.local_path:
+    # Local workspaces now point at an auto-generated managed directory
+    # under WORKSPACE_DIR (사용자가 직접 입력하던 경로가 아니다), so we
+    # own it and can safely remove it just like a git clone. Pre-existing
+    # rows from the legacy "사용자가 직접 입력한 절대경로" 시대에는
+    # local_path 가 WORKSPACE_DIR 밖일 수 있어 remove_repo 가 자체적으로
+    # 안전 가드를 한다.
+    if ws.local_path and ws.source_type in ("git", "local"):
         freed = await asyncio.get_running_loop().run_in_executor(
             None, remove_repo, ws.local_path
         )
@@ -270,7 +269,7 @@ async def delete_workspace(
     # Stale bundle-status cache entries for the deleted workspace
     # expire on their own (TTL=30s, key includes last_synced_at);
     # explicit busts are unnecessary.
-    return {"freed_bytes": freed, "removed_files": ws.source_type == "git"}
+    return {"freed_bytes": freed, "removed_files": bool(ws.local_path)}
 
 
 @router.post("/workspaces/{workspace_id}/sync", response_model=schemas.WorkspaceOut)

@@ -690,11 +690,30 @@ async def _run_in_thread(func, *args):
 
 
 def remove_repo(local_path: str) -> int:
-    """rm -rf the working copy. Returns the bytes freed (best effort)."""
+    """rm -rf the working copy. Returns the bytes freed (best effort).
+
+    Safety guard: only delete when the path sits under WORKSPACE_DIR.
+    Legacy "사용자가 직접 입력한 절대경로" 형태의 로컬 워크스페이스가
+    이전에 있었어서, 거기서 행을 지운다고 사용자의 실제 작업 폴더를
+    rm -rf 하면 데이터 손실이 난다. WORKSPACE_DIR 밖이면 DB 행만
+    지우고 파일은 그대로 둔다.
+    """
     if not local_path:
         return 0
     p = Path(local_path)
     if not p.exists():
+        return 0
+    try:
+        base = Path(settings.workspace_dir).resolve()
+        p_resolved = p.resolve()
+        p_resolved.relative_to(base)
+    except (ValueError, OSError):
+        # Path is outside WORKSPACE_DIR (legacy user-supplied folder) —
+        # leave the files alone, just report 0 bytes freed.
+        log.warning(
+            "remove_repo: skipping %s (not under WORKSPACE_DIR=%s)",
+            local_path, settings.workspace_dir,
+        )
         return 0
     total = 0
     for f in p.rglob("*"):
