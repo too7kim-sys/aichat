@@ -54,16 +54,18 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> models.User:
-    """Read the Authorization: Bearer <token> header (or the access_token
-    cookie set by /login) and return the matching user."""
-    token: str | None = None
-    if credentials and credentials.scheme.lower() == "bearer":
-        token = credentials.credentials
-    elif "access_token" in request.cookies:
-        token = request.cookies["access_token"]
+    """Read the Authorization: Bearer <token> header and return the
+    matching user.
 
-    if not token:
+    Bearer-only. We intentionally don't read tokens from cookies — the
+    app has no CSRF token and uses CORSMiddleware(allow_credentials=True),
+    so accepting cookie auth would let a hostile origin issue
+    `fetch(... credentials:'include')` and mutate user data. The SPA
+    keeps the JWT in localStorage and attaches it explicitly.
+    """
+    if not (credentials and credentials.scheme.lower() == "bearer"):
         raise HTTPException(401, "Not authenticated")
+    token = credentials.credentials
     try:
         payload = jwt.decode(
             token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]

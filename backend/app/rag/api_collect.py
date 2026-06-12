@@ -197,8 +197,16 @@ def collect_api_details(
         raise ApiCollectError(f"허용되지 않은 URL 스킴: {list_url}")
     if urlparse(detail_url_template.replace("{key}", "x")).scheme not in _ALLOWED_SCHEMES:
         raise ApiCollectError("상세 URL 템플릿 스킴이 http/https가 아닙니다")
+    # SSRF 차단 — 사용자가 내부망 metadata / 관리 API 를 corpus 로
+    # 빼돌리지 못하게 막는다. 리다이렉트도 매 hop 마다 재검증.
+    from ..security import UnsafeTargetError, ensure_public_url
+    try:
+        ensure_public_url(list_url)
+        ensure_public_url(detail_url_template.replace("{key}", "x"))
+    except UnsafeTargetError as exc:
+        raise ApiCollectError(f"URL 차단됨: {exc}") from exc
 
-    with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=True) as c:
+    with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as c:
         try:
             r = c.get(list_url)
         except httpx.HTTPError as exc:
@@ -223,6 +231,15 @@ def collect_api_details(
             if kv is None:
                 continue
             url = _build_detail_url(detail_url_template, kv)
+            # 키가 사용자 데이터에서 왔으니 매 detail URL 재검증 — 키에
+            # `@internal-host/` 같은 걸 끼워 host 부분을 휘젓는 시도 방어.
+            try:
+                ensure_public_url(url)
+            except UnsafeTargetError as exc:
+                records.append(
+                    {"_key": kv, "_url": url, "_body": {"error": str(exc)}}
+                )
+                continue
             try:
                 dr = c.get(url)
             except httpx.HTTPError as exc:

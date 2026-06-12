@@ -236,6 +236,12 @@ class Settings(BaseSettings):
     # 0 으로 두면 보존(=정리 안 함).
     workflow_auto_session_retention: int = 10
 
+    # RAG SFTP 소스의 허용 호스트 목록 (콤마 구분). 비어 있으면 SSRF
+    # 가드가 자동으로 동작 — 내부망/loopback/link-local 거부. 사내
+    # SFTP 서버를 정당하게 쓰려면 그 호스트만 명시 (예:
+    # `files.intra.example.com,sftp.intra.example.com`).
+    rag_sftp_host_allowlist: str = ""
+
     tesseract_cmd: str = ""  # e.g. C:\\Program Files\\Tesseract-OCR\\tesseract.exe
     ocr_languages: str = "eng+kor"
     max_upload_bytes: int = 5 * 1024 * 1024  # 5 MB

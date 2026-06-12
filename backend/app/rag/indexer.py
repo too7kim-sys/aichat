@@ -473,9 +473,32 @@ def _fetch_url_to_dir(url: str, dest: Path) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_URL_SCHEMES:
         raise RuntimeError(f"허용되지 않은 URL 스킴: {parsed.scheme}")
+    # SSRF 차단 — 내부망/loopback/link-local 거부. 리다이렉트도 같은
+    # 검증을 거치도록 follow_redirects=False 로 두고 한 hop 만 따라간다.
+    from ..security import UnsafeTargetError, ensure_public_url
     try:
-        with httpx.Client(timeout=_URL_FETCH_TIMEOUT, follow_redirects=True) as c:
+        ensure_public_url(url)
+    except UnsafeTargetError as exc:
+        raise RuntimeError(f"URL 차단됨: {exc}") from exc
+    try:
+        with httpx.Client(timeout=_URL_FETCH_TIMEOUT, follow_redirects=False) as c:
             resp = c.get(url)
+            # 한 번까지 수동 redirect — 매번 ensure_public_url 로 재검증.
+            for _ in range(3):
+                if resp.status_code not in (301, 302, 303, 307, 308):
+                    break
+                loc = resp.headers.get("location")
+                if not loc:
+                    break
+                next_url = str(httpx.URL(url).join(loc))
+                try:
+                    ensure_public_url(next_url)
+                except UnsafeTargetError as exc:
+                    raise RuntimeError(
+                        f"redirect 차단됨: {exc}"
+                    ) from exc
+                url = next_url
+                resp = c.get(url)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"URL fetch 실패: {exc}") from exc
     if resp.status_code != 200:
@@ -720,6 +743,34 @@ def _fetch_sftp_to_dir(connection_url: str, dest: Path, corpus_type: str) -> Non
     port = parsed.port or 22
     remote_root = parsed.path or "/"
     allowed_exts = _EXTS_BY_TYPE.get(corpus_type, _EXTS_DOCUMENT)
+
+    # SSRF 차단 — 사용자가 sftp://anon@internal-host:22/ 같은 URL 로
+    # 내부망을 스캔/덤프하지 못하게 막는다. 정당한 사내 SFTP 서버를
+    # 가리키는 경우에는 RAG_SFTP_HOST_ALLOWLIST 환경변수로 명시.
+    from ..security import UnsafeTargetError, ensure_public_host
+    allow = {
+        h.strip().lower()
+        for h in (settings.rag_sftp_host_allowlist or "").split(",")
+        if h.strip()
+    }
+    if allow:
+        if (host or "").lower() not in allow:
+            raise RuntimeError(
+                f"SFTP 호스트 미허용: {host}. RAG_SFTP_HOST_ALLOWLIST 에 "
+                f"추가 후 다시 시도하세요."
+            )
+    else:
+        try:
+            ensure_public_host(host)
+        except UnsafeTargetError as exc:
+            raise RuntimeError(f"SFTP 호스트 차단됨: {exc}") from exc
+
+    # 빈 비밀번호 + 키 미사용 조합은 임의 내부 SFTP 에 익명 접속을 시도
+    # 하는 SSRF 패턴이라 거부한다.
+    if not password:
+        raise RuntimeError(
+            "SFTP URL 에 비밀번호가 필요합니다 (sftp://user:pw@host/path)"
+        )
 
     transport = paramiko.Transport((host, port))
     transport.banner_timeout = _SFTP_CONNECT_TIMEOUT

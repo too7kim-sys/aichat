@@ -307,7 +307,9 @@ async def export_transcript_docx(
     import urllib.parse
 
     # Orphan rows export from the linked Session directly (no
-    # Transcript row to look up).
+    # Transcript row to look up). `tr` stays None for that path so the
+    # title-page rendering below has to fall back to session attrs.
+    tr: models.Transcript | None = None
     orphan_sess = await _resolve_orphan_session(db, transcript_id, user.id)
     if orphan_sess is not None:
         sess = orphan_sess
@@ -373,25 +375,32 @@ async def export_transcript_docx(
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     subtitle = doc.add_paragraph()
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = subtitle.add_run(tr.source_filename or sess.title or "녹음")
+    title_text = (
+        (tr.source_filename if tr else None) or sess.title or "녹음"
+    )
+    run = subtitle.add_run(title_text)
     run.bold = True
     run.font.size = Pt(14)
 
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
     meta_bits: list[str] = []
-    meta_bits.append(f"작성 일시: {tr.created_at.strftime('%Y-%m-%d %H:%M')}")
-    if tr.duration_sec:
+    created_at = (tr.created_at if tr else None) or sess.created_at
+    if created_at:
+        meta_bits.append(f"작성 일시: {created_at.strftime('%Y-%m-%d %H:%M')}")
+    if tr and tr.duration_sec:
         m_, s_ = divmod(int(tr.duration_sec), 60)
         h_, m_ = divmod(m_, 60)
         if h_:
             meta_bits.append(f"녹음 길이: {h_}h {m_:02d}m {s_:02d}s")
         else:
             meta_bits.append(f"녹음 길이: {m_}m {s_:02d}s")
-    if tr.language:
+    if tr and tr.language:
         meta_bits.append(f"언어: {tr.language}")
-    if tr.diarized:
+    if tr and tr.diarized:
         meta_bits.append("화자 분리: 적용")
+    if tr is None:
+        meta_bits.append("보관됨 (음원 삭제)")
     meta_run = meta.add_run("  ·  ".join(meta_bits))
     meta_run.italic = True
     meta_run.font.size = Pt(10)
@@ -560,6 +569,17 @@ async def whisper_download(
         model_ref if "/" in model_ref
         else f"Systran/faster-whisper-{model_ref}"
     )
+    # WHISPER_MODEL 이 운영자가 추후에 자유롭게 바꿀 수 있는 값이라,
+    # `..` 같은 경로 트래버설 문자가 들어가면 target_dir 가 WHISPER_
+    # MODEL_DIR 바깥을 가리킬 수 있다. HuggingFace repo id 패턴 외에는
+    # 거부한다 ("org/repo" 형태, 영숫자/./-/_ 만).
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", repo_id):
+        raise HTTPException(
+            400,
+            f"WHISPER_MODEL 형식이 잘못됐습니다: {repo_id!r} "
+            "(예: large-v3 또는 Systran/faster-whisper-large-v3)",
+        )
     target_dir = model_dir / repo_id.replace("/", "_")
     _DOWNLOAD_STATE.update(
         status="running",

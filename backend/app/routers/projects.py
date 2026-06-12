@@ -40,6 +40,8 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 async def _project_with_snapshots(
     db: AsyncSession, project_id: str, user_id: str
 ) -> models.Project | None:
+    """Owner-only fetch. Use for mutating endpoints — write ops on a
+    shared knowledge base belong to its owner, not its consumers."""
     return await db.scalar(
         select(models.Project)
         .where(
@@ -48,6 +50,26 @@ async def _project_with_snapshots(
         )
         .options(selectinload(models.Project.snapshots))
     )
+
+
+async def _project_with_snapshots_for_read(
+    db: AsyncSession, project_id: str, user: models.User,
+) -> models.Project | None:
+    """Read-mode fetch: owner OR shared-with-this-user. Use for view +
+    retrieval endpoints so users who hold a role grant on a shared KB
+    can actually see and search it (the sidebar listing already does
+    this — gating the detail endpoint to owner-only made shared rows
+    open into a 404)."""
+    project = await db.scalar(
+        select(models.Project)
+        .where(models.Project.id == project_id)
+        .options(selectinload(models.Project.snapshots))
+    )
+    if project is None:
+        return None
+    if not await can_access_project(db, user, project):
+        return None
+    return project
 
 
 def _new_snapshot_label() -> str:
@@ -743,7 +765,9 @@ async def get_project(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    project = await _project_with_snapshots(db, project_id, user.id)
+    # 공유 KB 의 사용자도 detail 을 볼 수 있어야 한다 — 이전에는 owner
+    # 한정이라 사이드바에 보이는데 클릭하면 404 가 났다.
+    project = await _project_with_snapshots_for_read(db, project_id, user)
     if not project:
         raise HTTPException(404, "project not found")
     return project
@@ -1318,7 +1342,8 @@ async def search_project(
     """Debug endpoint — runs retrieval without invoking the LLM.
     Pass snapshot_id to query a historical snapshot instead of the
     current one (useful for the compare-with-old workflow)."""
-    project = await _project_with_snapshots(db, project_id, user.id)
+    # 공유 KB 도 검색 가능해야 한다 (chat 도 같은 retrieve 를 쓴다).
+    project = await _project_with_snapshots_for_read(db, project_id, user)
     if not project:
         raise HTTPException(404, "project not found")
     if snapshot_id is None and project.status != "ready":
