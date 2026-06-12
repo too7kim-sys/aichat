@@ -1,16 +1,71 @@
-"""Network-target safety helpers — block SSRF to internal hosts.
+"""Security helpers — password policy + outbound URL/host SSRF guard.
 
-Used by the RAG indexer (HTTP URL sources, SFTP sources, optional DB
-URL sources). A user submits the source URL when creating a project,
-so without a guard they could point the backend at internal services
-(cloud metadata, the local ollama, internal admin panels) and exfil
-the response body via the corpus → retrieval pipeline.
+`validate_password` keeps the legacy module-level API working (was
+previously app/security.py). `ensure_public_host` / `ensure_public_url`
+are used by the RAG indexer to block SSRF to internal services when
+the user supplies the source URL.
 """
 from __future__ import annotations
 
 import ipaddress
 import socket
 from urllib.parse import urlparse
+
+
+# ── Password policy ────────────────────────────────────────────────────
+# Tiny blocklist — covers the most embarrassing leaks. Anything longer
+# belongs in a Have-I-Been-Pwned style external check.
+_COMMON = {
+    "password", "password1", "12345678", "123456789", "12345678910",
+    "qwerty", "qwerty123", "letmein", "welcome", "admin", "iloveyou",
+    "abc12345", "1q2w3e4r", "p@ssw0rd", "passw0rd", "monkey1",
+}
+
+
+def _classes(s: str) -> set[str]:
+    out: set[str] = set()
+    for ch in s:
+        if ch.islower():
+            out.add("lower")
+        elif ch.isupper():
+            out.add("upper")
+        elif ch.isdigit():
+            out.add("digit")
+        elif not ch.isspace():
+            out.add("symbol")
+    return out
+
+
+def validate_password(
+    pw: str,
+    *,
+    email: str | None = None,
+    name: str | None = None,
+) -> None:
+    if len(pw) < 8:
+        raise ValueError("비밀번호는 8자 이상이어야 합니다")
+    if len(pw) > 128:
+        raise ValueError("비밀번호가 너무 깁니다 (128자 이하)")
+    if pw.lower() in _COMMON:
+        raise ValueError("너무 흔한 비밀번호입니다")
+    if len(_classes(pw)) < 2:
+        raise ValueError(
+            "영문 대/소문자, 숫자, 기호 중 두 종류 이상을 포함해야 합니다"
+        )
+    lowered = pw.lower()
+    if email:
+        local = email.split("@", 1)[0].lower()
+        if len(local) >= 4 and local in lowered:
+            raise ValueError("비밀번호에 이메일을 포함할 수 없습니다")
+    if name and len(name) >= 3 and name.lower() in lowered:
+        raise ValueError("비밀번호에 이름을 포함할 수 없습니다")
+
+
+# ── Outbound URL safety (SSRF guard) ──────────────────────────────────
+# Used by the RAG indexer for user-supplied URL / SFTP / API sources so
+# an authenticated user can't point us at internal services (cloud
+# metadata, the local ollama, internal admin panels) and exfil the
+# response via the corpus → retrieval pipeline.
 
 
 class UnsafeTargetError(RuntimeError):
@@ -52,7 +107,7 @@ def ensure_public_host(host: str | None) -> None:
     # localhost short-circuit (DNS sometimes returns 127.0.0.1, sometimes
     # NXDOMAIN depending on /etc/hosts; we deny it either way).
     if host.lower() in {"localhost", "localhost.localdomain"}:
-        raise UnsafeTargetError(f"localhost 는 사용할 수 없습니다")
+        raise UnsafeTargetError("localhost 는 사용할 수 없습니다")
 
     try:
         infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
@@ -60,7 +115,7 @@ def ensure_public_host(host: str | None) -> None:
         raise UnsafeTargetError(f"호스트 해석 실패: {host} ({exc})") from exc
     if not infos:
         raise UnsafeTargetError(f"호스트 해석 결과 없음: {host}")
-    for fam, _stype, _proto, _canon, addr in infos:
+    for _fam, _stype, _proto, _canon, addr in infos:
         ip_str = addr[0]
         try:
             ip = ipaddress.ip_address(ip_str)
@@ -76,3 +131,4 @@ def ensure_public_url(url: str) -> None:
     """Parse `url` and apply ensure_public_host on its hostname."""
     parsed = urlparse(url)
     ensure_public_host(parsed.hostname)
+
