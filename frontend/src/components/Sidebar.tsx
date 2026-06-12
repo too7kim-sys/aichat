@@ -931,6 +931,11 @@ function CoworkPane({
   // the operator gets owner-only controls.
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [knowledgeAddOpen, setKnowledgeAddOpen] = useState(false);
+  // When set, CoworkKnowledgeModal opens directly into this project's
+  // detail view — clicked from the sidebar's 내/공유 지식베이스 row.
+  const [knowledgeProjectId, setKnowledgeProjectId] = useState<string | null>(
+    null,
+  );
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
@@ -1370,12 +1375,23 @@ function CoworkPane({
         </div>
       )}
 
-      {tab === "knowledge" && (
+      {tab === "knowledge" && (() => {
+        // owned = 내가 만든 RAG 프로젝트 (관리 가능)
+        // shared = 공유받은 — 읽기 전용, 채팅 시 자동 검색에 포함됨
+        const owned  = projects.filter((p) => p.owned);
+        const shared = projects.filter((p) => !p.owned);
+        const openProject = (id: string) => {
+          setKnowledgeProjectId(id);
+          setKnowledgeAddOpen(false);
+          setKnowledgeOpen(true);
+        };
+        return (
         <div className="sidebar-sessions cowork-knowledge">
           <div className="sidebar-actions">
             <button
               className="primary"
               onClick={() => {
+                setKnowledgeProjectId(null);
                 setKnowledgeAddOpen(true);
                 setKnowledgeOpen(true);
               }}
@@ -1386,6 +1402,7 @@ function CoworkPane({
               type="button"
               className="cowork-upload-btn"
               onClick={() => {
+                setKnowledgeProjectId(null);
                 setKnowledgeAddOpen(false);
                 setKnowledgeOpen(true);
               }}
@@ -1393,22 +1410,59 @@ function CoworkPane({
               목록 / 관리
             </button>
           </div>
-          <div className="sidebar-empty cowork-knowledge-hint">
-            내 문서를 업로드하거나 폴더·SFTP·DB·API를 인덱싱해서 자연어로
-            검색·분석할 수 있습니다. 공유된 지식베이스는 자동으로 함께
-            검색됩니다.
-          </div>
+
+          {owned.length > 0 && (
+            <>
+              <div className="session-section">내 지식베이스</div>
+              <ul className="cowork-list">
+                {owned.map((p) => (
+                  <KnowledgeRow
+                    key={p.id}
+                    project={p}
+                    onOpen={() => openProject(p.id)}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+
+          {shared.length > 0 && (
+            <>
+              <div className="session-section">공유받은 지식베이스</div>
+              <ul className="cowork-list">
+                {shared.map((p) => (
+                  <KnowledgeRow
+                    key={p.id}
+                    project={p}
+                    onOpen={() => openProject(p.id)}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+
+          {owned.length === 0 && shared.length === 0 && (
+            <div className="sidebar-empty cowork-knowledge-hint">
+              내 문서를 업로드하거나 폴더·SFTP·DB·API를 인덱싱해서 자연어로
+              검색·분석할 수 있습니다. 공유된 지식베이스는 자동으로 함께
+              검색됩니다.
+            </div>
+          )}
+
           {knowledgeOpen && (
             <CoworkKnowledgeModal
               addOpen={knowledgeAddOpen}
+              projectId={knowledgeProjectId}
               onClose={() => {
                 setKnowledgeOpen(false);
                 setKnowledgeAddOpen(false);
+                setKnowledgeProjectId(null);
               }}
             />
           )}
         </div>
-      )}
+        );
+      })()}
 
       {promptEdit !== null && (
         <PromptEditModal
@@ -1464,9 +1518,11 @@ function CoworkPane({
  *  granted to them, with create/edit/delete confined to their own. */
 function CoworkKnowledgeModal({
   addOpen,
+  projectId,
   onClose,
 }: {
   addOpen: boolean;
+  projectId?: string | null;
   onClose: () => void;
 }) {
   // Lazy import to keep ProjectModal out of the sidebar's initial
@@ -1477,6 +1533,7 @@ function CoworkKnowledgeModal({
       onClose: () => void;
       adminMode?: boolean;
       initialAddOpen?: boolean;
+      initialProjectId?: string | null;
     }> | null
   >(null);
   useEffect(() => {
@@ -1495,7 +1552,58 @@ function CoworkKnowledgeModal({
       onClose={onClose}
       adminMode={false}
       initialAddOpen={addOpen}
+      initialProjectId={projectId ?? null}
     />
+  );
+}
+
+
+/** Single row in the Cowork knowledge list (sidebar). Mirrors the
+ *  prompts/workflow row style — title + meta line + click-to-open.
+ *  Owned vs shared distinction comes from the section heading the
+ *  parent renders; here we just tag shared rows with a small badge. */
+function KnowledgeRow({
+  project: p,
+  onOpen,
+}: {
+  project: Project;
+  onOpen: () => void;
+}) {
+  const statusLabel: Record<Project["status"], string> = {
+    pending: "대기",
+    indexing: "인덱싱 중",
+    ready: "준비됨",
+    failed: "실패",
+  };
+  return (
+    <li
+      className={`cowork-item status-${p.status} cowork-item-clickable`}
+      onClick={onOpen}
+      title={p.owned ? "클릭해서 관리" : "공유 지식베이스 — 읽기 전용"}
+    >
+      <div className="cowork-item-head">
+        <span className="cowork-item-name" title={p.source_ref || undefined}>
+          {p.name}
+        </span>
+        {!p.owned && <span className="cowork-shared-badge">공유</span>}
+      </div>
+      <div className="cowork-item-meta">
+        <span>
+          {statusLabel[p.status]}
+          {p.file_count > 0 ? ` · 파일 ${p.file_count}` : ""}
+          {p.chunk_count > 0 ? ` · 청크 ${p.chunk_count.toLocaleString()}` : ""}
+        </span>
+        {p.status === "ready" ? (
+          <span className="cowork-run-badge ok">
+            <IconCheckCircle size={11} /> 검색 가능
+          </span>
+        ) : p.status === "failed" ? (
+          <span className="cowork-run-badge failed" title={p.error ?? "실패"}>
+            실패
+          </span>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
