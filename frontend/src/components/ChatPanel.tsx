@@ -1516,7 +1516,7 @@ function RagChunksBox({
             <span className="rag-range">
               :{c.start_line}-{c.end_line}
             </span>
-            <span className="rag-score">{c.score.toFixed(3)}</span>
+            <CitationChip score={c.score} />
           </li>
         ))}
       </ol>
@@ -1558,5 +1558,31 @@ function ExportSessionMenu({ sessionId, title }: { sessionId: string; title: str
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * 인용 정확도 칩 — cosine similarity 점수를 사람이 읽기 쉬운 색·라벨
+ * 로 매핑. 임계값은 bge-m3 기준 경험치이고 운영하면서 튜닝 가능.
+ */
+function CitationChip({ score }: { score: number }) {
+  // 점수 → 신뢰도 라벨 + 색깔. 임계값은 임베딩 모델 따라 조정.
+  let tone: "high" | "mid" | "low" = "low";
+  let label = "낮음";
+  if (score >= 0.7) {
+    tone = "high";
+    label = "높음";
+  } else if (score >= 0.45) {
+    tone = "mid";
+    label = "보통";
+  }
+  const pct = Math.round(score * 100);
+  return (
+    <span
+      className={`citation-chip citation-${tone}`}
+      title={`코사인 유사도 ${score.toFixed(3)} — 답변에 인용된 청크와 질문의 의미 유사도`}
+    >
+      {label} {pct}%
+    </span>
   );
 }

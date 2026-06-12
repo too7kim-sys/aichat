@@ -3201,6 +3201,31 @@ body {
 .admin-error-what {
   font-weight: 500;
 }
+.citation-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+  letter-spacing: 0.02em;
+}
+.citation-high {
+  color: #1e7a2f;
+  background: rgba(38, 169, 56, 0.14);
+  border: 1px solid rgba(38, 169, 56, 0.32);
+}
+.citation-mid {
+  color: #8a6500;
+  background: rgba(255, 178, 0, 0.14);
+  border: 1px solid rgba(255, 178, 0, 0.34);
+}
+.citation-low {
+  color: #9a322a;
+  background: rgba(192, 57, 43, 0.12);
+  border: 1px solid rgba(192, 57, 43, 0.30);
+}
+
 .ws-tree-toolbar {
   display: flex;
   justify-content: flex-end;
