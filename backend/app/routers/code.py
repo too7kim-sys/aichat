@@ -332,6 +332,90 @@ async def sync_workspace(
     return ws
 
 
+@router.get("/workspaces/{workspace_id}/download.zip")
+async def workspace_download_zip(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """워크스페이스 전체를 zip 으로 묶어 스트리밍. .git / node_modules
+    / __pycache__ 등 큰 무용 디렉터리는 자동 제외. 50 MB 가 넘으면
+    409 반환 (큰 워크스페이스는 git 사용을 권장)."""
+    import io
+    import urllib.parse
+    import zipfile
+    from fastapi.responses import StreamingResponse
+
+    ws = await db.scalar(
+        select(models.CodeWorkspace).where(
+            models.CodeWorkspace.id == workspace_id,
+            models.CodeWorkspace.user_id == user.id,
+        )
+    )
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    if ws.status != "ready":
+        raise HTTPException(409, f"준비되지 않음 (status={ws.status})")
+
+    root = Path(ws.local_path)
+    if not root.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+
+    # 제외 패턴 — VCS 메타 / 의존성 캐시 / 빌드 산출물.
+    SKIP_DIRS = {
+        ".git", ".hg", ".svn", "node_modules", "__pycache__",
+        ".venv", "venv", ".idea", ".vscode", "dist", "build",
+        ".pytest_cache", ".mypy_cache", ".ruff_cache", "target",
+    }
+    MAX_BYTES = 50 * 1024 * 1024  # 50 MB cap
+
+    def build_zip() -> bytes:
+        buf = io.BytesIO()
+        total = 0
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in root.rglob("*"):
+                # 디렉터리 자체는 zip 에 안 넣음 (압축률만 떨어짐).
+                if p.is_dir():
+                    continue
+                # 상위 어디든 SKIP 패턴이 끼면 제외.
+                rel = p.relative_to(root)
+                parts = set(rel.parts)
+                if parts & SKIP_DIRS:
+                    continue
+                try:
+                    size = p.stat().st_size
+                except OSError:
+                    continue
+                if total + size > MAX_BYTES:
+                    raise RuntimeError(
+                        f"워크스페이스가 너무 큽니다 (>{MAX_BYTES // (1024 * 1024)}MB). "
+                        "git push 또는 개별 파일 받기를 사용하세요."
+                    )
+                total += size
+                try:
+                    zf.write(p, arcname=str(rel))
+                except OSError:
+                    continue
+        return buf.getvalue()
+
+    try:
+        data = await asyncio.get_running_loop().run_in_executor(
+            None, build_zip,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+    safe = urllib.parse.quote((ws.name or "workspace").replace("/", "_"))
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{safe}.zip",
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
 @router.get("/workspaces/{workspace_id}/tree")
 async def workspace_tree(
     workspace_id: str,

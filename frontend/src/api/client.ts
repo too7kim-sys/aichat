@@ -1218,6 +1218,34 @@ export const api = {
       file_count: number;
       size_bytes: number;
     }>(`/code/workspaces/${id}/tree`),
+  /** 워크스페이스 전체를 zip 으로 받는다. .git / node_modules / 빌드
+   *  산출물 자동 제외, 50 MB 초과 시 서버가 409. */
+  downloadWorkspaceZip: async (id: string) => {
+    const res = await fetch(
+      `${BASE}/code/workspaces/${id}/download.zip`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) {
+      let detail = `${res.status}`;
+      try {
+        const j = await res.json();
+        detail = j.detail ?? detail;
+      } catch { /* not JSON */ }
+      throw new Error(detail);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    const filename = m ? decodeURIComponent(m[1]) : "workspace.zip";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   /** Per-file bundle inclusion status the chat side panel uses to
    *  mark each row in the tree with ✓ / ⊘ icons + tooltips. Runs
    *  the exact same `collect_workspace_files` pass the next chat

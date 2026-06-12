@@ -117,6 +117,16 @@ export function WorkspaceTree({
 
   return (
     <>
+      <div className="ws-tree-toolbar">
+        <button
+          type="button"
+          className="ws-tree-btn"
+          onClick={() => api.downloadWorkspaceZip(workspaceId)}
+          title="워크스페이스를 zip 으로 다운로드 (.git / node_modules 등 제외)"
+        >
+          ⬇ zip
+        </button>
+      </div>
       {bundle && (
         <BundleStatusBanner bundle={bundle} />
       )}

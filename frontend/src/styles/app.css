@@ -3201,6 +3201,28 @@ body {
 .admin-error-what {
   font-weight: 500;
 }
+.ws-tree-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 4px 8px 0;
+}
+.ws-tree-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ws-tree-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .admin-audit-filters {
   display: flex;
   gap: 8px;
