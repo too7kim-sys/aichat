@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
@@ -84,25 +84,78 @@ class IPAllowlistMiddleware(BaseHTTPMiddleware):
     request.client.host 만 신뢰한다 — uvicorn 의 --proxy-headers 가
     켜져 있어 nginx 같은 신뢰된 프록시 뒤에서는 X-Forwarded-For 의
     실제 클라이언트 IP 가 자동으로 채워진다. 프록시가 없는 운영(=
-    이 박스 직접 노출)에서는 그대로 TCP 피어의 IP 가 들어온다."""
+    이 박스 직접 노출)에서는 그대로 TCP 피어의 IP 가 들어온다.
+
+    응답 형식:
+      - 브라우저 (Accept: text/html) → 로고 + 영문 안내 HTML.
+        JSON 한 줄을 그대로 보여주면 일반 사용자에게 의미가 없어서
+        브랜드 마크와 한 문장 안내로 시각적으로 정리.
+      - API 클라이언트 (Accept 헤더 없거나 application/json)
+        → 기존 JSON {detail: ...} 그대로 — 자동화/모니터링이 파싱
+        하기 좋게.
+    """
+
+    # BrandLogo.tsx 의 픽셀 SVG 를 그대로 inline. /logo.svg 를 가져오는
+    # 요청도 같은 미들웨어가 막아 빈 화면이 되므로 차단 페이지에는
+    # 외부 리소스 의존이 없어야 한다.
+    _LOGO_SVG = (
+        '<svg width="64" height="64" viewBox="0 0 18 18" '
+        'xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" '
+        'aria-hidden="true">'
+        '<rect x="0" y="0" width="12" height="3" fill="#26A938" />'
+        '<rect x="0" y="0" width="3" height="12" fill="#26A938" />'
+        '<rect x="0" y="10" width="6" height="2" fill="#26A938" />'
+        '<rect x="8" y="10" width="4" height="2" fill="#26A938" />'
+        '<rect x="15" y="6" width="3" height="12" fill="#1E54A4" />'
+        '<rect x="6" y="15" width="12" height="3" fill="#1E54A4" />'
+        '<rect x="6" y="6" width="2" height="4" fill="#1E54A4" />'
+        '<rect x="6" y="12" width="2" height="3" fill="#1E54A4" />'
+        '</svg>'
+    )
+
+    _BLOCK_HTML = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8" />'
+        '<meta name="viewport" content="width=device-width,initial-scale=1" />'
+        '<title>Access blocked</title>'
+        '<style>'
+        'html,body{height:100%;margin:0;}'
+        'body{display:flex;align-items:center;justify-content:center;'
+        'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,'
+        '"Helvetica Neue",Arial,"Apple SD Gothic Neo","Noto Sans KR",'
+        'sans-serif;background:#fafafa;color:#333;}'
+        '.box{text-align:center;padding:48px 24px;max-width:480px;}'
+        '.logo{margin-bottom:24px;filter:drop-shadow(0 2px 6px '
+        'rgba(0,0,0,0.08));}'
+        '.msg{font-size:18px;font-weight:500;line-height:1.5;'
+        'letter-spacing:-0.01em;}'
+        '</style></head><body><div class="box">'
+        '<div class="logo">' + _LOGO_SVG + '</div>'
+        '<div class="msg">Access has been blocked due to abnormal '
+        'requests.</div>'
+        '</div></body></html>'
+    )
 
     def __init__(self, app, networks):
         super().__init__(app)
         self.networks = networks
 
+    def _deny(self, request: Request, reason: str) -> HTMLResponse | JSONResponse:
+        # Accept 헤더로 브라우저/API 구분 — text/html 이 들어있으면
+        # 사람이 보는 화면이라고 가정.
+        accept = (request.headers.get("accept") or "").lower()
+        if "text/html" in accept:
+            return HTMLResponse(self._BLOCK_HTML, status_code=403)
+        return JSONResponse({"detail": reason}, status_code=403)
+
     async def dispatch(self, request: Request, call_next):
         client = request.client
         host = client.host if client else None
         if not host:
-            return JSONResponse(
-                {"detail": "client IP missing"}, status_code=403
-            )
+            return self._deny(request, "client IP missing")
         try:
             ip = ipaddress.ip_address(host)
         except ValueError:
-            return JSONResponse(
-                {"detail": f"invalid client IP: {host}"}, status_code=403
-            )
+            return self._deny(request, f"invalid client IP: {host}")
         # 로컬 헬스체크가 죽지 않게 loopback 무조건 통과.
         if ip.is_loopback:
             return await call_next(request)
@@ -110,9 +163,7 @@ class IPAllowlistMiddleware(BaseHTTPMiddleware):
             if ip in net:
                 return await call_next(request)
         log.warning("IP allowlist: denied %s for %s", host, request.url.path)
-        return JSONResponse(
-            {"detail": "Access denied by IP allowlist"}, status_code=403
-        )
+        return self._deny(request, "Access denied by IP allowlist")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
