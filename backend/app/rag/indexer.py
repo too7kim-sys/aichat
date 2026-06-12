@@ -1029,6 +1029,7 @@ async def run_indexing(snapshot_id: str) -> None:
                 raise RuntimeError(f"임베딩 실패: {exc}") from exc
 
             points = []
+            fts_rows: list[tuple[str, str, str]] = []
             for chunk, vec in zip(batch, vectors):
                 point_id = str(uuid.uuid4())
                 points.append(
@@ -1047,7 +1048,16 @@ async def run_indexing(snapshot_id: str) -> None:
                         },
                     )
                 )
+                fts_rows.append((point_id, chunk.filename, chunk.text))
             client.upsert(collection_name=cname, points=points)
+            # BM25 mirror — same chunk_id 로 같이 색인. retrieve 단계
+            # 에서 RRF 로 vector + BM25 결과를 합친다. 실패해도 vector
+            # 쪽은 멀쩡하니 best-effort 로.
+            try:
+                from . import fts as _fts
+                await asyncio.to_thread(_fts.add_chunks, snapshot_id, fts_rows)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("RAG FTS mirror failed (계속 진행): %s", exc)
             done += len(batch)
             await _update_snapshot(snapshot_id, progress_done=done)
 
@@ -1278,10 +1288,12 @@ async def run_incremental(project_id: str) -> dict:
                 continue
 
             points = []
+            fts_rows: list[tuple[str, str, str]] = []
             for chunk, vec in zip(new_chunks, vectors):
+                pid = str(uuid.uuid4())
                 points.append(
                     qm.PointStruct(
-                        id=str(uuid.uuid4()),
+                        id=pid,
                         vector=vec,
                         payload={
                             "filename": chunk.filename,
@@ -1295,7 +1307,13 @@ async def run_incremental(project_id: str) -> dict:
                         },
                     )
                 )
+                fts_rows.append((pid, chunk.filename, chunk.text))
             client.upsert(collection_name=cname, points=points)
+            try:
+                from . import fts as _fts
+                await asyncio.to_thread(_fts.add_chunks, snapshot_id, fts_rows)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("RAG FTS incremental mirror failed: %s", exc)
 
             async with SessionLocal() as db:
                 if prev is not None:

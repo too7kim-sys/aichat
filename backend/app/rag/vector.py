@@ -104,6 +104,14 @@ def drop_collection(project_id: str) -> int:
             "Qdrant delete_collection(%s) failed: %s — will still wipe local files",
             name, exc,
         )
+    # FTS5 미러도 같이 정리. 실패해도 컬렉션 자체는 비웠으니 best-effort.
+    try:
+        from . import fts as _fts
+        deleted = _fts.drop_snapshot(project_id)
+        if deleted:
+            log.info("FTS: dropped %d rows for snapshot %s", deleted, project_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("FTS drop_snapshot failed: %s", exc)
     # Defense in depth: if the local-mode directory survived the API
     # call (older qdrant-client versions, partial writes, ...), nuke it
     # explicitly so the user actually gets disk back.

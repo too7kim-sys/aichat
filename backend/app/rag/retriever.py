@@ -109,35 +109,101 @@ async def retrieve(
     # filename 필터는 Qdrant payload 인덱스가 없을 수 있어 서버측에서
     # 후처리 — 큰 collection 에서는 top_k 를 넉넉히 받아 거른 뒤 자른다.
     # (전체 청크 수가 십만 단위까지는 이 방식이 단순하고 충분히 빠르다.)
-    raw_limit = settings.rag_top_k * 5 if filename_pattern else settings.rag_top_k
+    pool_k = settings.rag_top_k * 5
+
+    # 1) Vector — Qdrant 코사인 유사도 top-pool.
     try:
-        results = client.search(
+        vec_results = client.search(
             collection_name=cname,
             query_vector=qvec,
-            limit=raw_limit,
+            limit=pool_k,
             with_payload=True,
         )
     except Exception as exc:  # noqa: BLE001 - collection may not exist yet
         log.warning("RAG retrieval: qdrant search failed (%s)", exc)
         return []
-    if filename_pattern:
-        needle = filename_pattern.lower()
-        results = [
-            r for r in results
-            if r.payload and needle in str(r.payload.get("filename", "")).lower()
-        ][: settings.rag_top_k]
-    hits = [
-        RetrievedChunk(
-            filename=str(r.payload.get("filename", "")),
-            start_line=int(r.payload.get("start_line", 0)),
-            end_line=int(r.payload.get("end_line", 0)),
-            text=str(r.payload.get("text", "")),
-            score=float(r.score),
-            corpus_type=str(r.payload.get("corpus_type", "code")),
+
+    # 2) BM25 — SQLite FTS5 미러. 실패해도 vector 만으로 계속.
+    bm25_results: list[tuple[str, str, float]] = []
+    try:
+        from . import fts as _fts
+        bm25_results = _fts.search(
+            target_snapshot, query,
+            limit=pool_k,
+            filename_pattern=filename_pattern,
         )
-        for r in results
-        if r.payload
-    ]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("RAG retrieval: BM25 failed (%s) — vector only", exc)
+
+    # 3) Reciprocal Rank Fusion 으로 두 랭킹 합치기.
+    # final_score = sum(1 / (RRF_K + rank))  per run that contains the id
+    # k=60 은 BM25/dense hybrid 표준 값.
+    RRF_K = 60
+    chunk_score: dict[str, float] = {}
+    chunk_meta: dict[str, dict] = {}  # id → payload dict (filename, lines, text)
+    needle = (filename_pattern or "").lower() or None
+
+    for rank, r in enumerate(vec_results, start=1):
+        if not r.payload:
+            continue
+        fn = str(r.payload.get("filename", ""))
+        if needle and needle not in fn.lower():
+            continue
+        cid = str(r.id)
+        chunk_score[cid] = chunk_score.get(cid, 0.0) + 1.0 / (RRF_K + rank)
+        chunk_meta[cid] = {
+            "filename": fn,
+            "start_line": int(r.payload.get("start_line", 0)),
+            "end_line": int(r.payload.get("end_line", 0)),
+            "text": str(r.payload.get("text", "")),
+            "corpus_type": str(r.payload.get("corpus_type", "code")),
+            "vec_score": float(r.score),
+        }
+
+    for rank, (cid, fn, _bm) in enumerate(bm25_results, start=1):
+        chunk_score[cid] = chunk_score.get(cid, 0.0) + 1.0 / (RRF_K + rank)
+        if cid not in chunk_meta:
+            # BM25 가 발견한 청크가 vector top-pool 에 없을 때 — 그 청크
+            # 의 본문은 따로 한 번 더 fetch.
+            try:
+                pts = client.retrieve(
+                    collection_name=cname,
+                    ids=[cid],
+                    with_payload=True,
+                )
+            except Exception:  # noqa: BLE001
+                pts = []
+            if pts and pts[0].payload:
+                p = pts[0].payload
+                chunk_meta[cid] = {
+                    "filename": str(p.get("filename", fn)),
+                    "start_line": int(p.get("start_line", 0)),
+                    "end_line": int(p.get("end_line", 0)),
+                    "text": str(p.get("text", "")),
+                    "corpus_type": str(p.get("corpus_type", "code")),
+                    "vec_score": 0.0,
+                }
+
+    # 4) RRF 점수로 정렬 → top-K.
+    ranked = sorted(chunk_score.items(), key=lambda kv: kv[1], reverse=True)
+    final = ranked[: settings.rag_top_k]
+    hits: list[RetrievedChunk] = []
+    for cid, _rrf in final:
+        m = chunk_meta.get(cid)
+        if not m:
+            continue
+        # 표시용 score 는 원래 의미를 보존하려고 vector score 를 그대로
+        # 들고 간다 (citation chip 임계값이 vector 기준이라).
+        hits.append(
+            RetrievedChunk(
+                filename=m["filename"],
+                start_line=m["start_line"],
+                end_line=m["end_line"],
+                text=m["text"],
+                score=m["vec_score"],
+                corpus_type=m["corpus_type"],
+            )
+        )
     return _merge_adjacent(hits)
 
 
