@@ -210,14 +210,151 @@ function FileFinalize({ path, body }: { path: string; body: string }) {
     );
   }
   return (
-    <button
-      type="button"
-      className="code-apply"
-      onClick={run}
-      title={idleTitle}
-    >
-      {idleLabel}
-    </button>
+    <span style={{ display: "inline-flex", gap: 6 }}>
+      <PreviewButton path={path} body={body} />
+      <button
+        type="button"
+        className="code-apply"
+        onClick={run}
+        title={idleTitle}
+      >
+        {idleLabel}
+      </button>
+    </span>
+  );
+}
+
+/** "미리보기" — 디스크에 쓰기 전 LLM 결과물 vs 기존 파일의 unified diff
+ *  를 모달로 보여준다. 사용자가 안에서 "적용" 을 누르면 applyWorkspaceFile
+ *  까지 한 번에. */
+function PreviewButton({ path, body }: { path: string; body: string }) {
+  const { workspaceId, onPatchApplied } = useChatWorkspace();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.previewWorkspaceFile>> | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+
+  async function openPreview() {
+    if (!workspaceId) return;
+    setOpen(true);
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await api.previewWorkspaceFile(workspaceId, path, body);
+      setData(r);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function applyNow() {
+    if (!workspaceId) return;
+    setApplying(true);
+    try {
+      await api.applyWorkspaceFile(workspaceId, path, body);
+      onPatchApplied?.();
+      setOpen(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  if (!workspaceId) return null;
+  return (
+    <>
+      <button
+        type="button"
+        className="code-apply secondary"
+        onClick={openPreview}
+        title={`${path} 변경 사항 미리보기 (적용 전 확인)`}
+      >
+        👁 미리보기
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div
+            className="modal patch-preview-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header>
+              <h3>변경 미리보기</h3>
+              <code className="patch-preview-path">{path}</code>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setOpen(false)}
+                aria-label="닫기"
+              >×</button>
+            </header>
+            <div className="patch-preview-body">
+              {loading ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : err ? (
+                <div className="patch-preview-empty patch-preview-err">⚠ {err}</div>
+              ) : data?.unchanged ? (
+                <div className="patch-preview-empty">기존 파일과 동일합니다 — 적용해도 변경 없음.</div>
+              ) : data?.added ? (
+                <>
+                  <div className="patch-preview-meta">새 파일 · {data.new_lines} 줄</div>
+                  <pre className="patch-preview-diff added">{body}</pre>
+                </>
+              ) : data ? (
+                <>
+                  <div className="patch-preview-meta">
+                    수정 · {data.old_lines} 줄 → {data.new_lines} 줄
+                  </div>
+                  <UnifiedDiffView diff={data.diff} />
+                </>
+              ) : null}
+            </div>
+            <footer>
+              <button
+                type="button"
+                className="pm-btn-secondary"
+                onClick={() => setOpen(false)}
+              >
+                닫기
+              </button>
+              <button
+                type="button"
+                className="pm-btn-primary"
+                onClick={applyNow}
+                disabled={applying || loading || !!err || !!data?.unchanged}
+              >
+                {applying ? "적용 중…" : "적용"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function UnifiedDiffView({ diff }: { diff: string }) {
+  // unified diff 한 줄씩 색칠 — +/-/@/공백.
+  const lines = diff.split("\n");
+  return (
+    <pre className="patch-preview-diff">
+      {lines.map((line, i) => {
+        let cls = "";
+        if (line.startsWith("+++") || line.startsWith("---")) cls = "head";
+        else if (line.startsWith("@@")) cls = "hunk";
+        else if (line.startsWith("+")) cls = "ins";
+        else if (line.startsWith("-")) cls = "del";
+        return (
+          <span key={i} className={cls}>
+            {line}
+            {"\n"}
+          </span>
+        );
+      })}
+    </pre>
   );
 }
 

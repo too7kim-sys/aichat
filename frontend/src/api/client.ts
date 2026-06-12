@@ -1287,6 +1287,20 @@ export const api = {
       `/code/workspaces/${id}/apply`,
       { method: "POST", body: JSON.stringify({ path, content }) },
     ),
+  /** 디스크에 쓰지 않고 LLM 이 만든 새 파일 내용 vs 기존 파일의 unified
+   *  diff 만 받아 온다. 미리보기 모달 → "적용" 누르면 그제서야 applyWorkspaceFile. */
+  previewWorkspaceFile: (id: string, path: string, content: string) =>
+    json<{
+      path: string;
+      added: boolean;
+      unchanged: boolean;
+      diff: string;
+      old_lines: number;
+      new_lines: number;
+    }>(`/code/workspaces/${id}/preview`, {
+      method: "POST",
+      body: JSON.stringify({ path, content }),
+    }),
   workspaceStatus: (id: string) =>
     json<{
       entries: WorkspaceStatusEntry[];

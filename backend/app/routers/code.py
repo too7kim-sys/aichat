@@ -689,6 +689,68 @@ async def workspace_status(
     return {"entries": entries, "clean": len(entries) == 0, "git": True}
 
 
+@router.post("/workspaces/{workspace_id}/preview")
+async def workspace_preview(
+    workspace_id: str,
+    payload: schemas.WorkspaceApply,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """LLM 이 만들어낸 새 파일 내용을 디스크에 쓰지 않고 unified diff 만
+    돌려준다. 프론트가 모달에서 보여 사용자가 확인한 뒤에 /apply 로
+    실제 적용. 새 파일이면 added=true, 동일하면 unchanged=true."""
+    import difflib
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+
+    rel = payload.path.lstrip("/")
+    if ".." in rel.split("/"):
+        raise HTTPException(400, "잘못된 경로")
+    target = (dest / rel).resolve()
+    try:
+        target.relative_to(dest.resolve())
+    except ValueError:
+        raise HTTPException(400, "워크스페이스 밖 경로")
+
+    existed = target.is_file()
+    if existed:
+        try:
+            old_text = target.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise HTTPException(500, f"기존 파일 읽기 실패: {exc}")
+    else:
+        old_text = ""
+    new_text = payload.content
+
+    if old_text == new_text:
+        return {
+            "path": payload.path,
+            "added": False,
+            "unchanged": True,
+            "diff": "",
+            "old_lines": len(old_text.splitlines()),
+            "new_lines": len(new_text.splitlines()),
+        }
+
+    diff_lines = list(
+        difflib.unified_diff(
+            old_text.splitlines(keepends=True),
+            new_text.splitlines(keepends=True),
+            fromfile=f"a/{rel}" if existed else "/dev/null",
+            tofile=f"b/{rel}",
+            n=3,
+        )
+    )
+    return {
+        "path": payload.path,
+        "added": not existed,
+        "unchanged": False,
+        "diff": "".join(diff_lines),
+        "old_lines": len(old_text.splitlines()),
+        "new_lines": len(new_text.splitlines()),
+    }
+
+
 @router.get("/workspaces/{workspace_id}/diff")
 async def workspace_diff(
     workspace_id: str,
