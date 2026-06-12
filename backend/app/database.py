@@ -81,6 +81,18 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_chat_project_id "
                     "ON sessions(chat_project_id)"
                 )
+            if "workflow_id" not in existing:
+                # Auto-runs from Cowork 워크플로 tag the resulting
+                # Session here. The runner uses this to keep only the
+                # N most recent sessions per workflow (older are auto-
+                # deleted). NULL on every normal user chat.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN workflow_id VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_workflow_id "
+                    "ON sessions(workflow_id)"
+                )
             # Message-hidden flag for the transcription pipeline — the
             # raw whisper output stores hidden=1 so the chat panel
             # collapses it by default while keeping the row available

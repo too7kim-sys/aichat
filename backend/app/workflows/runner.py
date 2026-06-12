@@ -90,6 +90,7 @@ async def run_workflow(workflow_id: str) -> None:
             wf.last_session_id = session.id
             wf.last_run_status = "ok"
             wf.last_error = None
+            await _prune_old_sessions(db, wf.id)
         except Exception as exc:  # noqa: BLE001
             wf.last_run_status = "failed"
             wf.last_error = f"{type(exc).__name__}: {exc}"[:2000]
@@ -97,6 +98,32 @@ async def run_workflow(workflow_id: str) -> None:
         finally:
             wf.last_run_at = datetime.now(timezone.utc)
             await db.commit()
+
+
+async def _prune_old_sessions(db, workflow_id: str) -> None:
+    """Per-workflow session retention. Keeps the N most recent auto-
+    generated sessions (`workflow_id == this`) and deletes older ones.
+    Cascade-deletes their messages via the existing relationship.
+    Safe to call after every successful run — the query is O(N).
+    """
+    keep = settings.workflow_auto_session_retention
+    if keep <= 0:
+        return  # retention disabled — keep all forever
+    stale = (
+        await db.execute(
+            select(models.Session)
+            .where(models.Session.workflow_id == workflow_id)
+            .order_by(models.Session.created_at.desc())
+            .offset(keep)
+        )
+    ).scalars().all()
+    for s in stale:
+        await db.delete(s)
+    if stale:
+        log.info(
+            "workflow %s: pruned %d old auto-session(s) (retain %d)",
+            workflow_id, len(stale), keep,
+        )
 
 
 async def _execute_workflow(
@@ -115,12 +142,15 @@ async def _execute_workflow(
     if not rendered:
         raise RuntimeError("렌더된 프롬프트가 비어 있습니다")
 
-    # 2) Create the session that holds this run's transcript
+    # 2) Create the session that holds this run's transcript. workflow_id
+    # tags this session as an auto-run output so we can enforce per-
+    # workflow retention later.
     ts = datetime.now(timezone.utc).strftime("%m-%d %H:%M")
     session = models.Session(
         user_id=wf.user_id,
         title=f"[자동] {wf.name} · {ts}",
         project_id=wf.project_id,
+        workflow_id=wf.id,
     )
     db.add(session)
     await db.flush()

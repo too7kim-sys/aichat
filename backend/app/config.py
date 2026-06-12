@@ -230,6 +230,12 @@ class Settings(BaseSettings):
     # are always kept and don't count against this limit.
     max_history_messages: int = 30
 
+    # 워크플로 자동 실행이 만들어내는 채팅 세션은 시간이 지나면 무한히
+    # 쌓인다 (스케줄이 10분 간격이면 하루 144개). 워크플로별로 최근
+    # N개만 보존하고 그보다 오래된 자동 세션은 매 실행 직후 정리.
+    # 0 으로 두면 보존(=정리 안 함).
+    workflow_auto_session_retention: int = 10
+
     tesseract_cmd: str = ""  # e.g. C:\\Program Files\\Tesseract-OCR\\tesseract.exe
     ocr_languages: str = "eng+kor"
     max_upload_bytes: int = 5 * 1024 * 1024  # 5 MB

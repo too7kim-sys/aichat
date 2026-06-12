@@ -214,6 +214,15 @@ class Session(Base):
         nullable=True, index=True,
     )
     code_focused: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Optional link back to the workflow that auto-generated this
+    # session. Used by the runner to enforce per-workflow retention
+    # (keep N most recent auto-runs, delete older). NULL for normal
+    # user chats. SET NULL on workflow delete so deleting a workflow
+    # leaves its historical sessions untouched.
+    workflow_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workflows.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
