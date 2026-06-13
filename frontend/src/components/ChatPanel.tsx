@@ -245,6 +245,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  // AskBlock 의 선택지 클릭 이벤트를 받아 send 로 전달 — send 함수는
+  // 컴포넌트 본문 아래에서 정의되고 early return 위에 hook 이 필요해서
+  // ref 로 우회한다. 본문에서 매 렌더마다 sendRef.current 를 최신 send
+  // 로 교체.
+  const sendRef = useRef<((override: string) => void) | null>(null);
+  useEffect(() => {
+    function onChoice(e: Event) {
+      const ev = e as CustomEvent<{ text: string }>;
+      if (ev.detail?.text) sendRef.current?.(ev.detail.text);
+    }
+    window.addEventListener("chat:choice-picked", onChoice);
+    return () => window.removeEventListener("chat:choice-picked", onChoice);
+  }, []);
   const artifactsState = useArtifacts();
   const { selected: model } = useModels();
   // Model picker UI is hidden — auto routing handles selection.
@@ -759,20 +772,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     });
   }
 
-  // AskBlock 의 선택지 버튼이 클릭되면 그 선택지 문구를 다음 turn 으로
-  // 자동 전송 — 대화가 끊기지 않고 이어진다. 다른 세션에서 발생한
-  // 이벤트는 무시(여기서는 어차피 이 세션 ChatPanel 만 마운트돼 있지만).
-  useEffect(() => {
-    function onChoice(e: Event) {
-      const ev = e as CustomEvent<{ text: string }>;
-      const text = ev.detail?.text;
-      if (!text) return;
-      send(text);
-    }
-    window.addEventListener("chat:choice-picked", onChoice);
-    return () => window.removeEventListener("chat:choice-picked", onChoice);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, activeProvider, streaming]);
+  // 매 렌더마다 ref 를 최신 send 로 교체 — 위에서 등록한 이벤트
+  // 리스너가 항상 최신 closure 의 send 를 호출하도록.
+  sendRef.current = send;
 
   async function runInlineMerge(
     titleOverride?: string,
