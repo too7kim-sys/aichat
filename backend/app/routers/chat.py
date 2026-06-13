@@ -99,6 +99,39 @@ _ACCURACY_SYSTEM = ChatMessage(
 )
 
 
+# 사용자 질문이 모호하거나 여러 해석이 가능할 때, 추측 대신 명시적으로
+# 다시 묻는다. 답변 끝에 다음 형식의 fenced code block 을 포함시키면
+# 프런트가 선택 버튼으로 렌더 — 사용자가 한 번 클릭으로 다음 turn 을
+# 자동 전송, 대화가 끊김 없이 이어진다.
+_CLARIFY_SYSTEM = ChatMessage(
+    role="system",
+    content=(
+        "[모호함 → 선택지 질문]\n"
+        "사용자 의도가 명확하지 않거나 여러 가지로 해석될 수 있을 때, "
+        "추측해서 답변하지 마세요. 대신 짧게 다시 물으면서 답변의 마지막"
+        "에 다음과 같은 코드 블록을 정확히 한 번만 포함하세요:\n\n"
+        "```ask\n"
+        "{\n"
+        '  "question": "어떻게 처리할까요?",\n'
+        '  "choices": [\n'
+        '    "선택지 1 설명 (한 줄)",\n'
+        '    "선택지 2 설명 (한 줄)"\n'
+        "  ]\n"
+        "}\n"
+        "```\n\n"
+        "규칙:\n"
+        "- 코드 블록 안은 반드시 valid JSON.\n"
+        "- choices 는 2~4 개. 너무 많으면 사용자 인지 부담이 커집니다.\n"
+        "- 각 선택지는 한 줄 (60자 이내) 의 명확한 설명.\n"
+        "- 사용자가 클릭한 선택지 문구가 다음 user 메시지로 그대로 들어"
+        "오므로, 그 문구만 받아서 다음 답변을 작성할 수 있게 자족적으로 "
+        "작성하세요.\n"
+        "- 한 답변에 ask 블록은 최대 하나. 명백한 질문에는 ask 블록을 "
+        "쓰지 마세요 — 그땐 그냥 답변."
+    ),
+)
+
+
 # Detect translation intent in the user prompt so we can hand the model
 # a strict format that always renders原文 + 번역 side-by-side. Patterns
 # kept generous on purpose — a false positive just adds two helpful
@@ -1141,6 +1174,10 @@ async def chat_single(
     # message so the model reads it first.
     if settings.accuracy_strict:
         history.insert(0, _ACCURACY_SYSTEM)
+
+    # 모호함 → 선택지 질문 규칙. 항상 적용 — 명백한 질문에는 모델이
+    # 알아서 안 쓰도록 시스템 메시지 안에서 가이드.
+    history.insert(0, _CLARIFY_SYSTEM)
 
     # Translation requests get a strict "## 원문" / "## 번역" output
     # contract so the user can read source and target side-by-side

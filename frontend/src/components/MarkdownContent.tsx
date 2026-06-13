@@ -581,6 +581,12 @@ export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
             const cls = codeChild?.props?.className ?? "";
             const m = /language-([\w+-]+)/.exec(cls);
             if (m) lang = m[1];
+            // ```ask {...} ``` 블록은 선택지 카드로 렌더 — 코드 블록
+            // 자체는 숨김. JSON 파싱 실패 시 일반 코드로 fallback.
+            if (lang === "ask") {
+              const parsed = parseAskBlock(text);
+              if (parsed) return <AskBlock {...parsed} />;
+            }
             const file = detectFileMarker(text);
             const lineCount = text ? text.split("\n").length : 0;
             return (
@@ -600,6 +606,72 @@ export function MarkdownContent({ content, artifactTitlePrefix }: Props) {
       >
         {content}
       </ReactMarkdown>
+    </div>
+  );
+}
+
+/**
+ * 모델이 모호한 질문에 추측 대신 ```ask {…} ``` 코드 블록으로 다시
+ * 물을 때, 그 본문을 파싱해 카드로 렌더한다. 사용자가 버튼을 누르면
+ * "chat:choice-picked" 커스텀 이벤트를 띄워 ChatPanel 이 잡고 다음
+ * 메시지로 그 텍스트를 보낸다.
+ */
+type AskBlockData = { question: string; choices: string[] };
+
+function parseAskBlock(text: string): AskBlockData | null {
+  try {
+    const obj = JSON.parse(text);
+    if (typeof obj !== "object" || obj === null) return null;
+    const q = typeof obj.question === "string" ? obj.question.trim() : "";
+    const c = Array.isArray(obj.choices)
+      ? obj.choices
+          .map((x: unknown) => (typeof x === "string" ? x.trim() : ""))
+          .filter((s: string) => s.length > 0)
+      : [];
+    if (!q || c.length < 2 || c.length > 6) return null;
+    return { question: q, choices: c.slice(0, 6) };
+  } catch {
+    return null;
+  }
+}
+
+function AskBlock({ question, choices }: AskBlockData) {
+  const [pickedIdx, setPickedIdx] = useState<number | null>(null);
+
+  function pick(idx: number) {
+    if (pickedIdx !== null) return;
+    setPickedIdx(idx);
+    window.dispatchEvent(
+      new CustomEvent("chat:choice-picked", {
+        detail: { text: choices[idx] },
+      }),
+    );
+  }
+
+  return (
+    <div className="ask-block" role="group" aria-label="선택지">
+      <div className="ask-block-q">
+        <span className="ask-block-icon" aria-hidden>❓</span>
+        <span>{question}</span>
+      </div>
+      <div className="ask-block-choices">
+        {choices.map((c, i) => (
+          <button
+            key={i}
+            type="button"
+            className={`ask-block-choice${pickedIdx === i ? " picked" : ""}`}
+            onClick={() => pick(i)}
+            disabled={pickedIdx !== null}
+            title="이 선택지로 다음 메시지를 보냅니다"
+          >
+            <span className="ask-block-choice-label">{String.fromCharCode(65 + i)}</span>
+            <span className="ask-block-choice-text">{c}</span>
+          </button>
+        ))}
+      </div>
+      {pickedIdx !== null && (
+        <div className="ask-block-hint">전송 중…</div>
+      )}
     </div>
   );
 }

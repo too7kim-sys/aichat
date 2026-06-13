@@ -723,9 +723,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     return model ? `Ollama (${model})` : defaultLabel;
   })();
 
-  function send() {
-    if (!prompt.trim() || streaming || !activeProvider) return;
-    const text = prompt;
+  function send(override?: string) {
+    if (streaming || !activeProvider) return;
+    const text = (override ?? prompt).trim();
+    if (!text) return;
 
     // Composer slash command: `/merge`, `/병합`, "합쳐줘", "[제목]로 병합".
     // Detected here so the user can stay in the textarea instead of
@@ -738,7 +739,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       return;
     }
 
-    setPrompt("");
+    if (override === undefined) setPrompt("");
     setMergeStatus(null);
     const sentAttachments = attachments;
     setAttachments([]);
@@ -757,6 +758,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       ragFilenameFilter: ragFilenameFilter.trim() || undefined,
     });
   }
+
+  // AskBlock 의 선택지 버튼이 클릭되면 그 선택지 문구를 다음 turn 으로
+  // 자동 전송 — 대화가 끊기지 않고 이어진다. 다른 세션에서 발생한
+  // 이벤트는 무시(여기서는 어차피 이 세션 ChatPanel 만 마운트돼 있지만).
+  useEffect(() => {
+    function onChoice(e: Event) {
+      const ev = e as CustomEvent<{ text: string }>;
+      const text = ev.detail?.text;
+      if (!text) return;
+      send(text);
+    }
+    window.addEventListener("chat:choice-picked", onChoice);
+    return () => window.removeEventListener("chat:choice-picked", onChoice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, activeProvider, streaming]);
 
   async function runInlineMerge(
     titleOverride?: string,
@@ -1318,7 +1334,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               ) : (
                 <button
                   className="send-btn"
-                  onClick={send}
+                  onClick={() => send()}
                   disabled={uploading || !prompt.trim() || !activeProvider}
                   aria-label="전송"
                 >
