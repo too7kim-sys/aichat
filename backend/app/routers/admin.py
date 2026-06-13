@@ -909,6 +909,157 @@ async def list_active_sessions(
     return out
 
 
+# ── 시스템 자원 / 사용 통계 / 비용 / 백업 ─────────────────────────────
+
+
+@router.get("/system-resources")
+async def get_system_resources(
+    _staff: models.User = Depends(require_staff),
+):
+    """CPU / 메모리 / 디스크 / GPU 현재 스냅샷. 폴링 5~10초 간격 권장."""
+    from .. import system_resources
+    return system_resources.snapshot(["/", "/data"])
+
+
+@router.get("/model-usage")
+async def get_model_usage(
+    days: int = 30,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """모델별 호출 횟수 + 출력 토큰 + 평균 지연 + 추정 비용."""
+    from .. import dashboard
+    return await dashboard.model_usage_stats(db, days=max(1, min(int(days), 365)))
+
+
+@router.get("/user-activity")
+async def get_user_activity(
+    days: int = 30,
+    limit: int = 100,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """사용자별 메시지·세션·로그인 활동 요약. 최근 활동 우선."""
+    from .. import dashboard
+    return await dashboard.user_activity_summary(
+        db,
+        days=max(1, min(int(days), 365)),
+        limit=max(1, min(int(limit), 500)),
+    )
+
+
+@router.get("/backups")
+async def list_backups(
+    _admin: models.User = Depends(require_admin),
+):
+    """백업 디렉터리 안의 .db 파일 목록 + 크기 + 시각."""
+    from pathlib import Path
+    base = Path(settings.backup_dir).expanduser().resolve()
+    if not base.is_dir():
+        return {"backup_dir": str(base), "files": []}
+    files = []
+    for p in sorted(base.glob("*.db"), reverse=True):
+        try:
+            st = p.stat()
+            files.append({
+                "name": p.name,
+                "size_bytes": st.st_size,
+                "mtime": datetime.fromtimestamp(
+                    st.st_mtime, tz=timezone.utc
+                ).isoformat(),
+            })
+        except OSError:
+            continue
+    return {"backup_dir": str(base), "files": files}
+
+
+@router.post("/backups")
+async def create_backup(
+    _admin: models.User = Depends(require_admin),
+):
+    """현재 aichat.db 의 WAL 체크포인트를 친 뒤 backup 디렉터리로 복사."""
+    import shutil
+    from pathlib import Path
+
+    url = settings.database_url
+    if "sqlite" not in url:
+        raise HTTPException(400, "SQLite 가 아니라 직접 백업할 수 없습니다.")
+    if ":///" not in url:
+        raise HTTPException(400, f"DB URL 형식 인식 불가: {url}")
+    db_path = Path(url.split(":///", 1)[1]).expanduser().resolve()
+    if not db_path.is_file():
+        raise HTTPException(409, f"DB 파일이 없습니다: {db_path}")
+
+    base = Path(settings.backup_dir).expanduser().resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    target = base / f"aichat-{ts}-manual.db"
+
+    # WAL 체크포인트 — 백업 시 누락 방지.
+    import sqlite3
+    try:
+        c = sqlite3.connect(str(db_path), timeout=10)
+        try:
+            c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            c.close()
+    except sqlite3.Error as exc:
+        # 체크포인트 실패해도 백업 자체는 시도 (best-effort).
+        log.warning("WAL checkpoint 실패: %s — 백업은 계속", exc)
+    shutil.copy2(str(db_path), str(target))
+    return {
+        "name": target.name,
+        "size_bytes": target.stat().st_size,
+        "mtime": datetime.fromtimestamp(
+            target.stat().st_mtime, tz=timezone.utc
+        ).isoformat(),
+    }
+
+
+@router.get("/backups/{name}")
+async def download_backup(
+    name: str,
+    _admin: models.User = Depends(require_admin),
+):
+    """백업 파일 다운로드. 경로 트래버설 가드 — name 에 / 나 .. 거부."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    if "/" in name or "\\" in name or ".." in name.split("."):
+        raise HTTPException(400, "잘못된 파일명")
+    base = Path(settings.backup_dir).expanduser().resolve()
+    target = (base / name).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        raise HTTPException(400, "백업 디렉터리 밖 경로")
+    if not target.is_file():
+        raise HTTPException(404, "백업 파일이 없습니다")
+    return FileResponse(
+        path=str(target),
+        media_type="application/x-sqlite3",
+        filename=name,
+    )
+
+
+@router.delete("/backups/{name}", status_code=204)
+async def delete_backup(
+    name: str,
+    _admin: models.User = Depends(require_admin),
+):
+    """오래된 백업 파일 정리."""
+    from pathlib import Path
+    if "/" in name or "\\" in name or ".." in name.split("."):
+        raise HTTPException(400, "잘못된 파일명")
+    base = Path(settings.backup_dir).expanduser().resolve()
+    target = (base / name).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        raise HTTPException(400, "백업 디렉터리 밖 경로")
+    if target.is_file():
+        target.unlink()
+
+
 # Suppress an unused-import lint when the file is imported for its
 # router only — `get_current_user` is referenced via require_staff /
 # require_admin transitively.

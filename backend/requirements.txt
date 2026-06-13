@@ -25,6 +25,7 @@ pyyaml==6.0.2
 psycopg2-binary==2.9.10
 paramiko==3.5.0
 olefile==0.47
+psutil==6.0.0
 # 회의록/강의 전사 (선택) — pip install faster-whisper pyannote.audio
 # 무거운 의존성이라 requirements 본문엔 포함 안 함; .env의
 # ENABLE_TRANSCRIPTION=true 일 때만 모듈을 로드합니다.

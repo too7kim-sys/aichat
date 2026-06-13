@@ -247,6 +247,18 @@ class Settings(BaseSettings):
     # 워크샵 등). YYYY-MM-DD 콤마 구분. 비어 있으면 기본 공휴일 목록만.
     workflow_extra_holidays: str = ""
 
+    # 모델별 토큰 단가 (KRW per 1k tokens) — 관리자 대시보드의 비용
+    # 추적에 사용. 자체 Ollama 호스팅이라 실제 과금은 없지만 운영 보고
+    # 용으로 추정치를 보여주고 싶을 때.
+    #   형식: "모델명:input_단가:output_단가,..."
+    #   예 (참고 값): "exaone3.5:32b:0:50,qwen3:32b:0:80,gpt-4o:5000:15000"
+    # 비어 있으면 비용은 모두 0 으로 계산.
+    model_cost_rates: str = ""
+
+    # DB 자동 백업 디렉터리. 기본은 backend/../backups (운영기 표준 경로
+    # 와 일치). 관리자 화면에서 백업 트리거 + 목록 + 다운로드.
+    backup_dir: str = "../backups"
+
     # 워크스페이스에서 자동 단위테스트 실행을 허용할지. 켜면 사용자가
     # 패치 적용 후 `pytest` / `npm test` / `cargo test` 같은 알려진
     # 러너를 워크스페이스 안에서 한 번 돌려 결과를 볼 수 있다. 운영

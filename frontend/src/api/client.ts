@@ -321,6 +321,58 @@ export const admin = {
       last_login_at: string;
       tokens_invalidated_at: string | null;
     }>>("/admin/active-sessions"),
+  systemResources: () =>
+    json<{
+      cpu: { percent: number; cores: number; load_avg: number[] };
+      memory: {
+        total: number; used: number; available: number; pct: number;
+        swap_total: number; swap_used: number; swap_pct: number;
+      };
+      disks: Array<{
+        path: string; total?: number; used?: number; free?: number;
+        pct?: number; error?: string;
+      }>;
+      gpu: Array<{
+        index: number; name: string;
+        memory_used_mb: number; memory_total_mb: number;
+        utilization_pct: number; temperature_c: number;
+      }> | null;
+    }>("/admin/system-resources"),
+  modelUsage: (days = 30) =>
+    json<Array<{
+      provider: string;
+      calls: number;
+      tokens_out: number;
+      avg_latency_ms: number;
+      input_rate_krw_per_1k: number;
+      output_rate_krw_per_1k: number;
+      estimated_cost_krw: number;
+    }>>(`/admin/model-usage?days=${days}`),
+  userActivity: (days = 30, limit = 100) =>
+    json<Array<{
+      user_id: string;
+      email: string;
+      role: string;
+      session_count: number;
+      msg_count: number;
+      tokens_out: number;
+      logins: number;
+      last_message_at: string | null;
+      last_login_at: string | null;
+    }>>(`/admin/user-activity?days=${days}&limit=${limit}`),
+  listBackups: () =>
+    json<{
+      backup_dir: string;
+      files: Array<{ name: string; size_bytes: number; mtime: string }>;
+    }>("/admin/backups"),
+  createBackup: () =>
+    json<{ name: string; size_bytes: number; mtime: string }>(
+      "/admin/backups", { method: "POST" },
+    ),
+  deleteBackup: (name: string) =>
+    json<void>(`/admin/backups/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
   listErrors: (limit = 50) =>
     json<{
       transcripts: Array<{

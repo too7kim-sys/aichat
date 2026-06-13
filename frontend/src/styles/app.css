@@ -3384,6 +3384,35 @@ body {
   background: var(--accent-soft);
 }
 
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.ops-stat {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--bg-subtle, rgba(0,0,0,0.02));
+}
+.ops-stat-label { font-size: 12px; color: var(--text-faint); }
+.ops-stat-value { font-size: 22px; font-weight: 600; margin: 4px 0 6px; }
+.ops-stat-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.ops-stat-bar-fill {
+  height: 100%;
+  background: #26A938;
+  transition: width 300ms ease;
+}
+.ops-stat.ops-warn .ops-stat-bar-fill { background: #e0a800; }
+.ops-stat.ops-danger .ops-stat-bar-fill { background: #c0392b; }
+.ops-stat-note { font-size: 11px; color: var(--text-faint); }
+
 .admin-audit-filters {
   display: flex;
   gap: 8px;
