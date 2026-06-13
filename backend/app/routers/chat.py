@@ -1107,6 +1107,7 @@ async def chat_single(
             chunks = await retrieve(
                 project_id, payload.prompt,
                 filename_pattern=rag_filename,
+                user_id=user.id,
             )
         except Exception as exc:  # noqa: BLE001
             chunks = []
@@ -1121,11 +1122,25 @@ async def chat_single(
 
             accessible = await accessible_shared_project_ids(db, user)
             if accessible:
+                log.info(
+                    "RAG auto-search: user=%s accessible=%d projects %s",
+                    user.email, len(accessible), accessible,
+                )
                 chunks = await retrieve_many(
                     accessible,
                     payload.prompt,
                     min_score=settings.rag_auto_min_score,
+                    user_id=user.id,
                 )
+                if chunks:
+                    by_proj: dict[str, int] = {}
+                    for c in chunks:
+                        key = (c.project_name or c.project_id or "?")
+                        by_proj[key] = by_proj.get(key, 0) + 1
+                    log.info(
+                        "RAG auto-search: %d chunks from %s",
+                        len(chunks), by_proj,
+                    )
         except Exception as exc:  # noqa: BLE001
             chunks = []
             log.warning("RAG auto-retrieve failed: %s", exc)
@@ -1144,6 +1159,8 @@ async def chat_single(
                 "start_line": c.start_line,
                 "end_line": c.end_line,
                 "score": c.score,
+                "project_name": c.project_name,
+                "project_owned": c.project_owned,
             }
             for c in chunks
         ]

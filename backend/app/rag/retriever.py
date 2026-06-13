@@ -24,6 +24,11 @@ class RetrievedChunk:
     text: str
     score: float
     corpus_type: str = "code"
+    # 어느 프로젝트에서 인용됐는지 — 사용자가 청크 박스에서 출처를
+    # 한눈에 보고 "공유 KB 참조됨" 인지 확인할 수 있게.
+    project_id: str | None = None
+    project_name: str | None = None
+    project_owned: bool = True
 
 
 def _merge_adjacent(hits: list[RetrievedChunk]) -> list[RetrievedChunk]:
@@ -81,6 +86,7 @@ async def retrieve(
     snapshot_id: str | None = None,
     *,
     filename_pattern: str | None = None,
+    user_id: str | None = None,
 ) -> list[RetrievedChunk]:
     """Top-K vector search against a project's CURRENT snapshot.
 
@@ -93,12 +99,33 @@ async def retrieve(
       filename_pattern — substring (case-insensitive) that must
         appear in payload.filename. Use to scope search to a single
         sub-tree (e.g. "billing/" → 결제 모듈만).
+    user_id — 호출자의 id. 청크에 owned vs shared 표시를 정확히 하는
+      데 사용 (auto-search 가 아닌 explicit-link 경로에서도 동일한
+      UI 노출).
     """
     if not settings.rag_enabled:
         return []
     target_snapshot = snapshot_id or await _resolve_snapshot_id(project_id)
     if not target_snapshot:
         return []
+    # 프로젝트 메타 (이름·소유자·공유 여부) 한 번 가져와서 청크마다 박음.
+    proj_meta: dict | None = None
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(
+                select(
+                    models.Project.name,
+                    models.Project.user_id,
+                    models.Project.is_shared,
+                ).where(models.Project.id == project_id)
+            )
+        ).first()
+        if row:
+            proj_meta = {
+                "name": row[0],
+                "owner_id": row[1],
+                "is_shared": bool(row[2]),
+            }
     try:
         qvec = await embed_one(query)
     except EmbedError as exc:
@@ -199,6 +226,12 @@ async def retrieve(
                 filename=m["filename"],
                 start_line=m["start_line"],
                 end_line=m["end_line"],
+                project_id=project_id,
+                project_name=proj_meta["name"] if proj_meta else None,
+                project_owned=(
+                    bool(proj_meta and user_id and proj_meta["owner_id"] == user_id)
+                    or bool(proj_meta and not proj_meta["is_shared"])
+                ),
                 text=m["text"],
                 score=m["vec_score"],
                 corpus_type=m["corpus_type"],
@@ -213,6 +246,7 @@ async def retrieve_many(
     *,
     min_score: float = 0.0,
     top_k: int | None = None,
+    user_id: str | None = None,
 ) -> list[RetrievedChunk]:
     """Question-driven multi-project retrieval. Embeds the query ONCE,
     searches every given project's current snapshot, pools the hits,
@@ -231,21 +265,36 @@ async def retrieve_many(
         log.warning("RAG multi-retrieval: embedding failed (%s)", exc)
         return []
 
-    # Resolve each project's current snapshot in one DB round-trip.
+    # Resolve each project's current snapshot + meta in one DB round-trip.
     async with SessionLocal() as db:
         rows = (
             await db.execute(
-                select(models.Project.id, models.Project.current_snapshot_id)
+                select(
+                    models.Project.id,
+                    models.Project.current_snapshot_id,
+                    models.Project.name,
+                    models.Project.user_id,
+                    models.Project.is_shared,
+                )
                 .where(models.Project.id.in_(project_ids))
             )
         ).all()
-    snapshots = [(pid, snap) for pid, snap in rows if snap]
-    if not snapshots:
+    meta_by_snap = {
+        snap: {
+            "project_id": pid,
+            "project_name": name,
+            "owner_id": owner_id,
+            "is_shared": bool(is_shared),
+        }
+        for pid, snap, name, owner_id, is_shared in rows
+        if snap
+    }
+    if not meta_by_snap:
         return []
 
     client = get_client()
     pooled: list[RetrievedChunk] = []
-    for _pid, snap in snapshots:
+    for snap, meta in meta_by_snap.items():
         cname = collection_name(snap)
         try:
             results = client.search(
@@ -270,6 +319,13 @@ async def retrieve_many(
                     text=str(r.payload.get("text", "")),
                     score=float(r.score),
                     corpus_type=str(r.payload.get("corpus_type", "code")),
+                    project_id=meta["project_id"],
+                    project_name=meta["project_name"],
+                    # user_id 가 주어졌으면 소유자 매칭, 아니면 안전하게
+                    # "공유" 로 표시 (auto-search 경로의 기본값과 일치).
+                    project_owned=(
+                        bool(user_id) and meta["owner_id"] == user_id
+                    ),
                 )
             )
     merged = _merge_adjacent(pooled)

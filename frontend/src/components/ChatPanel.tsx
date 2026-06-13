@@ -1553,7 +1553,26 @@ function RagChunksBox({
   return (
     <div className="rag-box">
       <div className="rag-head">
-        <strong>📚 검색된 코드 청크 ({chunks.length})</strong>
+        <strong>📚 검색된 청크 ({chunks.length})</strong>
+        {(() => {
+          // 출처 프로젝트별 카운트 — "공유 KB 가 답변에 들어갔는지" 한
+          // 줄로 보여주기.
+          const byProj: Record<string, { n: number; shared: boolean }> = {};
+          for (const c of chunks) {
+            const k = c.project_name || "(미상)";
+            const cur = byProj[k] ?? { n: 0, shared: false };
+            cur.n += 1;
+            if (c.project_owned === false) cur.shared = true;
+            byProj[k] = cur;
+          }
+          const parts = Object.entries(byProj).map(([k, v]) => (
+            <span key={k} className="rag-source-chip">
+              {v.shared && <span className="cowork-shared-badge">공유</span>}
+              {k} · {v.n}
+            </span>
+          ));
+          return <span className="rag-sources">{parts}</span>;
+        })()}
         <button
           type="button"
           className="rag-collapse"
@@ -1566,6 +1585,19 @@ function RagChunksBox({
       <ol className="rag-list">
         {chunks.map((c, i) => (
           <li key={i}>
+            {c.project_name && (
+              <span
+                className={`rag-proj${c.project_owned === false ? " shared" : ""}`}
+                title={
+                  c.project_owned === false
+                    ? "공유받은 지식베이스"
+                    : "내 지식베이스"
+                }
+              >
+                {c.project_owned === false ? "🔗 " : "📁 "}
+                {c.project_name}
+              </span>
+            )}
             <span className="rag-file">{c.filename}</span>
             <span className="rag-range">
               :{c.start_line}-{c.end_line}

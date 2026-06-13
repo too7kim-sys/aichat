@@ -659,6 +659,10 @@ export interface RagChunk {
   start_line: number;
   end_line: number;
   score: number;
+  /** 청크가 인용된 RAG 프로젝트 이름 (UI 출처 표기). */
+  project_name?: string | null;
+  /** false = 다른 관리자가 공유한 KB 의 청크. true = 본인 소유. */
+  project_owned?: boolean;
 }
 
 export const api = {

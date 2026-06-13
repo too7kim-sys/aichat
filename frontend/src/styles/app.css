@@ -3384,6 +3384,37 @@ body {
   background: var(--accent-soft);
 }
 
+.rag-sources {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 10px;
+  flex-wrap: wrap;
+}
+.rag-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg-subtle, rgba(0,0,0,0.04));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.rag-proj {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+}
+.rag-proj.shared {
+  color: #1e7a2f;
+  background: rgba(38, 169, 56, 0.10);
+}
+
 .ask-block {
   margin: 10px 0 4px;
   border: 1px solid var(--border);
