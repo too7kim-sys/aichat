@@ -1541,14 +1541,22 @@ function RagChunksBox({
   const [expanded, setExpanded] = useState(false);
 
   if (!expanded) {
+    // 출처 프로젝트 한 줄 요약 — "공유 RAG 가 답변에 들어갔는지" 한
+    // 눈에 확인할 수 있도록 chip 안에 노출.
+    const projs = Array.from(
+      new Set(chunks.map((c) => c.project_name).filter(Boolean) as string[]),
+    );
     return (
       <button
         type="button"
-        className="rag-chip"
+        className="rag-chip rag-chip-used"
         onClick={() => setExpanded(true)}
-        title="검색된 코드 청크 펼치기"
+        title="답변이 참조한 청크 펼치기"
       >
-        📚 코드 청크 {chunks.length}개
+        📚 청크 {chunks.length}개 참조
+        {projs.length > 0 && (
+          <span className="rag-chip-projs"> · {projs.slice(0, 3).join(", ")}{projs.length > 3 ? " 외" : ""}</span>
+        )}
       </button>
     );
   }

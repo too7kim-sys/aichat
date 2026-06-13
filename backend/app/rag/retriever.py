@@ -332,19 +332,32 @@ async def retrieve_many(
     return merged[:limit]
 
 
+_USE_CHUNKS_DIRECTIVE = (
+    "⚠️ 중요: 아래 청크는 사용자 질문에 답하기 위해 시스템이 자동 검색해 "
+    "준비한 자료입니다. 청크 본문에 답이 있다면 반드시 그 내용을 우선 "
+    "근거로 답변하세요. 답변 본문에 인용한 청크의 출처를 한 번 이상 "
+    "명시해야 하고, 청크가 질문과 관련 없으면 답변 첫 줄에 "
+    "'검색된 자료는 이 질문과 직접 관련이 없습니다' 라고 분명히 적고 "
+    "그 다음 일반 지식으로 답하세요. 청크를 봤다는 사실을 숨기지 마세요.\n\n"
+)
+
+
 _TYPE_PROMPT_HEADER = {
     "code": (
         "[RETRIEVED PROJECT CONTEXT — 소스 코드]\n"
+        + _USE_CHUNKS_DIRECTIVE +
         "사용자 질문은 이 코드베이스에 대한 것입니다. 답변은 청크의 "
         "`path:line`을 인용해야 하며, 보이지 않는 코드를 추측하지 마세요."
     ),
     "document": (
         "[RETRIEVED DOCUMENT CONTEXT — 문서]\n"
+        + _USE_CHUNKS_DIRECTIVE +
         "검색된 청크는 문서 본문입니다. 답변은 청크의 파일명·단락 번호로 "
         "인용하고, 본문에 없는 내용은 단정하지 마세요."
     ),
     "api": (
         "[RETRIEVED API CONTEXT — API 스펙]\n"
+        + _USE_CHUNKS_DIRECTIVE +
         "검색된 청크는 OpenAPI/Swagger 엔드포인트 정의입니다. 답변에는 "
         "`METHOD /path` 형식으로 인용하고, 청크에 없는 파라미터·응답을 "
         "지어내지 마세요. 예시 호출이 필요하면 청크에 명시된 파라미터만 "
@@ -352,6 +365,7 @@ _TYPE_PROMPT_HEADER = {
     ),
     "db": (
         "[RETRIEVED DATABASE CONTEXT — DB 스키마]\n"
+        + _USE_CHUNKS_DIRECTIVE +
         "검색된 청크는 데이터베이스 스키마(테이블/뷰/인덱스 등)입니다. "
         "답변에는 `테이블명.컬럼명` 형식으로 인용하고, 청크에 없는 컬럼·"
         "제약조건·관계를 지어내지 마세요. 쿼리 예시를 작성할 때는 청크에 "

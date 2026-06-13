@@ -1146,12 +1146,18 @@ async def chat_single(
             log.warning("RAG auto-retrieve failed: %s", exc)
 
     if chunks:
+        formatted = format_chunks_for_prompt(chunks)
         history.insert(
             -1,
             ChatMessage(
                 role="system",
-                content=format_chunks_for_prompt(chunks),
+                content=formatted,
             ),
+        )
+        log.info(
+            "RAG: injected %d chunks (%d chars) into system context "
+            "for session=%s user=%s",
+            len(chunks), len(formatted), session_id, user.email,
         )
         rag_chunks = [
             {
@@ -1164,6 +1170,12 @@ async def chat_single(
             }
             for c in chunks
         ]
+    else:
+        log.info(
+            "RAG: no chunks for session=%s user=%s (project=%s, filter=%s) — "
+            "model 은 일반 지식으로 답할 것",
+            session_id, user.email, project_id, rag_filename,
+        )
 
     # Optional per-deployment system prompt from .env (house style,
     # domain rules, escalation policy, ...). Goes near the front so

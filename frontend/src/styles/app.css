@@ -3384,6 +3384,18 @@ body {
   background: var(--accent-soft);
 }
 
+.rag-chip-used {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.rag-chip-projs {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
 .rag-sources {
   display: inline-flex;
   gap: 6px;
