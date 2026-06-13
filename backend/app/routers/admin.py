@@ -9,7 +9,9 @@ Authorization model:
 The same JWT scheme that protects the rest of the app is reused —
 no separate admin auth.
 """
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, or_, select
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import app_settings, audit, models, schemas
 from ..auth import get_current_user, require_admin, require_staff
+from ..config import settings
 from ..database import get_db
 from ..email import send_account_approved_email, send_account_rejected_email
 
@@ -912,6 +915,18 @@ async def list_active_sessions(
 # ── 시스템 자원 / 사용 통계 / 비용 / 백업 ─────────────────────────────
 
 
+def _resolve_backup_dir() -> "Path":
+    """settings.backup_dir 를 systemd WorkingDirectory(=backend) 기준
+    으로 풀어준다. 절대경로면 그대로."""
+    from pathlib import Path as _P
+    p = _P(settings.backup_dir).expanduser()
+    if p.is_absolute():
+        return p.resolve()
+    from .. import __file__ as _app_init
+    backend_root = _P(_app_init).resolve().parent.parent
+    return (backend_root / p).resolve()
+
+
 @router.get("/system-resources")
 async def get_system_resources(
     _staff: models.User = Depends(require_staff),
@@ -953,8 +968,7 @@ async def list_backups(
     _admin: models.User = Depends(require_admin),
 ):
     """백업 디렉터리 안의 .db 파일 목록 + 크기 + 시각."""
-    from pathlib import Path
-    base = Path(settings.backup_dir).expanduser().resolve()
+    base = _resolve_backup_dir()
     if not base.is_dir():
         return {"backup_dir": str(base), "files": []}
     files = []
@@ -986,12 +1000,33 @@ async def create_backup(
         raise HTTPException(400, "SQLite 가 아니라 직접 백업할 수 없습니다.")
     if ":///" not in url:
         raise HTTPException(400, f"DB URL 형식 인식 불가: {url}")
-    db_path = Path(url.split(":///", 1)[1]).expanduser().resolve()
-    if not db_path.is_file():
-        raise HTTPException(409, f"DB 파일이 없습니다: {db_path}")
 
-    base = Path(settings.backup_dir).expanduser().resolve()
-    base.mkdir(parents=True, exist_ok=True)
+    # 경로 해석은 systemd WorkingDirectory(=backend) 기준이라 상대경로
+    # 일 때는 backend/ 안에서 풀린다. 절대경로면 그대로 사용.
+    raw_db = url.split(":///", 1)[1]
+    db_path = Path(raw_db).expanduser()
+    if not db_path.is_absolute():
+        from .. import __file__ as _app_init
+        backend_root = Path(_app_init).resolve().parent.parent
+        db_path = (backend_root / db_path).resolve()
+    else:
+        db_path = db_path.resolve()
+    if not db_path.is_file():
+        raise HTTPException(409, f"DB 파일을 찾지 못했습니다: {db_path}")
+
+    base = _resolve_backup_dir()
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(
+            500,
+            f"백업 디렉터리 생성 실패: {base} — {exc.strerror or exc}",
+        )
+    if not os.access(str(base), os.W_OK):
+        raise HTTPException(
+            500,
+            f"백업 디렉터리에 쓰기 권한이 없습니다: {base}",
+        )
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     target = base / f"aichat-{ts}-manual.db"
 
@@ -1006,13 +1041,21 @@ async def create_backup(
     except sqlite3.Error as exc:
         # 체크포인트 실패해도 백업 자체는 시도 (best-effort).
         log.warning("WAL checkpoint 실패: %s — 백업은 계속", exc)
-    shutil.copy2(str(db_path), str(target))
+    try:
+        shutil.copy2(str(db_path), str(target))
+    except OSError as exc:
+        raise HTTPException(
+            500,
+            f"백업 복사 실패: {exc.strerror or exc}",
+        )
     return {
         "name": target.name,
         "size_bytes": target.stat().st_size,
         "mtime": datetime.fromtimestamp(
             target.stat().st_mtime, tz=timezone.utc
         ).isoformat(),
+        "backup_dir": str(base),
+        "source": str(db_path),
     }
 
 
@@ -1026,7 +1069,7 @@ async def download_backup(
     from fastapi.responses import FileResponse
     if "/" in name or "\\" in name or ".." in name.split("."):
         raise HTTPException(400, "잘못된 파일명")
-    base = Path(settings.backup_dir).expanduser().resolve()
+    base = _resolve_backup_dir()
     target = (base / name).resolve()
     try:
         target.relative_to(base)
@@ -1050,7 +1093,7 @@ async def delete_backup(
     from pathlib import Path
     if "/" in name or "\\" in name or ".." in name.split("."):
         raise HTTPException(400, "잘못된 파일명")
-    base = Path(settings.backup_dir).expanduser().resolve()
+    base = _resolve_backup_dir()
     target = (base / name).resolve()
     try:
         target.relative_to(base)
