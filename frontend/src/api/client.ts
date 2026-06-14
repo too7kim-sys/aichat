@@ -1489,7 +1489,9 @@ export const api = {
 export interface SearchSource {
   title: string;
   url: string;
-  kind?: "web" | "news" | "shop";
+  kind?: "web" | "news" | "shop" | "blog" | "cafe" | "wiki";
+  /** 어느 외부 소스에서 왔는지 — naver / kakao / duckduckgo / wikipedia-ko/en */
+  source?: string;
   image?: string | null;
   snippet?: string | null;
   mall?: string | null;

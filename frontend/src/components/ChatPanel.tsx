@@ -1451,7 +1451,24 @@ function SourcesBox({
   }
   const shop = sources.filter((s) => s.kind === "shop");
   const news = sources.filter((s) => s.kind === "news");
+  const blog = sources.filter((s) => s.kind === "blog" || s.kind === "cafe");
+  const wiki = sources.filter((s) => s.kind === "wiki");
   const web = sources.filter((s) => !s.kind || s.kind === "web");
+
+  function srcBadge(s: { source?: string | null }) {
+    const src = (s.source || "").toLowerCase();
+    if (!src) return null;
+    const label = src.startsWith("wikipedia")
+      ? "위키"
+      : src === "naver"
+      ? "N"
+      : src === "kakao"
+      ? "K"
+      : src === "duckduckgo"
+      ? "DDG"
+      : src;
+    return <span className={`src-badge src-${src.split("-")[0]}`}>{label}</span>;
+  }
   return (
     <div className="sources">
       <div className="sources-head">
@@ -1504,6 +1521,37 @@ function SourcesBox({
           <ol className="sources-list">
             {news.map((s, i) => (
               <li key={`news-${i}`}>
+                {srcBadge(s)}
+                <a href={s.url} target="_blank" rel="noopener noreferrer">
+                  {s.title || s.url}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {blog.length > 0 && (
+        <>
+          <div className="sources-section">블로그/카페</div>
+          <ol className="sources-list">
+            {blog.map((s, i) => (
+              <li key={`blog-${i}`}>
+                {srcBadge(s)}
+                <a href={s.url} target="_blank" rel="noopener noreferrer">
+                  {s.title || s.url}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {wiki.length > 0 && (
+        <>
+          <div className="sources-section">위키</div>
+          <ol className="sources-list">
+            {wiki.map((s, i) => (
+              <li key={`wiki-${i}`}>
+                {srcBadge(s)}
                 <a href={s.url} target="_blank" rel="noopener noreferrer">
                   {s.title || s.url}
                 </a>
@@ -1518,6 +1566,7 @@ function SourcesBox({
           <ol className="sources-list">
             {web.map((s, i) => (
               <li key={`web-${i}`}>
+                {srcBadge(s)}
                 <a href={s.url} target="_blank" rel="noopener noreferrer">
                   {s.title || s.url}
                 </a>

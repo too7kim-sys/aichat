@@ -3384,6 +3384,22 @@ body {
   background: var(--accent-soft);
 }
 
+.src-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  color: white;
+}
+.src-naver { background: #03c75a; }
+.src-kakao { background: #ffe812; color: #381e1f; }
+.src-duckduckgo { background: #de5833; }
+.src-wikipedia { background: #555; }
+
 .rag-chip-used {
   background: var(--accent-soft);
   border-color: var(--accent);

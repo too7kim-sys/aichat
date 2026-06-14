@@ -12,6 +12,12 @@ class Settings(BaseSettings):
 
     naver_client_id: str = ""
     naver_client_secret: str = ""
+    # 카카오 검색 REST API. 무료 일 300,000 회. 발급: developers.kakao.com
+    # → 내 애플리케이션 → REST API 키 복사.
+    kakao_rest_api_key: str = ""
+    # 키 불필요 무료 소스 토글 — 폐쇄망에서 외부 망 차단이면 false 로.
+    search_duckduckgo_enabled: bool = True
+    search_wikipedia_enabled: bool = True
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     # Ollama's server default is num_ctx=2048, which silently truncates
