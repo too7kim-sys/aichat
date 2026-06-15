@@ -428,15 +428,31 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       const ev = e as CustomEvent<{ text: string }>;
       if (ev.detail?.text) promptSetterRef.current?.(ev.detail.text);
     }
+    function onCitation(e: Event) {
+      const ev = e as CustomEvent<{ index: number }>;
+      const idx = ev.detail?.index;
+      if (!idx) return;
+      const root = scrollRef.current;
+      if (!root) return;
+      const node = root.querySelector<HTMLElement>(
+        `[data-citation-idx="${idx}"]`,
+      );
+      if (!node) return;
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      node.classList.add("rag-list-flash");
+      window.setTimeout(() => node.classList.remove("rag-list-flash"), 1600);
+    }
     window.addEventListener("chat:choice-picked", onChoice);
     window.addEventListener("chat:rewind-resend", onRewindResend);
     window.addEventListener("chat:regenerate-last", onRegenerateLast);
     window.addEventListener("chat:quote-pick", onQuotePick);
+    window.addEventListener("chat:show-citation", onCitation);
     return () => {
       window.removeEventListener("chat:choice-picked", onChoice);
       window.removeEventListener("chat:rewind-resend", onRewindResend);
       window.removeEventListener("chat:regenerate-last", onRegenerateLast);
       window.removeEventListener("chat:quote-pick", onQuotePick);
+      window.removeEventListener("chat:show-citation", onCitation);
     };
   }, []);
   const artifactsState = useArtifacts();
@@ -1777,6 +1793,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   tokensOut={m.tokens_out ?? null}
                   tags={m.tags ?? null}
                   locked={locked}
+                  searchQuery={searchBarOpen ? searchQuery : ""}
                   onBranchFrom={async () => {
                     try {
                       const ns = await api.branchSessionFrom(session.id, m.id);
@@ -2681,7 +2698,8 @@ function RagChunksBox({
       </div>
       <ol className="rag-list">
         {chunks.map((c, i) => (
-          <li key={i}>
+          <li key={i} data-citation-idx={i + 1}>
+            <span className="rag-citation-num">[{i + 1}]</span>
             {c.project_name && (
               <span
                 className={`rag-proj${c.project_owned === false ? " shared" : ""}`}

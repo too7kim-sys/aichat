@@ -64,6 +64,9 @@ interface Props {
   locked?: boolean;
   /** 메시지 자유 태그 (#32). */
   tags?: string[] | null;
+  /** 세션 내 검색 (#46) 의 활성 쿼리.  비어 있지 않으면 본문에
+   *  매칭되는 부분을 <mark> 으로 강조. */
+  searchQuery?: string;
 }
 
 function bubbleAttachmentBasename(filename: string): string {
@@ -132,6 +135,7 @@ export function MessageBubble({
   onBranchFrom,
   locked = false,
   tags = null,
+  searchQuery = "",
 }: Props) {
   // Local optimistic content + collapsed/edit state. Re-seeds when
   // the parent's `content` changes (e.g., after streaming completes
@@ -205,6 +209,138 @@ export function MessageBubble({
       window.alert(`번역 실패: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  // 세션 내 검색 강조 (#46) — 어시스턴트 본문에 매칭 텍스트를
+  // <mark> 으로 감쌈.  마크다운 HTML 이 이미 렌더된 뒤 TreeWalker 로
+  // 텍스트 노드를 돌며 처리하므로 마크다운 구조를 깨지 않음.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    // 기존 mark 풀기 (이전 쿼리 또는 빈 쿼리 시).
+    root.querySelectorAll("mark.bubble-search-mark").forEach((el) => {
+      const parent = el.parentNode;
+      if (!parent) return;
+      while (el.firstChild) parent.insertBefore(el.firstChild, el);
+      parent.removeChild(el);
+      parent.normalize?.();
+    });
+    const q = searchQuery.trim();
+    if (q.length < 2) return;
+    const re = new RegExp(
+      q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "gi",
+    );
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const p = node.parentElement;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        // 코드 / 입력 / 이미 mark 처리된 곳은 패스.
+        const tag = p.tagName;
+        if (tag === "SCRIPT" || tag === "STYLE" || tag === "MARK") {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const targets: Text[] = [];
+    let n: Node | null = walker.nextNode();
+    while (n) {
+      targets.push(n as Text);
+      n = walker.nextNode();
+    }
+    for (const t of targets) {
+      const text = t.textContent || "";
+      if (!re.test(text)) continue;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        if (m.index > last) {
+          frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        }
+        const mark = document.createElement("mark");
+        mark.className = "bubble-search-mark";
+        mark.textContent = m[0];
+        frag.appendChild(mark);
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(last)));
+      }
+      t.parentNode?.replaceChild(frag, t);
+    }
+  }, [searchQuery, body]);
+
+  // 인용 [N] 클릭 = 출처 카드로 점프 (#42).  검색 강조와 별개로 한 번 더
+  // TreeWalker 를 돌려 [\d+] 패턴을 button 으로 감싼다.  코드 블록 안
+  // (PRE/CODE) 은 패스 — 코드의 배열 인덱스가 잘못 클릭 가능해질 수 있음.
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    // 기존 chip 제거.
+    root.querySelectorAll("button.bubble-citation").forEach((b) => {
+      const parent = b.parentNode;
+      if (!parent) return;
+      const t = document.createTextNode(b.textContent || "");
+      parent.replaceChild(t, b);
+      parent.normalize?.();
+    });
+    const re = /\[(\d+)\]/g;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const p = node.parentElement;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        const tag = p.tagName;
+        if (
+          tag === "CODE" || tag === "PRE" || tag === "SCRIPT" ||
+          tag === "STYLE" || tag === "MARK" || tag === "BUTTON"
+        )
+          return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const targets: Text[] = [];
+    let n: Node | null = walker.nextNode();
+    while (n) {
+      targets.push(n as Text);
+      n = walker.nextNode();
+    }
+    for (const t of targets) {
+      const text = t.textContent || "";
+      if (!re.test(text)) continue;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        if (m.index > last) {
+          frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        }
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "bubble-citation";
+        btn.dataset.idx = m[1];
+        btn.textContent = `[${m[1]}]`;
+        btn.title = `출처 #${m[1]} 보기`;
+        btn.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          window.dispatchEvent(
+            new CustomEvent("chat:show-citation", {
+              detail: { index: Number(btn.dataset.idx) },
+            }),
+          );
+        });
+        frag.appendChild(btn);
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(last)));
+      }
+      t.parentNode?.replaceChild(frag, t);
+    }
+  }, [body]);
   // 액션 행 ⋯ 오버플로우 메뉴 + 빠른 답장 칩 접기 (UI 최적화).
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
@@ -539,7 +675,7 @@ export function MessageBubble({
       </div>
       <div className="body">
         {provider && <div className="bubble-header">{provider}</div>}
-        <div className="content">
+        <div className="content" ref={contentRef}>
           {editing ? (
             <MessageEditor
               ref={editRef}

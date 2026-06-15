@@ -426,6 +426,20 @@ export const admin = {
         created_at: string | null;
       }>;
     }>(`/admin/errors?limit=${limit}`),
+  // ── 사용자별 사용량 통계 (#41) ────────────────────────
+  listUsage: (days = 30, limit = 200) =>
+    json<{
+      days: number;
+      items: {
+        user_id: string;
+        email: string;
+        name: string;
+        message_count: number;
+        tokens_out_sum: number;
+        avg_latency_ms: number | null;
+        last_activity: string | null;
+      }[];
+    }>(`/admin/usage?days=${days}&limit=${limit}`),
   // ── 답변 품질 분석 (#37) ──────────────────────────────
   listDisliked: (limit = 100) =>
     json<
@@ -780,6 +794,30 @@ export const api = {
         body: JSON.stringify({ target }),
       },
     ),
+  // ── API 키 (#45) ──────────────────────────────────────
+  listApiKeys: () =>
+    json<{
+      id: string;
+      label: string;
+      token_prefix: string;
+      last_used_at: string | null;
+      expires_at: string | null;
+      created_at: string | null;
+    }[]>("/keys"),
+  createApiKey: (label: string, expiresDays: number | null = null) =>
+    json<{
+      id: string;
+      label: string;
+      token: string;
+      token_prefix: string;
+      created_at: string | null;
+      expires_at: string | null;
+    }>("/keys", {
+      method: "POST",
+      body: JSON.stringify({ label, expires_days: expiresDays }),
+    }),
+  revokeApiKey: (id: string) =>
+    json<void>(`/keys/${id}`, { method: "DELETE" }),
   updateSession: (id: string, title: string) =>
     json<Session>(`/sessions/${id}`, {
       method: "PATCH",

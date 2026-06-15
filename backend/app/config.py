@@ -297,6 +297,13 @@ class Settings(BaseSettings):
     # 문서 첨부가 실 사용 시나리오라 25MB 로 올림.  진짜 큰 RAG 자료는
     # admin → projects 업로드 흐름을 권장.
     max_upload_bytes: int = 25 * 1024 * 1024  # 25 MB
+    # ── 자동 백업 스케줄 (#44) ─────────────────────────────────
+    # backup_auto_enabled = true 면 backup_auto_hour (현지 시각 0~23) 에
+    # 하루 1회 SQLite 스냅샷.  backup_auto_keep_days 일 지난 -auto.db
+    # 는 자동 삭제.  관리자 수동 백업(-manual.db) 은 영향 없음.
+    backup_auto_enabled: bool = False
+    backup_auto_hour: int = 3
+    backup_auto_keep_days: int = 14
     max_attachment_chars: int = 50_000
 
     @property

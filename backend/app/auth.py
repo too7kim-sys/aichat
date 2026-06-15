@@ -66,7 +66,18 @@ async def get_current_user(
     so accepting cookie auth would let a hostile origin issue
     `fetch(... credentials:'include')` and mutate user data. The SPA
     keeps the JWT in localStorage and attaches it explicitly.
+
+    X-API-Key 헤더가 있으면 그쪽으로도 인증 시도 (#45) — 외부 시스템이
+    Bearer JWT 없이 발급된 API 키로 호출할 수 있게.
     """
+    # API 키 인증 — 사용자 발급 토큰을 X-API-Key 헤더로 받음.
+    api_key = request.headers.get("x-api-key")
+    if api_key:
+        from .routers.api_keys import lookup_user_by_key
+        user = await lookup_user_by_key(db, api_key)
+        if user is not None:
+            return user
+        raise HTTPException(401, "Invalid API key")
     if not (credentials and credentials.scheme.lower() == "bearer"):
         raise HTTPException(401, "Not authenticated")
     token = credentials.credentials

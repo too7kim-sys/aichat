@@ -404,10 +404,20 @@ def format_chunks_for_prompt(chunks: list[RetrievedChunk]) -> str:
     dominant = max(by_type.items(), key=lambda x: x[1])[0]
     header = _TYPE_PROMPT_HEADER.get(dominant, _TYPE_PROMPT_HEADER["code"])
 
-    parts: list[str] = [header, f"검색된 {len(chunks)}개 청크:", ""]
-    for c in chunks:
+    parts: list[str] = [
+        header,
+        f"검색된 {len(chunks)}개 청크:",
+        # 인용 가이드 (#42) — LLM 이 어느 청크를 근거로 답했는지 본문에
+        # [1] [2] 형태로 표시하게 유도.  프론트가 본문에서 [N] 을
+        # 감지해 클릭 시 해당 청크로 점프할 수 있게.
+        "각 청크에는 번호가 매겨져 있습니다.  답변에서 특정 청크를 근거로",
+        "삼을 때는 본문에 `[1]`, `[2]` 같은 대괄호 숫자 표기를 넣어 명확히",
+        "출처를 밝혀 주세요.  근거가 없는 추측은 [N] 을 쓰지 마세요.",
+        "",
+    ]
+    for i, c in enumerate(chunks, start=1):
         parts.append(
-            f"--- {c.filename}:{c.start_line}-{c.end_line} "
+            f"--- [{i}] {c.filename}:{c.start_line}-{c.end_line} "
             f"(score={c.score:.3f}) ---"
         )
         parts.append(c.text)

@@ -9574,6 +9574,160 @@ body {
 }
 .shared-view-error { color: var(--danger); }
 
+/* 인용 [N] 클릭 버튼 (#42). */
+.bubble-citation {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 5px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin: 0 1px;
+  font-weight: 600;
+  text-decoration: none;
+  vertical-align: baseline;
+  line-height: 1.4;
+}
+.bubble-citation:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.rag-citation-num {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  margin-right: 6px;
+}
+.rag-list-flash {
+  animation: rag-flash 1.6s ease-out;
+}
+@keyframes rag-flash {
+  0%, 30% { background: var(--accent-soft); }
+  100% { background: transparent; }
+}
+
+/* 사용자별 사용량 (#41). */
+.admin-usage-range {
+  display: flex;
+  gap: 4px;
+}
+
+/* API 키 패널 (#45). */
+.apikey-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.apikey-form input {
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+.apikey-create {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.apikey-issued {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.apikey-issued-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.apikey-issued-token {
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+  background: var(--bg);
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.apikey-issued-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.apikey-issued-actions button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+.apikey-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.apikey-table th,
+.apikey-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px dashed var(--border);
+}
+.apikey-revoke {
+  background: transparent;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: #b91c1c;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.apikey-revoke:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+/* 세션 내 검색 매치 강조 (#46). */
+.bubble-search-mark {
+  background: #fff59d;
+  color: #2c2a26;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: inherit;
+}
+:root[data-theme="dark"] .bubble-search-mark,
+:root[data-theme="system"]:where(.dark-os) .bubble-search-mark {
+  background: #c0a000;
+  color: #14120f;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] .bubble-search-mark {
+    background: #c0a000;
+    color: #14120f;
+  }
+}
+
 /* 메시지 번역 블록 (#40). */
 .bubble-translation {
   margin-top: 8px;

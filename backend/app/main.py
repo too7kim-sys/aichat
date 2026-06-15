@@ -11,8 +11,8 @@ from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
 from .routers import (
-    admin, auth, chat, chat_projects, code, files, macros, ollama, prompts,
-    search, sessions, transcripts, workflows,
+    admin, api_keys, auth, chat, chat_projects, code, files, macros, ollama,
+    prompts, search, sessions, transcripts, workflows,
 )
 
 # RAG router pulls in qdrant-client. Import lazily so a missing
@@ -56,6 +56,12 @@ async def lifespan(app: FastAPI):
             log.info("session trash purge: %d 영구 삭제", n)
     except Exception as exc:  # noqa: BLE001
         log.warning("session trash purge failed: %s", exc)
+    # 자동 백업 스케줄러 시작 (#44).
+    try:
+        from .routers.admin import start_backup_scheduler
+        start_backup_scheduler()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("backup scheduler start failed: %s", exc)
     # Seed runtime settings from env-var defaults (one-time on a
     # fresh install). After this the DB is the source of truth.
     from . import app_settings
@@ -269,6 +275,7 @@ app.include_router(code.router)
 app.include_router(admin.router)
 app.include_router(prompts.router)
 app.include_router(macros.router)
+app.include_router(api_keys.router)
 app.include_router(workflows.router)
 app.include_router(transcripts.router)
 app.include_router(search.router)

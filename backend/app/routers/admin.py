@@ -1237,3 +1237,149 @@ async def health_check(
         "errors_24h": int(err_24h or 0),
         "checked_at": _dt.utcnow().isoformat(),
     }
+
+
+# ── 사용자별 사용량 통계 (#41) ───────────────────────────────
+# 각 사용자가 얼마나 많은 메시지를 보내고 토큰을 소비했는지 한눈에.
+# 운영자가 부하 / 비정상 사용을 점검할 때 사용.
+
+@router.get("/usage")
+async def usage_per_user(
+    limit: int = 200,
+    days: int = 30,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    from datetime import datetime as _dt, timedelta as _td
+
+    limit = max(1, min(int(limit or 200), 1000))
+    days = max(1, min(int(days or 30), 365))
+    cutoff = _dt.utcnow() - _td(days=days)
+
+    # 사용자별 집계: 메시지 수, 어시스턴트 토큰 합, 평균 latency,
+    # 마지막 활동.  Session.user_id 가 NULL 인 옛 행은 (anon) 으로.
+    rows = (
+        await db.execute(
+            select(
+                models.User.id,
+                models.User.email,
+                models.User.name,
+                func.count(models.Message.id).label("msg_count"),
+                func.coalesce(func.sum(models.Message.tokens_out), 0).label("tokens"),
+                func.avg(models.Message.latency_ms).label("avg_latency"),
+                func.max(models.Message.created_at).label("last_at"),
+            )
+            .join(models.Session, models.Session.user_id == models.User.id)
+            .join(models.Message, models.Message.session_id == models.Session.id)
+            .where(models.Message.created_at >= cutoff)
+            .group_by(models.User.id, models.User.email, models.User.name)
+            .order_by(func.count(models.Message.id).desc())
+            .limit(limit)
+        )
+    ).all()
+    return {
+        "days": days,
+        "items": [
+            {
+                "user_id": uid,
+                "email": email,
+                "name": name,
+                "message_count": int(mc or 0),
+                "tokens_out_sum": int(tk or 0),
+                "avg_latency_ms": int(avg or 0) if avg else None,
+                "last_activity": last.isoformat() if last else None,
+            }
+            for (uid, email, name, mc, tk, avg, last) in rows
+        ],
+    }
+
+
+# ── 자동 백업 스케줄 (#44) ──────────────────────────────────
+# 매 시간 정각마다 wakeup. settings.backup_auto_enabled + backup_auto_
+# hour (KST 기준 0~23) 가 활성이면 그 시각에 백업 + 오래된 파일 청소.
+# lifespan 이 한 번만 띄움.
+
+_backup_scheduler_started = False
+
+
+async def backup_scheduler_loop() -> None:
+    """매 분마다 깨어나 '오늘 그 시간이 됐고 아직 자동 백업이 안 됐으면'
+    백업 실행.  파일명 패턴 'aichat-YYYYMMDD-...-auto.db' 로 표시."""
+    import asyncio as _aio
+    import shutil
+    import sqlite3
+    from datetime import datetime as _dt, time as _time
+    from pathlib import Path as _Path
+
+    log_local = __import__("logging").getLogger("uvicorn.error")
+    while True:
+        try:
+            if not getattr(settings, "backup_auto_enabled", False):
+                await _aio.sleep(60 * 30)
+                continue
+            hour = int(getattr(settings, "backup_auto_hour", 3))
+            now = _dt.now()
+            base = _resolve_backup_dir()
+            today_stamp = now.strftime("%Y%m%d")
+            already = base.exists() and any(
+                f.name.startswith(f"aichat-{today_stamp}") and f.name.endswith("-auto.db")
+                for f in base.iterdir()
+            )
+            if now.time() >= _time(hour, 0) and not already:
+                url = settings.database_url
+                if "sqlite" in url and ":///" in url:
+                    raw_db = url.split(":///", 1)[1]
+                    db_path = _Path(raw_db).expanduser()
+                    if not db_path.is_absolute():
+                        from .. import __file__ as _app_init
+
+                        backend_root = _Path(_app_init).resolve().parent.parent
+                        db_path = (backend_root / db_path).resolve()
+                    if db_path.is_file():
+                        try:
+                            base.mkdir(parents=True, exist_ok=True)
+                            try:
+                                c = sqlite3.connect(str(db_path), timeout=10)
+                                try:
+                                    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                                finally:
+                                    c.close()
+                            except sqlite3.Error:
+                                pass
+                            target = base / (
+                                f"aichat-{today_stamp}-"
+                                f"{now.strftime('%H%M%S')}-auto.db"
+                            )
+                            shutil.copy2(str(db_path), str(target))
+                            log_local.info("auto backup → %s", target)
+                            # Retention 청소 — 기본 14 일 유지.
+                            keep_days = int(
+                                getattr(settings, "backup_auto_keep_days", 14)
+                            )
+                            cutoff_ts = (
+                                _dt.utcnow().timestamp() - keep_days * 86400
+                            )
+                            for f in base.iterdir():
+                                if not f.name.endswith("-auto.db"):
+                                    continue
+                                if f.stat().st_mtime < cutoff_ts:
+                                    try:
+                                        f.unlink()
+                                    except OSError:
+                                        pass
+                        except Exception as exc:  # noqa: BLE001
+                            log_local.warning("auto backup failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            log_local.warning("backup scheduler tick failed: %s", exc)
+        await _aio.sleep(60)
+
+
+def start_backup_scheduler() -> None:
+    """lifespan 에서 한 번만 호출.  asyncio.create_task 로 백그라운드 실행."""
+    global _backup_scheduler_started
+    if _backup_scheduler_started:
+        return
+    _backup_scheduler_started = True
+    import asyncio as _aio
+
+    _aio.create_task(backup_scheduler_loop())

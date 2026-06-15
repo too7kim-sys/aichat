@@ -71,12 +71,45 @@ interface Props {
   artifactTitlePrefix?: string;
 }
 
+// PII 마스킹 (#43) — 사용자가 마이페이지 / UserMenu 에서 켜면
+// localStorage 에 "1" 로 저장.  display-time 에 본문에서 전화번호 ·
+// 주민번호 · 이메일 · 카드 번호 후보를 가림.  서버 저장은 그대로
+// (요청 시 원본 복원 가능).
+function maskPii(text: string): string {
+  // 주민번호 (YYMMDD-NXXXXXX)
+  text = text.replace(/\b(\d{6})[-]\d{7}\b/g, "$1-*******");
+  // 휴대전화 (010-XXXX-XXXX 또는 010XXXXXXXX, 02-XXX-XXXX 등)
+  text = text.replace(
+    /\b(01[016789])[-.\s]?\d{3,4}[-.\s]?\d{4}\b/g,
+    (_m, p) => `${p}-****-****`,
+  );
+  text = text.replace(
+    /\b0(2|[3-9]\d)[-.\s]?\d{3,4}[-.\s]?\d{4}\b/g,
+    "0**-****-****",
+  );
+  // 이메일 (사용자명 부분만 가림)
+  text = text.replace(
+    /\b([A-Za-z0-9._%+-]{1,3})[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g,
+    "$1***@$2",
+  );
+  // 신용카드 후보 — 4-4-4-4 자리 숫자 그룹.
+  text = text.replace(
+    /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g,
+    "****-****-****-****",
+  );
+  return text;
+}
+
 export function BubbleContent({
   content,
   streaming,
   artifactTitlePrefix,
 }: Props) {
-  const segments = splitThinking(content);
+  const piiOn =
+    typeof window !== "undefined" &&
+    localStorage.getItem("chat:pii-mask") === "1";
+  const safeContent = piiOn ? maskPii(content) : content;
+  const segments = splitThinking(safeContent);
   if (segments.length === 0) {
     return streaming ? <span className="cursor">▍</span> : null;
   }

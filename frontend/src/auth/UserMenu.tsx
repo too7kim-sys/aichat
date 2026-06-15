@@ -23,6 +23,20 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
     localStorage.setItem("chat:theme", v);
     document.documentElement.setAttribute("data-theme", v);
   }
+  // PII 마스킹 (#43) — 켜면 BubbleContent 가 display-time 에 본문의
+  // 개인정보를 가림.  서버 저장은 원본 유지.
+  const [piiMask, _setPiiMask] = useState<boolean>(
+    () => localStorage.getItem("chat:pii-mask") === "1",
+  );
+  function togglePii() {
+    const next = !piiMask;
+    _setPiiMask(next);
+    if (next) localStorage.setItem("chat:pii-mask", "1");
+    else localStorage.removeItem("chat:pii-mask");
+    // 강제 새로고침으로 모든 버블 다시 그림 — 너무 무거우면 이벤트
+    // 디스패치로 대체할 수 있지만, 토글은 자주 일어나지 않으니 그대로.
+    window.location.reload();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +90,14 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
               ))}
             </div>
           </div>
+          <button
+            type="button"
+            className={`user-menu-item${piiMask ? " active" : ""}`}
+            onClick={togglePii}
+            title="전화번호·주민번호·이메일·카드번호 후보를 가림"
+          >
+            🔒 개인정보 마스킹 {piiMask ? "ON" : "OFF"}
+          </button>
           {onOpenAdmin && (user.role === "admin" || user.role === "moderator") && (
             <button
               className="user-menu-item"

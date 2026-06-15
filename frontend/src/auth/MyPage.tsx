@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { auth, type AuditEvent } from "../api/client";
+import { api, auth, type AuditEvent } from "../api/client";
 import { useAuth } from "./AuthContext";
 import { PasswordStrength } from "./PasswordStrength";
 
@@ -142,6 +142,11 @@ export function MyPage({ onBack }: Props) {
         </form>
 
         <div className="mypage-section">
+          <h2>🔑 API 키</h2>
+          <ApiKeysPanel />
+        </div>
+
+        <div className="mypage-section">
           <h2>최근 활동</h2>
           {events.length === 0 ? (
             <p className="mypage-hint">기록 없음</p>
@@ -209,4 +214,148 @@ function labelFor(event: string): string {
     default:
       return event;
   }
+}
+
+
+// ── API 키 발급 (#45) ──────────────────────────────────────
+// 외부 시스템 (워크플로 자동화·사내 봇 등) 이 X-API-Key 헤더로 호출.
+function ApiKeysPanel() {
+  type Key = {
+    id: string;
+    label: string;
+    token_prefix: string;
+    last_used_at: string | null;
+    expires_at: string | null;
+    created_at: string | null;
+  };
+  const [keys, setKeys] = useState<Key[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [label, setLabel] = useState("");
+  const [issued, setIssued] = useState<{ token: string; label: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      setKeys(await api.listApiKeys());
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function create(e: FormEvent) {
+    e.preventDefault();
+    try {
+      const r = await api.createApiKey(label, null);
+      setIssued({ token: r.token, label: r.label });
+      setLabel("");
+      await refresh();
+    } catch (e) {
+      window.alert(`발급 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  async function revoke(id: string) {
+    if (!window.confirm("이 키를 회수할까요?  외부 시스템에서 더 이상 동작하지 않게 됩니다.")) return;
+    try {
+      await api.revokeApiKey(id);
+      await refresh();
+    } catch (e) {
+      window.alert(`회수 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return (
+    <div>
+      <p className="mypage-hint">
+        외부 시스템에서 `X-API-Key: aichat_...` 헤더로 호출하면 본인 권한
+        으로 동작합니다. 발급된 토큰은 *한 번만* 노출되니 별도로 안전한
+        곳에 보관하세요.
+      </p>
+      <form className="apikey-form" onSubmit={create}>
+        <input
+          placeholder="키 라벨 (예: n8n 워크플로)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={80}
+        />
+        <button type="submit" className="apikey-create">
+          + 새 키 발급
+        </button>
+      </form>
+      {issued && (
+        <div className="apikey-issued">
+          <div className="apikey-issued-head">
+            새 키 발급됨 — 이 화면을 닫으면 다시 볼 수 없어요.
+          </div>
+          <div className="apikey-issued-token">{issued.token}</div>
+          <div className="apikey-issued-actions">
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(issued.token);
+              }}
+            >
+              복사
+            </button>
+            <button type="button" onClick={() => setIssued(null)}>
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
+      {err && <div className="mypage-flash error">{err}</div>}
+      {loading ? (
+        <p className="mypage-hint">불러오는 중…</p>
+      ) : keys.length === 0 ? (
+        <p className="mypage-hint">발급된 키가 없어요.</p>
+      ) : (
+        <table className="apikey-table">
+          <thead>
+            <tr>
+              <th>라벨</th>
+              <th>접두 8자</th>
+              <th>마지막 사용</th>
+              <th>만료</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k.id}>
+                <td>{k.label || "(라벨 없음)"}</td>
+                <td>
+                  <code>{k.token_prefix}…</code>
+                </td>
+                <td>
+                  {k.last_used_at
+                    ? new Date(k.last_used_at).toLocaleString()
+                    : "—"}
+                </td>
+                <td>
+                  {k.expires_at
+                    ? new Date(k.expires_at).toLocaleDateString()
+                    : "무기한"}
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="apikey-revoke"
+                    onClick={() => revoke(k.id)}
+                  >
+                    회수
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }

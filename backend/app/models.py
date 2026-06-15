@@ -773,3 +773,30 @@ class SessionShare(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+
+
+class ApiKey(Base):
+    """사용자 발급 API 키 (#45).  외부 시스템이 채팅 / RAG API 를
+    호출할 때 사용.  실제 토큰은 평문으로 한 번만 보여주고, DB 에는
+    SHA-256 해시만 저장 — DB 유출 시 토큰 자체는 복구 불가."""
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # 사용자가 키를 구분할 수 있는 라벨 (예: "n8n 워크플로", "사내 봇").
+    label: Mapped[str] = mapped_column(String(80), default="")
+    # SHA-256(token).  request 가 들어올 때 같은 방식으로 해시해 비교.
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True
+    )
+    # 토큰의 첫 8자만 라벨용으로 노출 ("aichat_5e3f....").  전체 토큰은
+    # 발급 직후 한 번만 반환.
+    token_prefix: Mapped[str] = mapped_column(String(16), default="")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
