@@ -1,3 +1,4 @@
+import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -241,6 +242,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [elapsedSec, setElapsedSec] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  // 글자 크기·줄 간격 — 사용자별 가독성 설정. 모든 세션에 공통 적용해
+  // 사용자가 한 번 정하면 끝.  localStorage 키는 namespace 분리.
+  const [chatFont, _setChatFont] = useState<"s" | "m" | "l" | "xl">(() => {
+    const v = localStorage.getItem("chat:font-size");
+    return v === "s" || v === "m" || v === "l" || v === "xl" ? v : "m";
+  });
+  const [chatLine, _setChatLine] = useState<"snug" | "normal" | "loose">(() => {
+    const v = localStorage.getItem("chat:line-height");
+    return v === "snug" || v === "normal" || v === "loose" ? v : "normal";
+  });
+  function setChatFont(v: "s" | "m" | "l" | "xl") {
+    _setChatFont(v);
+    localStorage.setItem("chat:font-size", v);
+  }
+  function setChatLine(v: "snug" | "normal" | "loose") {
+    _setChatLine(v);
+    localStorage.setItem("chat:line-height", v);
+  }
+  const [typoOpen, setTypoOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -963,6 +983,54 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
+          <div className="chat-typo-wrap">
+            <button
+              type="button"
+              className="panel-toggle chat-typo-btn"
+              onClick={() => setTypoOpen((v) => !v)}
+              title="글자 크기 / 줄 간격"
+              aria-label="글자 크기 설정"
+            >
+              Aa
+            </button>
+            {typoOpen && (
+              <div className="chat-typo-popover" role="dialog">
+                <div className="chat-typo-row">
+                  <span className="chat-typo-label">크기</span>
+                  {(["s", "m", "l", "xl"] as const).map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      className={`chat-typo-chip${chatFont === sz ? " picked" : ""}`}
+                      onClick={() => setChatFont(sz)}
+                    >
+                      {sz === "s" ? "작게" : sz === "m" ? "보통" : sz === "l" ? "크게" : "아주크게"}
+                    </button>
+                  ))}
+                </div>
+                <div className="chat-typo-row">
+                  <span className="chat-typo-label">줄간격</span>
+                  {(["snug", "normal", "loose"] as const).map((ln) => (
+                    <button
+                      key={ln}
+                      type="button"
+                      className={`chat-typo-chip${chatLine === ln ? " picked" : ""}`}
+                      onClick={() => setChatLine(ln)}
+                    >
+                      {ln === "snug" ? "좁게" : ln === "normal" ? "보통" : "넉넉히"}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="chat-typo-close"
+                  onClick={() => setTypoOpen(false)}
+                >
+                  닫기
+                </button>
+              </div>
+            )}
+          </div>
           <ExportSessionMenu sessionId={session.id} title={session.title} />
           {session.workspace_id && (
             <button
@@ -1039,7 +1107,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           </aside>
         )}
         <div className="chat-main">
-      <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
+      <div
+        className="messages"
+        ref={scrollRef}
+        onScroll={onMessagesScroll}
+        style={
+          {
+            "--chat-font-size":
+              chatFont === "s"
+                ? "13px"
+                : chatFont === "m"
+                  ? "14.5px"
+                  : chatFont === "l"
+                    ? "16px"
+                    : "18px",
+            "--chat-line-height":
+              chatLine === "snug" ? "1.45" : chatLine === "normal" ? "1.65" : "1.85",
+          } as React.CSSProperties
+        }
+      >
         <div className="messages-inner">
           {session.messages.length === 0 && !streaming && (
             <EmptyGreeting userName={user?.name ?? null} />

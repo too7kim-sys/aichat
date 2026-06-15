@@ -8230,4 +8230,141 @@ body {
   .chat-header-right { flex-wrap: wrap; justify-content: flex-end; }
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * 사용자 가독성 설정 — 글자 크기·줄 간격 (#16)
+ *
+ * .messages 가 inline style 로 --chat-font-size / --chat-line-height
+ * 변수를 던지면, 본문 텍스트(.bubble-content 등) 가 받아 적용.
+ * 변수가 없으면 fallback 으로 기존 값을 그대로 사용.
+ * ───────────────────────────────────────────────────────────── */
+.messages {
+  font-size: var(--chat-font-size, 14.5px);
+  line-height: var(--chat-line-height, 1.65);
+}
+.messages .bubble-content,
+.messages .bubble-content p,
+.messages .bubble-content li {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.chat-typo-wrap {
+  position: relative;
+  display: inline-block;
+}
+.chat-typo-btn {
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.chat-typo-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  padding: 10px 12px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+}
+.chat-typo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chat-typo-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 44px;
+}
+.chat-typo-chip {
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+.chat-typo-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.chat-typo-chip.picked {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.chat-typo-close {
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.chat-typo-close:hover { color: var(--accent); }
+
+/* ─────────────────────────────────────────────────────────────
+ * 피드백 사유 칩 (#15) — 👎 누르면 textarea 위에 6개 빠른선택
+ * 버튼이 뜬다. 클릭하면 노트 본문에 토글로 들어간다.
+ * ───────────────────────────────────────────────────────────── */
+.bubble-feedback-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.bubble-reason-chip {
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.bubble-reason-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.bubble-reason-chip.picked {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 토스트 — 공유 링크 복사 등 가벼운 안내. window.dispatchEvent
+ * ("chat:toast", { detail: { text } }) 로 호출. App.tsx 의 listener
+ * 가 받아 2.4 초 띄움.
+ * ───────────────────────────────────────────────────────────── */
+.chat-toast {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  z-index: 999;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  animation: toast-in 0.18s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 

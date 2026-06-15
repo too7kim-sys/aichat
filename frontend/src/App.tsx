@@ -221,6 +221,19 @@ function AppInner({
     api.listProviders().then(setProviders);
     refreshSessions();
     refreshChatProjects();
+    // 메시지 공유 링크 처리 — ?session=...&message=... 가 있으면 그
+    // 세션으로 열고 해당 메시지로 스크롤.
+    const u = new URL(window.location.href);
+    const sid = u.searchParams.get("session");
+    const mid = u.searchParams.get("message");
+    if (sid) {
+      setActiveId(sid);
+      if (mid) setPendingScrollMessageId(mid);
+      // 깔끔하게 URL 정리 — 새로고침해도 그대로 유지하고 싶으면 이 줄을 빼면 됨.
+      u.searchParams.delete("session");
+      u.searchParams.delete("message");
+      window.history.replaceState({}, "", u.toString());
+    }
   }, []);
 
   // 메시지 분기 (🌿) 가 새 세션을 만들고 chat:switch-session 이벤트
@@ -291,6 +304,26 @@ function AppInner({
   // CSS @media rule turns it into a slide-in overlay that respects
   // .sidebar.open.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // 가벼운 토스트 — 어디서든 window.dispatchEvent("chat:toast",
+  // { detail: { text } }) 만 쏘면 우측 하단에 뜬다. 공유 링크 복사,
+  // 자잘한 안내 등에 사용. 2.4 초 후 자동 사라짐.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    let tid: number | undefined;
+    function onToast(e: Event) {
+      const ev = e as CustomEvent<{ text: string }>;
+      if (!ev.detail?.text) return;
+      setToast(ev.detail.text);
+      window.clearTimeout(tid);
+      tid = window.setTimeout(() => setToast(null), 2400);
+    }
+    window.addEventListener("chat:toast", onToast);
+    return () => {
+      window.removeEventListener("chat:toast", onToast);
+      window.clearTimeout(tid);
+    };
+  }, []);
 
   return (
     <div className="app">
@@ -372,6 +405,11 @@ function AppInner({
           onSendToChat={(snippet) => chatRef.current?.appendToPrompt(snippet)}
         />
       </Suspense>
+      {toast && (
+        <div className="chat-toast" role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

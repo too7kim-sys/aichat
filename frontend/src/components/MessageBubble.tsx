@@ -178,6 +178,12 @@ export function MessageBubble({
       if (next === 0) {
         setNoteLocal(null);
         onMetaChanged?.({ feedback_note: null });
+        setShowNoteEditor(false);
+      } else if (next === -1 && !noteLocal) {
+        // 👎 누른 직후 메모 폼 자동 열기 — 사용자가 한 번 더 클릭하지
+        // 않아도 사유를 적을 수 있게.
+        setNoteDraft("");
+        setShowNoteEditor(true);
       }
     } catch (e) {
       setFeedbackLocal(feedback);
@@ -599,6 +605,41 @@ export function MessageBubble({
                   💬 인용
                 </button>
                 <TtsButton text={body} />
+                <button
+                  type="button"
+                  className="bubble-tiny-btn"
+                  onClick={() => {
+                    if (!sessionId || !messageId) return;
+                    const u = new URL(window.location.href);
+                    u.search = "";
+                    u.searchParams.set("session", sessionId);
+                    u.searchParams.set("message", messageId);
+                    const link = u.toString();
+                    navigator.clipboard
+                      .writeText(link)
+                      .then(() =>
+                        window.dispatchEvent(
+                          new CustomEvent("chat:toast", {
+                            detail: { text: "🔗 공유 링크가 복사됐어요" },
+                          }),
+                        ),
+                      )
+                      .catch(() =>
+                        window.prompt("아래 링크를 복사하세요", link),
+                      );
+                  }}
+                  title="이 답변으로 바로 오는 링크 복사"
+                >
+                  🔗 공유
+                </button>
+                <button
+                  type="button"
+                  className="bubble-tiny-btn"
+                  onClick={() => printSingleMessage(provider, body)}
+                  title="이 답변만 인쇄/PDF 저장"
+                >
+                  🖨
+                </button>
               </>
             )}
             {canEdit && (
@@ -616,12 +657,46 @@ export function MessageBubble({
         )}
         {showNoteEditor && sessionId && messageId && (
           <div className="bubble-feedback-note">
+            {feedbackLocal === -1 && (
+              <div className="bubble-feedback-reasons">
+                {[
+                  "부정확함",
+                  "동문서답",
+                  "너무 길다",
+                  "너무 짧다",
+                  "맥락 무시",
+                  "출처 부족",
+                ].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    className={`bubble-reason-chip${noteDraft.includes(r) ? " picked" : ""}`}
+                    onClick={() => {
+                      setNoteDraft((cur) => {
+                        if (cur.includes(r)) {
+                          return cur
+                            .replace(new RegExp(`${r}[,\\s]*`), "")
+                            .trim();
+                        }
+                        return cur ? `${r}, ${cur}` : r;
+                      });
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
               className="bubble-feedback-note-input"
               value={noteDraft}
               maxLength={500}
               rows={2}
-              placeholder="어떤 점이 좋았는지 / 아쉬웠는지 (선택)"
+              placeholder={
+                feedbackLocal === -1
+                  ? "어떤 점이 아쉬웠는지 — 위 사유 클릭 또는 자유 메모"
+                  : "어떤 점이 좋았는지 / 아쉬웠는지 (선택)"
+              }
               onChange={(e) => setNoteDraft(e.target.value)}
               autoFocus
             />
@@ -771,4 +846,39 @@ function TtsButton({ text }: { text: string }) {
       {playing ? "⏹" : "🔊"}
     </button>
   );
+}
+
+
+/** 🖨 한 답변만 인쇄 — 새 창에 print-friendly HTML 띄우고 print()
+ *  호출. 사용자가 PDF 로 저장하든 종이로 뽑든 자유. 답변 본문은
+ *  textContent 로 안전하게 삽입 (HTML 인젝션 방지). */
+function printSingleMessage(provider: string | null | undefined, body: string) {
+  const w = window.open("", "_blank", "noopener,noreferrer,width=720,height=900");
+  if (!w) {
+    window.alert("팝업이 차단됐어요. 브라우저 팝업 허용 후 다시 시도해 주세요.");
+    return;
+  }
+  const safe = body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const ts = new Date().toLocaleString();
+  w.document.write(`<!doctype html>
+<html lang="ko"><head><meta charset="utf-8" />
+<title>AI 답변 인쇄</title>
+<style>
+  body { font-family: 'Noto Sans KR', system-ui, sans-serif;
+         padding: 24px; line-height: 1.6; color: #222; max-width: 720px;
+         margin: 0 auto; }
+  header { border-bottom: 1px solid #ccc; padding-bottom: 8px;
+           margin-bottom: 16px; color: #555; font-size: 12px; }
+  pre { white-space: pre-wrap; word-break: break-word; font-family: inherit;
+        font-size: 14px; }
+  @media print { header { color: #888; } }
+</style></head><body>
+<header>${provider ?? "AI"} · ${ts}</header>
+<pre>${safe}</pre>
+<script>window.onload = () => setTimeout(() => window.print(), 200);</script>
+</body></html>`);
+  w.document.close();
 }
