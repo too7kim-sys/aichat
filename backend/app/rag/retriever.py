@@ -294,6 +294,9 @@ async def retrieve_many(
 
     client = get_client()
     pooled: list[RetrievedChunk] = []
+    # 진단용 — 프로젝트별로 max score / hits over gate 를 로깅. 운영자가
+    # "공유 KB 가 자동 검색에 잡혔는데 왜 청크가 0인지" 즉시 파악 가능.
+    diag: list[str] = []
     for snap, meta in meta_by_snap.items():
         cname = collection_name(snap)
         try:
@@ -305,12 +308,16 @@ async def retrieve_many(
             )
         except Exception as exc:  # noqa: BLE001 - collection may be absent
             log.warning("RAG multi-retrieval: search failed on %s (%s)", cname, exc)
+            diag.append(f"{meta['project_name'] or snap}=ERR")
             continue
+        max_score = max((float(r.score) for r in results), default=0.0)
+        kept = 0
         for r in results:
             if not r.payload:
                 continue
             if float(r.score) < min_score:
                 continue
+            kept += 1
             pooled.append(
                 RetrievedChunk(
                     filename=str(r.payload.get("filename", "")),
@@ -328,6 +335,14 @@ async def retrieve_many(
                     ),
                 )
             )
+        diag.append(
+            f"{meta['project_name'] or snap}={kept}/{len(results)} "
+            f"top={max_score:.3f}"
+        )
+    log.info(
+        "RAG multi-retrieval: query=%r min_score=%.2f → %s",
+        query[:60], min_score, " ".join(diag),
+    )
     merged = _merge_adjacent(pooled)
     return merged[:limit]
 

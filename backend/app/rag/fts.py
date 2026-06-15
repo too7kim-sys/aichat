@@ -166,20 +166,24 @@ def _sanitize_query(q: str) -> str:
     토큰 처리:
       · ≥ 3자: 따옴표로 감싸 phrase 매칭 (trigram 토크나이저 한도가
         3이므로 phrase 가 그대로 동작).
-      · 2자 한국어: prefix 와일드카드 (trigram 은 2자 단독 토큰을
-        못 만들지만 그 2자가 포함된 3-gram 을 prefix 로 잡으려면 별표
-        가 필요. 예: "사내" → 사내*).
+      · 2자 한국어: prefix 와일드카드. trigram 은 2자 단독 토큰을 못
+        만들지만 그 2자로 시작하는 3-gram (사내 →"사내X") 을 prefix
+        로 잡으려면 `사내*` (인용부호 X) 형태가 필요.
       · 1자: BM25 매칭 효용 없음 → 스킵.
     """
     parts = [w.strip() for w in q.split() if w.strip()]
     if not parts:
         return ""
+    # FTS5 쿼리에서 위험한 연산자 문자를 제거 — phrase / wildcard
+    # 외에는 일체 차단.
+    import re as _re
+    danger = _re.compile(r'[":*\(\)]')
     out: list[str] = []
     for w in parts[:20]:  # 20단어 cap
-        w = w.replace('"', '""')
-        if len(w) >= 3:
-            out.append(f'"{w}"')
-        elif len(w) == 2:
-            out.append(f'"{w}"*')
-        # 1자는 스킵
+        w = danger.sub("", w)
+        # trigram tokenizer 는 3자 미만 토큰을 만들지 못해 BM25 가
+        # 무용지물. 그 짧은 단어는 스킵하고 벡터 검색에 맡긴다.
+        if len(w) < 3:
+            continue
+        out.append(f'"{w}"')
     return " ".join(out)
