@@ -74,7 +74,18 @@ async function uploadExtract(file: File): Promise<ExtractedFile> {
     try {
       detail = JSON.parse(body).detail ?? body;
     } catch {
-      // not JSON
+      // 본문이 JSON 이 아니면 nginx 의 기본 413 같은 HTML 에러 페이지일
+      // 가능성 — 그 경우 사용자가 알아볼 수 있는 한국어 hint 로 치환.
+      if (res.status === 413) {
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+        detail =
+          `리버스 프록시(nginx) 가 ${sizeMb} MB 업로드를 차단했어요. ` +
+          "관리자에게 nginx 설정 `client_max_body_size` 를 백엔드의 " +
+          "MAX_UPLOAD_BYTES (기본 25MB) 이상으로 맞춰 달라고 전해 주세요. " +
+          "예시는 ops/nginx-aichat.conf.example 참고.";
+      } else if (body.includes("<html") && body.includes("nginx")) {
+        detail = `리버스 프록시 오류 (${res.status}) — 관리자에게 nginx 로그 확인을 요청해 주세요.`;
+      }
     }
     throw new Error(`${res.status} ${detail}`);
   }

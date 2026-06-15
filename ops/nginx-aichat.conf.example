@@ -1,0 +1,85 @@
+# aichat 리버스 프록시 — nginx 예시 설정
+#
+# 이 파일은 nginx 가 도는 별도 서버에 두세요 (보통 /etc/nginx/conf.d/
+# 또는 /etc/nginx/sites-available/ 아래). aichat 백엔드는 다른 서버의
+# 127.0.0.1:9000 에 떠 있고, 사용자는 https://ai.example.com 으로
+# 접속하는 가정.
+#
+# 적용 후:
+#   sudo nginx -t           # syntax check
+#   sudo systemctl reload nginx
+#
+# ─────────────────────────────────────────────────────────────────
+# client_max_body_size 가 *반드시* 백엔드의 MAX_UPLOAD_BYTES (현재
+# 25 MB 기본) 보다 크거나 같아야 합니다.  기본값 1 MB 로 두면 사진
+# 한 장(>1 MB)을 첨부해도 nginx 가 413 으로 막아 백엔드 코드에 도달
+# 하지 않습니다 — 사용자 입장에선 "파일 첨부 오류" 로 보일 뿐 원인
+# 추적이 어렵습니다.  음성 녹음(transcribe) 도 같은 경로를 탑니다.
+# ─────────────────────────────────────────────────────────────────
+
+upstream aichat_backend {
+    server 10.0.0.10:9000;     # 백엔드 서버의 사설 IP:포트
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_name ai.example.com;
+    # 평문 → HTTPS 강제 리디렉션.  마이크 (getUserMedia) 는 HTTPS
+    # 또는 localhost 에서만 동작하므로 HTTPS 가 사실상 필수.
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ai.example.com;
+
+    ssl_certificate     /etc/nginx/ssl/ai.example.com.crt;
+    ssl_certificate_key /etc/nginx/ssl/ai.example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # ── 업로드 한도 ────────────────────────────────────────────
+    # 백엔드의 MAX_UPLOAD_BYTES (default 25 MB) 와 *반드시* 일치 또는
+    # 크게.  병합(merge) 요청은 백엔드가 cap * 4 (= 100 MB) 까지
+    # 허용하므로, 병합 엔드포인트를 사용한다면 더 크게 잡으세요.
+    client_max_body_size 100m;
+
+    # ── 스트리밍 (Server-Sent Events) ─────────────────────────
+    # 채팅 응답은 chunked SSE 로 흘러옵니다.  버퍼링이 켜져 있으면
+    # 사용자가 한참 뒤에 한꺼번에 답변을 받아 "응답 없는 듯" 보임.
+    proxy_buffering off;
+    proxy_request_buffering off;
+    # SSE/긴 스트림 타임아웃 — 무거운 RAG 답변이 60s 넘게 흐를 수
+    # 있으므로 넉넉히.
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+
+    # ── 프록시 헤더 ────────────────────────────────────────────
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection        "";
+
+    # ── API ───────────────────────────────────────────────────
+    location /api/ {
+        proxy_pass http://aichat_backend;
+    }
+
+    # ── 정적 SPA 파일 (frontend/dist) ─────────────────────────
+    # 백엔드를 거치지 않고 nginx 가 직접 서빙.  배포 시 npm run build
+    # 산출물을 /var/www/aichat/ 로 동기화.
+    root  /var/www/aichat;
+    index index.html;
+    location / {
+        try_files $uri /index.html;
+    }
+
+    # 정적 자원 캐시
+    location ~* \.(js|css|woff2?|svg|png|jpg|jpeg|gif|ico|webp)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
