@@ -250,13 +250,42 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // ref 로 우회한다. 본문에서 매 렌더마다 sendRef.current 를 최신 send
   // 로 교체.
   const sendRef = useRef<((override: string) => void) | null>(null);
+  // 다음 turn 으로 보낼 텍스트를 ref 에 두는 패턴 — composer 가 비어
+  // 있어도 prefill 만 할 수 있게.
+  const promptSetterRef = useRef<((next: string) => void) | null>(null);
+  const sessionRef = useRef<{ messages: { role: string; content: string }[] } | null>(null);
   useEffect(() => {
     function onChoice(e: Event) {
       const ev = e as CustomEvent<{ text: string }>;
       if (ev.detail?.text) sendRef.current?.(ev.detail.text);
     }
+    function onRewindResend(e: Event) {
+      const ev = e as CustomEvent<{ text: string }>;
+      if (ev.detail?.text) sendRef.current?.(ev.detail.text);
+    }
+    function onRegenerateLast() {
+      // 가장 최근 user 메시지 찾아서 그대로 다시 보냄 — 직전 assistant
+      // 답변은 굳이 지우지 않고 새 답변이 그 아래에 붙는다 (사용자가
+      // 원하면 별표 / 비교).
+      const s = sessionRef.current;
+      const msgs = s?.messages ?? [];
+      const lastUser = [...msgs].reverse().find((m) => m.role === "user");
+      if (lastUser?.content) sendRef.current?.(lastUser.content);
+    }
+    function onQuotePick(e: Event) {
+      const ev = e as CustomEvent<{ text: string }>;
+      if (ev.detail?.text) promptSetterRef.current?.(ev.detail.text);
+    }
     window.addEventListener("chat:choice-picked", onChoice);
-    return () => window.removeEventListener("chat:choice-picked", onChoice);
+    window.addEventListener("chat:rewind-resend", onRewindResend);
+    window.addEventListener("chat:regenerate-last", onRegenerateLast);
+    window.addEventListener("chat:quote-pick", onQuotePick);
+    return () => {
+      window.removeEventListener("chat:choice-picked", onChoice);
+      window.removeEventListener("chat:rewind-resend", onRewindResend);
+      window.removeEventListener("chat:regenerate-last", onRegenerateLast);
+      window.removeEventListener("chat:quote-pick", onQuotePick);
+    };
   }, []);
   const artifactsState = useArtifacts();
   const { selected: model } = useModels();
@@ -585,6 +614,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // image (screenshot, copied photo) lands here too — Safari/Chrome ship
   // images as File entries on the paste event.
   const [dragOver, setDragOver] = useState(false);
+  // 슬래시 명령 picker (저장된 프롬프트 라이브러리). textarea 가 "/"
+  // 로 시작할 때 열림, query 는 그 뒤 텍스트.
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashQuery, setSlashQuery] = useState("");
 
   async function handleClipboardPaste(
     e: React.ClipboardEvent<HTMLTextAreaElement>,
@@ -775,6 +808,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // 매 렌더마다 ref 를 최신 send 로 교체 — 위에서 등록한 이벤트
   // 리스너가 항상 최신 closure 의 send 를 호출하도록.
   sendRef.current = send;
+  // session 이 ref 에 박혀 있어야 useEffect 안 핸들러가 항상 최신 메시지
+  // 리스트를 본다.
+  sessionRef.current = session as never;
+  promptSetterRef.current = (next: string) => {
+    setPrompt((cur) => (cur ? cur + (cur.endsWith("\n") ? "" : "\n\n") + next : next));
+    // 다음 tick 에 포커스 — input 위에 prefill 텍스트 보이게.
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  };
 
   async function runInlineMerge(
     titleOverride?: string,
@@ -1273,18 +1314,39 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               </button>
             </div>
           )}
+          <SlashPromptPicker
+            open={slashOpen}
+            query={slashQuery}
+            onPick={(body) => {
+              setPrompt(body);
+              setSlashOpen(false);
+              window.setTimeout(() => textareaRef.current?.focus(), 0);
+            }}
+            onClose={() => setSlashOpen(false)}
+          />
           <textarea
             ref={textareaRef}
             value={prompt}
             placeholder={
               attachments.length > 0
                 ? "예) 요약해줘 · 오타 찾아줘 · 핵심만 알려줘 · 표로 정리해줘 · /병합 [제목] 으로 한 파일 합치기"
-                : "무엇이든 물어보세요. 이미지를 붙여넣거나(Ctrl+V) 끌어다 놓아 분석·요약·번역도 가능합니다."
+                : "무엇이든 물어보세요. / 를 누르면 프롬프트 라이브러리, Ctrl+V 로 이미지 붙여넣기."
             }
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPrompt(v);
+              // 첫 글자 `/` 면 picker 띄움. 이후 입력은 search query.
+              const startsWithSlash = v.startsWith("/");
+              setSlashOpen(startsWithSlash);
+              setSlashQuery(startsWithSlash ? v.slice(1).trim() : "");
+            }}
             onPaste={handleClipboardPaste}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (slashOpen && e.key === "Escape") {
+                setSlashOpen(false);
+                return;
+              }
+              if (e.key === "Enter" && !e.shiftKey && !slashOpen) {
                 e.preventDefault();
                 send();
               }
@@ -1781,5 +1843,82 @@ function CitationChip({ score }: { score: number }) {
     >
       {label} {pct}%
     </span>
+  );
+}
+
+/**
+ * 슬래시 명령 picker — composer textarea 가 "/" 로 시작할 때 떠서
+ * 저장된 프롬프트를 검색·선택. 클릭하면 프롬프트 body 가 textarea
+ * 에 채워진다. 변수 치환은 없이 raw body 그대로 — 사용자가 {var}
+ * 자리표시자를 직접 채워 보낸다.
+ */
+function SlashPromptPicker({
+  open,
+  query,
+  onPick,
+  onClose,
+}: {
+  open: boolean;
+  query: string;
+  onPick: (body: string) => void;
+  onClose: () => void;
+}) {
+  const [prompts, setPrompts] = useState<Awaited<ReturnType<typeof api.listPrompts>>>([]);
+  useEffect(() => {
+    if (!open) return;
+    api.listPrompts().then(setPrompts).catch(() => setPrompts([]));
+  }, [open]);
+  if (!open) return null;
+
+  const q = query.toLowerCase().trim();
+  const filtered = prompts
+    .filter((p) => {
+      if (!q) return true;
+      return (
+        p.code.toLowerCase().includes(q) ||
+        p.name.toLowerCase().includes(q) ||
+        (p.tags || "").toLowerCase().includes(q)
+      );
+    })
+    .slice(0, 8);
+
+  return (
+    <div className="slash-picker" role="listbox">
+      <div className="slash-picker-head">
+        <span>📚 프롬프트 라이브러리</span>
+        <span className="slash-picker-hint">Esc 로 닫기</span>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="slash-picker-empty">
+          {prompts.length === 0
+            ? "저장된 프롬프트가 없어요. Cowork → 프롬프트에서 만들 수 있어요."
+            : `"${query}" 일치 없음`}
+        </div>
+      ) : (
+        <ul>
+          {filtered.map((p) => (
+            <li key={p.id}>
+              <button type="button" onClick={() => onPick(p.body)}>
+                <div className="slash-picker-name">
+                  <code>/{p.code}</code> {p.name}
+                </div>
+                <div className="slash-picker-snippet">
+                  {p.body.slice(0, 120)}
+                  {p.body.length > 120 ? "…" : ""}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        className="slash-picker-close"
+        onClick={onClose}
+        aria-label="닫기"
+      >
+        ✕
+      </button>
+    </div>
   );
 }

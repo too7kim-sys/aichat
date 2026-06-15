@@ -723,6 +723,13 @@ export const api = {
       body: JSON.stringify(patch),
     }),
   /** 사용자가 별표한 메시지를 다른 세션 가리지 않고 한 번에 모아 옴. */
+  /** 메시지 수정 후 재생성 / 재생성 흐름의 핵심 — 주어진 메시지 이후
+   *  의 모든 메시지를 삭제. 대상 메시지 자체는 보존. */
+  rewindSessionAfter: (sessionId: string, messageId: string) =>
+    json<void>(
+      `/sessions/${sessionId}/messages/${messageId}/rewind`,
+      { method: "POST" },
+    ),
   listStarredMessages: () =>
     json<Array<{
       id: string;

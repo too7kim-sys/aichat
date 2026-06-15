@@ -121,6 +121,9 @@ export function MessageBubble({
   const [body, setBody] = useState(content);
   const [collapsed, setCollapsed] = useState(hidden);
   const [editing, setEditing] = useState(false);
+  // 사용자 메시지의 "수정 후 다시 보내기" 모드 — 일반 editing 과 같은
+  // textarea 를 재사용하되 commit 시 PATCH 대신 rewind + 재전송.
+  const [rewindMode, setRewindMode] = useState(false);
   const [draft, setDraft] = useState(content);
   const [saving, setSaving] = useState(false);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
@@ -214,29 +217,53 @@ export function MessageBubble({
   const canEdit =
     editable && !!sessionId && !!messageId && !streaming && !selectionMode;
 
-  function startEditing() {
+  function startEditing(rewind = false) {
     // Seed the draft from the displayed body so re-opening after a
     // successful save starts from the *new* content, not from the
     // stale `content` prop.
     setDraft(body);
+    setRewindMode(rewind);
     setEditing(true);
   }
 
   async function commitEdit() {
     if (!sessionId || !messageId) return;
     const next = draft.trim();
-    if (!next || next === body) {
+    if (!next) {
       setEditing(false);
+      setRewindMode(false);
       setDraft(body);
       return;
     }
     setSaving(true);
     try {
-      const updated = await api.updateMessage(sessionId, messageId, next);
-      setBody(updated.content);
+      if (rewindMode) {
+        // 본문 수정 + 이후 메시지 삭제 + 새 텍스트로 재전송.
+        if (next !== body) {
+          await api.updateMessage(sessionId, messageId, next);
+          setBody(next);
+          onEdited?.(next);
+        }
+        await api.rewindSessionAfter(sessionId, messageId);
+        window.dispatchEvent(
+          new CustomEvent("chat:rewind-resend", {
+            detail: { text: next },
+          }),
+        );
+      } else {
+        if (next === body) {
+          setEditing(false);
+          setRewindMode(false);
+          setDraft(body);
+          return;
+        }
+        const updated = await api.updateMessage(sessionId, messageId, next);
+        setBody(updated.content);
+        setCollapsed(false);
+        onEdited?.(updated.content);
+      }
       setEditing(false);
-      setCollapsed(false);
-      onEdited?.(updated.content);
+      setRewindMode(false);
     } catch (e) {
       window.alert(
         `메시지 수정 실패: ${e instanceof Error ? e.message : String(e)}`,
@@ -247,6 +274,7 @@ export function MessageBubble({
   }
   function cancelEdit() {
     setEditing(false);
+    setRewindMode(false);
     setDraft(body);
   }
 
@@ -326,6 +354,7 @@ export function MessageBubble({
               onCommit={commitEdit}
               onCancel={cancelEdit}
               saving={saving}
+              saveLabel={rewindMode ? "수정 후 재전송" : undefined}
             />
           ) : (
             <>
@@ -350,10 +379,20 @@ export function MessageBubble({
               <button
                 type="button"
                 className="bubble-tiny-btn"
-                onClick={startEditing}
+                onClick={() => startEditing(false)}
                 title="메시지 수정"
               >
                 <IconEdit size={11} />
+              </button>
+            )}
+            {sessionId && messageId && (
+              <button
+                type="button"
+                className="bubble-tiny-btn"
+                onClick={() => startEditing(true)}
+                title="이 메시지를 수정한 뒤 다시 보내기 (이후 답변은 새로 생성)"
+              >
+                ✏ 재전송
               </button>
             )}
             <CopyButton text={body} />
@@ -383,6 +422,7 @@ export function MessageBubble({
               onCommit={commitEdit}
               onCancel={cancelEdit}
               saving={saving}
+              saveLabel={rewindMode ? "수정 후 재전송" : undefined}
             />
           ) : (
             <BubbleContent
@@ -451,13 +491,78 @@ export function MessageBubble({
                 >
                   <IconStar size={11} />
                 </button>
+                <button
+                  type="button"
+                  className="bubble-tiny-btn"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("chat:regenerate-last", {}),
+                    )
+                  }
+                  title="같은 질문으로 답변 다시 받기"
+                >
+                  🔁
+                </button>
+                <button
+                  type="button"
+                  className="bubble-tiny-btn"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("chat:choice-picked", {
+                        detail: { text: "위 답변을 더 짧게 요약해 주세요." },
+                      }),
+                    )
+                  }
+                  title="더 짧은 답변 요청"
+                >
+                  📏 짧게
+                </button>
+                <button
+                  type="button"
+                  className="bubble-tiny-btn"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("chat:choice-picked", {
+                        detail: { text: "위 답변을 더 자세히 설명해 주세요." },
+                      }),
+                    )
+                  }
+                  title="더 자세한 답변 요청"
+                >
+                  📏 자세히
+                </button>
+                <button
+                  type="button"
+                  className="bubble-tiny-btn"
+                  onClick={() => {
+                    // 사용자가 본문에서 일부를 선택한 상태라면 그 부분
+                    // 만, 아니면 본문 첫 200자를 인용으로 채운다.
+                    const sel = window.getSelection()?.toString().trim() || "";
+                    const pick =
+                      sel.length > 0 && sel.length < 500
+                        ? sel
+                        : body.slice(0, 200).trim();
+                    const quote = pick
+                      .split("\n")
+                      .map((l) => "> " + l)
+                      .join("\n");
+                    window.dispatchEvent(
+                      new CustomEvent("chat:quote-pick", {
+                        detail: { text: quote + "\n\n" },
+                      }),
+                    );
+                  }}
+                  title="이 답변을 인용해서 다음 질문 시작"
+                >
+                  💬 인용
+                </button>
               </>
             )}
             {canEdit && (
               <button
                 type="button"
                 className="bubble-tiny-btn"
-                onClick={startEditing}
+                onClick={() => startEditing(false)}
                 title="요약 수정"
               >
                 <IconEdit size={11} /> 수정
@@ -512,9 +617,10 @@ const MessageEditor = forwardRef<
     onCommit: () => void;
     onCancel: () => void;
     saving: boolean;
+    saveLabel?: string;
   }
 >(function MessageEditorImpl(
-  { draft, onChange, onCommit, onCancel, saving },
+  { draft, onChange, onCommit, onCancel, saving, saveLabel },
   ref,
 ) {
   return (
@@ -552,7 +658,7 @@ const MessageEditor = forwardRef<
           onClick={onCommit}
           disabled={saving || !draft.trim()}
         >
-          {saving ? "저장 중…" : "저장 (Ctrl+Enter)"}
+          {saving ? "저장 중…" : (saveLabel ?? "저장") + " (Ctrl+Enter)"}
         </button>
       </div>
     </div>

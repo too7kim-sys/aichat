@@ -3400,6 +3400,94 @@ body {
 .src-duckduckgo { background: #de5833; }
 .src-wikipedia { background: #555; }
 
+.slash-picker {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.12);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 60;
+  padding: 4px;
+}
+.slash-picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+}
+.slash-picker-hint { font-style: italic; }
+.slash-picker-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+.slash-picker ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.slash-picker li button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+}
+.slash-picker li button:hover {
+  background: var(--accent-soft);
+}
+.slash-picker-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  margin-bottom: 3px;
+}
+.slash-picker-name code {
+  color: var(--accent);
+  font-size: 11px;
+  background: var(--accent-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.slash-picker-snippet {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.slash-picker-close {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.composer-wrap { position: relative; }
+
 .rag-dl-btn {
   background: transparent;
   border: 1px solid transparent;

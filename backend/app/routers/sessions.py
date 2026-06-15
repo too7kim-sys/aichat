@@ -358,6 +358,28 @@ async def export_session_hwpx(
     )
 
 
+@router.post("/{session_id}/messages/{message_id}/rewind", status_code=204)
+async def rewind_after_message(
+    session_id: str,
+    message_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """주어진 메시지 이후 모든 메시지 삭제 — "수정 후 다시 보내기"
+    플로우에서 사용. 프런트는 이 호출 직후 streamChat 으로 재생성
+    트리거. 대상 message_id 자체는 보존."""
+    session = await _load_owned(db, session_id, user.id)
+    target = next((m for m in session.messages if m.id == message_id), None)
+    if target is None:
+        raise HTTPException(404, "message not found")
+    pivot = target.created_at
+    for m in list(session.messages):
+        if m.created_at > pivot:
+            await db.delete(m)
+    await db.commit()
+    return None
+
+
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,
