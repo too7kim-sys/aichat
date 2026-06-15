@@ -38,6 +38,16 @@ async def lifespan(app: FastAPI):
             "and put it in backend/.env before exposing this service."
         )
     await init_db()
+    # 백엔드 오류 캡처 — 미들웨어 + 로깅 핸들러 둘 다 활성.
+    # init_db 가 ErrorLog 테이블을 만든 *뒤* 에 부착해야 첫 write 에서
+    # 'no such table' 이 나지 않음.
+    from .error_log import install_db_log_handler, prune_old
+    install_db_log_handler()
+    # 오래된 행 청소 (기본 30일 — settings.error_log_retention_days).
+    try:
+        await prune_old(getattr(settings, "error_log_retention_days", 30))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("ErrorLog prune failed: %s", exc)
     # Seed runtime settings from env-var defaults (one-time on a
     # fresh install). After this the DB is the source of truth.
     from . import app_settings
@@ -203,6 +213,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app = FastAPI(title="Chat", lifespan=lifespan)
+# 오류 캡처 미들웨어 — 모든 예외 / 5xx / 413·429 응답을 ErrorLog 에
+# 한 줄씩 기록. add_middleware 는 LIFO 라 가장 바깥에 두려면 마지막에
+# 추가해야 하지만, 다른 미들웨어가 던지는 예외도 잡고 싶으면 가장
+# 안쪽에 둬야 함 → '안쪽' 에 두기 위해 가장 *먼저* 등록.
+from .error_log import ErrorLogMiddleware
+app.add_middleware(ErrorLogMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,

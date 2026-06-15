@@ -781,7 +781,17 @@ async def list_errors(
             }
             for w in wf_rows
         ],
+        # 백엔드 일반 오류 — 미들웨어/로깅 핸들러가 자동 캡처한 항목.
+        # transcripts/projects/workflows 의 status=failed 외에 채팅·파일
+        # 업로드·인증 등에서 발생하는 모든 예외 + 5xx + 413/429 가 여기.
+        "app_errors": await _list_app_errors(limit),
     }
+
+
+async def _list_app_errors(limit: int) -> list[dict]:
+    """ErrorLog 최근 N개 — 관리자 패널의 '백엔드 일반 오류' 섹션용."""
+    from ..error_log import recent as _recent
+    return await _recent(limit)
 
 
 # ── 감사 로그 뷰어 ─────────────────────────────────────────────────────

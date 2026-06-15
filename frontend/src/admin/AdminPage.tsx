@@ -1268,7 +1268,8 @@ function ErrorsPanel() {
   const total =
     data.transcripts.length +
     data.projects.length +
-    data.workflows.length;
+    data.workflows.length +
+    (data.app_errors?.length ?? 0);
 
   return (
     <div className="admin-errors">
@@ -1327,6 +1328,26 @@ function ErrorsPanel() {
               what: w.name,
               when: w.last_run_at,
               error: w.last_error,
+            }))}
+          />
+          <ErrorSection
+            title={`백엔드 일반 오류 — ${(data.app_errors ?? []).length}건`}
+            empty="기록된 백엔드 오류 없음"
+            rows={(data.app_errors ?? []).map((r) => ({
+              key: r.id,
+              who:
+                r.user_email ??
+                (r.ip ? `(익명 · ${r.ip})` : "(익명)"),
+              what:
+                `[${r.level}] ${r.source}` +
+                (r.method && r.path
+                  ? `  ${r.method} ${r.path}`
+                  : "") +
+                (r.status_code ? `  → ${r.status_code}` : ""),
+              when: r.created_at,
+              error: r.traceback
+                ? `${r.message}\n\n${r.traceback}`
+                : r.message,
             }))}
           />
         </>

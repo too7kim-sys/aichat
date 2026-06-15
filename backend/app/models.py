@@ -679,3 +679,39 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="messages")
+
+
+class ErrorLog(Base):
+    """중앙 집중식 오류 기록 — FastAPI 미들웨어 + 로깅 핸들러가 이쪽에
+    한 줄씩 적어 둠.  '오류 모니터링' 패널이 이 테이블을 읽어 최근 N개
+    노출.  Transcript/Project/Workflow 의 status='failed' 외에 채팅 /
+    파일 / 인증 등 잡다한 백엔드 에러가 여기 모임.
+    """
+
+    __tablename__ = "error_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # ERROR / WARNING / EXCEPTION — 우선순위 분류용.
+    level: Mapped[str] = mapped_column(String(16), default="ERROR", index=True)
+    # chat / files / auth / search / system 등 모듈 단위 태그.
+    source: Mapped[str] = mapped_column(String(40), default="system", index=True)
+    # 한 줄짜리 사람 친화 메시지. UI 에 1차로 표시.
+    message: Mapped[str] = mapped_column(String(1000), default="")
+    # 풀 traceback (있을 때).  표 셀에는 줄여 노출하고 클릭 시 펼치기.
+    traceback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 요청 경로 / 메서드 / 상태 코드 — 미들웨어가 채움.
+    path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    method: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 발생 사용자 (있으면) — 익명 요청은 NULL.
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # 요청 IP / user-agent — 디버깅에 종종 필요.
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )

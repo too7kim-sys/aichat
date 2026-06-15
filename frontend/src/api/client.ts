@@ -412,6 +412,19 @@ export const admin = {
         last_session_id: string | null;
         last_run_at: string | null;
       }>;
+      app_errors: Array<{
+        id: string;
+        level: string;
+        source: string;
+        message: string;
+        traceback: string | null;
+        path: string | null;
+        method: string | null;
+        status_code: number | null;
+        user_email: string | null;
+        ip: string | null;
+        created_at: string | null;
+      }>;
     }>(`/admin/errors?limit=${limit}`),
   approve: (userId: string) =>
     json<AdminUser>(`/admin/users/${userId}/approve`, { method: "POST" }),
