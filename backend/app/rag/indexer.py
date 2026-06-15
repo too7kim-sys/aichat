@@ -948,12 +948,20 @@ async def run_indexing(snapshot_id: str) -> None:
             _reflect_db_to_dir(source_ref, workdir, sql_query=sql_query)
             root = workdir
         elif source_type == "sftp":
-            # SFTP folder of documents — connect, walk the remote
-            # path, download matching files (per-corpus extension
-            # allowlist) into a tempdir, then run the regular folder
-            # pipeline over it.
-            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
-            cleanup_workdir = True
+            # SFTP folder of documents — connect, walk the remote path,
+            # download matching files (per-corpus extension allowlist)
+            # into a *persistent* per-project directory under
+            # rag_upload_dir / <pid> / sftp, then run the regular folder
+            # pipeline over it. 영구 보관해서 다음 증분 인덱싱 + chunk
+            # 다운로드 endpoint 가 원본 그대로 받을 수 있게.
+            from ..config import settings as _s
+            persist_root = (
+                Path(_s.rag_upload_dir).expanduser().resolve()
+                / project_id / "sftp"
+            )
+            persist_root.mkdir(parents=True, exist_ok=True)
+            workdir = persist_root
+            cleanup_workdir = False
             _fetch_sftp_to_dir(source_ref, workdir, corpus_type)
             root = workdir
         else:
@@ -1243,8 +1251,14 @@ async def run_incremental(project_id: str) -> dict:
             _reflect_db_to_dir(source_ref, workdir, sql_query=sql_query)
             root = workdir
         elif source_type == "sftp":
-            workdir = Path(tempfile.mkdtemp(prefix="rag-corpus-"))
-            cleanup_workdir = True
+            from ..config import settings as _s
+            persist_root = (
+                Path(_s.rag_upload_dir).expanduser().resolve()
+                / project_id / "sftp"
+            )
+            persist_root.mkdir(parents=True, exist_ok=True)
+            workdir = persist_root
+            cleanup_workdir = False
             _fetch_sftp_to_dir(source_ref, workdir, corpus_type)
             root = workdir
         else:

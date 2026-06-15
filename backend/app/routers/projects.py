@@ -602,6 +602,26 @@ async def create_project(
             f"'{payload.corpus_type}' 코퍼스에는 '{payload.source_type}' 연결을 "
             f"사용할 수 없습니다. 허용: {', '.join(sorted(allowed))}",
         )
+    # folder 소스의 절대경로는 RAG 내부 저장소 안을 가리키면 안 된다 —
+    # /data/docs 같은 내부 영역은 upload/sftp 가 알아서 관리하는 곳이고,
+    # 외부에서 folder 소스로 동일 디렉터리를 인덱싱하면 충돌·노출 위험.
+    if payload.source_type == "folder":
+        from pathlib import Path as _P
+        try:
+            ref = _P(payload.source_ref).expanduser().resolve()
+            storage_root = _P(settings.rag_upload_dir).expanduser().resolve()
+            ref.relative_to(storage_root)
+            raise HTTPException(
+                400,
+                f"내부 저장 디렉터리({storage_root}) 안의 경로는 "
+                "folder 소스로 등록할 수 없습니다. 업로드/SFTP 소스를 "
+                "사용하세요.",
+            )
+        except HTTPException:
+            raise
+        except (ValueError, OSError):
+            pass  # 외부 경로 — 정상
+
     # sql_query is only meaningful for the connection source — silently
     # drop it on other source types so a stray paste doesn't end up in
     # the DB tied to a project that'll never run it.

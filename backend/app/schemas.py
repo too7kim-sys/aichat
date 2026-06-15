@@ -413,6 +413,26 @@ class ProjectOut(BaseModel):
     # consumes.
     owned: bool = True
 
+    @field_validator("source_ref", mode="before")
+    @classmethod
+    def _mask_storage_path(cls, v):
+        """RAG 내부 저장소 절대경로(`rag_upload_dir`)는 어떤 응답에도
+        노출되지 않게 직렬화 단계에서 가린다. upload 소스의 source_ref
+        는 placeholder ([uploads]) 가 들어가고, SFTP 등은 원래 URL 이라
+        영향 없음. 다만 운영자가 실수로 source_ref 에 저장 경로를 적은
+        경우에도 가려준다."""
+        if not isinstance(v, str) or not v:
+            return v
+        try:
+            from .config import settings as _s
+            from pathlib import Path as _P
+            root = str(_P(_s.rag_upload_dir).expanduser().resolve())
+            if v.startswith(root):
+                return "[internal-storage]"
+        except Exception:  # noqa: BLE001 - 설정 로드 실패해도 응답은 살아야
+            pass
+        return v
+
     @field_validator(
         "snapshot_retention_count",
         "schedule_interval_minutes",

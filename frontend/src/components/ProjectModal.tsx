@@ -102,7 +102,7 @@ const SOURCE_META: Record<
     icon: <IconFolder size={14} />,
     placeholder: "/workspace/projects/egov",
     help:
-      "백엔드 서버가 직접 읽을 수 있는 절대경로. Windows라면 C:/Users/i/git/foo 식.",
+      "백엔드 서버의 절대경로. 내부 저장 디렉터리 안의 경로는 등록 불가 — 그쪽은 업로드/SFTP 소스가 자동 관리합니다.",
   },
   url: {
     label: "API URL",

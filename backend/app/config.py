@@ -143,10 +143,11 @@ class Settings(BaseSettings):
     # files. Note this also covers code / api / db corpora which
     # rarely need anything close to this much per file.
     rag_max_bytes_per_file: int = 50 * 1024 * 1024
-    # Where the "upload" document source stores user-supplied files —
-    # one subdirectory per project, written by the upload endpoint and
-    # walked by the indexer like a regular folder source.
-    rag_upload_dir: str = "./rag_uploads"
+    # Where the "upload" + "sftp" document sources stage files. One
+    # subdirectory per project (<rag_upload_dir>/<project_id>/...).
+    # 운영 표준 위치는 /data/docs — 사용자에게는 절대 노출되지 않게
+    # 응답 직렬화 단계에서 가린다 (schemas._strip_storage_root).
+    rag_upload_dir: str = "/data/docs"
     # Per-upload file cap (bytes). Matched to rag_max_bytes_per_file
     # by default — letting a user upload a 200 MB file that the
     # indexer would immediately skip just wastes bandwidth + disk.
