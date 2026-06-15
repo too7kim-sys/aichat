@@ -8368,3 +8368,229 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * 세션 내 검색 바 (#17) — messages-inner 최상단에 sticky 로 떠
+ * 입력하면 매칭 메시지를 차례로 보여준다. .search-flash 는 이미
+ * SearchBar 가 쓰는 키프레임이 있어 재활용.
+ * ───────────────────────────────────────────────────────────── */
+.chat-search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+.chat-search-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle, #fff);
+  color: var(--text);
+}
+.chat-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.chat-search-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.chat-search-nav,
+.chat-search-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-search-nav:hover,
+.chat-search-close:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 대화 잠금 (#21) — 헤더 자물쇠 + composer 잠금 안내 배너.
+ * ───────────────────────────────────────────────────────────── */
+.panel-toggle.locked-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.composer-locked-banner {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.03));
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 자동 요약 카드 (#22) — messages-inner 상단의 접이식.
+ * ───────────────────────────────────────────────────────────── */
+.chat-summary-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: linear-gradient(180deg,
+    var(--accent-soft) 0%,
+    var(--bg-subtle, rgba(0, 0, 0, 0.02)) 100%);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+.chat-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chat-summary-toggle {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.chat-summary-toggle:hover { color: var(--accent); }
+.chat-summary-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.chat-summary-dismiss:hover { color: var(--accent); background: var(--accent-soft); }
+.chat-summary-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.55;
+}
+.chat-summary-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.chat-summary-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding-top: 1px;
+}
+.chat-summary-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-summary-hint {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 단축키 도움말 모달 (#19) — App.tsx 가 ? 키로 띄움.
+ * ───────────────────────────────────────────────────────────── */
+.shortcut-help-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.36);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.shortcut-help-card {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  width: min(440px, 100%);
+  padding: 18px 20px;
+}
+.shortcut-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.shortcut-help-head h3 { margin: 0; font-size: 15px; }
+.shortcut-help-head button {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.shortcut-help-head button:hover { color: var(--accent); background: var(--accent-soft); }
+.shortcut-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.shortcut-help-table tr {
+  border-bottom: 1px dashed var(--border);
+}
+.shortcut-help-table tr:last-child { border-bottom: none; }
+.shortcut-help-table td {
+  padding: 8px 6px;
+  vertical-align: top;
+}
+.shortcut-help-table td:first-child {
+  width: 38%;
+  color: var(--text);
+  font-family: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+}
+.shortcut-help-table kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text);
+  margin-right: 2px;
+}
+.shortcut-help-foot {
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-align: right;
+}

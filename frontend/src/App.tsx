@@ -164,6 +164,10 @@ function AppInner({
   const searchRef = useRef<SearchBarHandle | null>(null);
   const artifacts = useArtifacts();
 
+  // 단축키 도움말 모달 (#19) — ? 키로 토글. 입력칸 포커스 중이면
+  // 평범한 텍스트 입력이라 무시.
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+
   // Global keyboard shortcut: ⌘K / Ctrl+K focuses the header search
   // input from anywhere on the page. The input lives in the header
   // strip and is always visible, so this just yanks focus to it
@@ -172,13 +176,27 @@ function AppInner({
     function onKey(e: KeyboardEvent) {
       const isCmdK =
         (e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey);
-      if (!isCmdK) return;
-      e.preventDefault();
-      searchRef.current?.focus();
+      if (isCmdK) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      // ? 단축키 — 도움말 모달 토글.  입력칸 포커스 중이면 패스.
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+        const inField =
+          tag === "input" || tag === "textarea" || tag === "select" ||
+          (e.target as HTMLElement | null)?.isContentEditable;
+        if (inField) return;
+        e.preventDefault();
+        setShortcutHelpOpen((v) => !v);
+      } else if (e.key === "Escape" && shortcutHelpOpen) {
+        setShortcutHelpOpen(false);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [shortcutHelpOpen]);
 
   function jumpToMessage(sessionId: string, messageId: string | null) {
     if (messageId) setPendingScrollMessageId(messageId);
@@ -408,6 +426,44 @@ function AppInner({
       {toast && (
         <div className="chat-toast" role="status" aria-live="polite">
           {toast}
+        </div>
+      )}
+      {shortcutHelpOpen && (
+        <div
+          className="shortcut-help-backdrop"
+          onClick={() => setShortcutHelpOpen(false)}
+        >
+          <div
+            className="shortcut-help-card"
+            role="dialog"
+            aria-label="단축키 도움말"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="shortcut-help-head">
+              <h3>단축키</h3>
+              <button
+                type="button"
+                onClick={() => setShortcutHelpOpen(false)}
+                aria-label="닫기"
+              >
+                ✕
+              </button>
+            </div>
+            <table className="shortcut-help-table">
+              <tbody>
+                <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>상단 검색</td></tr>
+                <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>이 대화에서 찾기</td></tr>
+                <tr><td><kbd>?</kbd></td><td>이 도움말</td></tr>
+                <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>별표 메시지 사이 이동</td></tr>
+                <tr><td><kbd>Enter</kbd></td><td>메시지 전송 (Shift+Enter 줄바꿈)</td></tr>
+                <tr><td><kbd>/</kbd></td><td>프롬프트 라이브러리 (입력칸 시작 시)</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td>검색·메뉴·이 도움말 닫기</td></tr>
+              </tbody>
+            </table>
+            <div className="shortcut-help-foot">
+              한국어 도움말 — 변경 사항이 있으면 단축키가 자동으로 반영됩니다.
+            </div>
+          </div>
         </div>
       )}
     </div>

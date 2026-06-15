@@ -59,6 +59,8 @@ interface Props {
   tokensOut?: number | null;
   /** 분기·삭제 등 트리 액션을 부모가 처리 — 새 세션 ID 로 전환 등. */
   onBranchFrom?: () => void | Promise<void>;
+  /** 잠금 모드 — 편집/별표/평가/분기 등 메타 변경 차단 (#21). */
+  locked?: boolean;
 }
 
 function bubbleAttachmentBasename(filename: string): string {
@@ -125,6 +127,7 @@ export function MessageBubble({
   latencyMs = null,
   tokensOut = null,
   onBranchFrom,
+  locked = false,
 }: Props) {
   // Local optimistic content + collapsed/edit state. Re-seeds when
   // the parent's `content` changes (e.g., after streaming completes
@@ -155,6 +158,7 @@ export function MessageBubble({
 
   async function toggleStar() {
     if (!sessionId || !messageId) return;
+    if (locked) return;
     const next = !starredLocal;
     setStarredLocal(next);
     try {
@@ -170,6 +174,7 @@ export function MessageBubble({
 
   async function setFeedback(value: 1 | -1) {
     if (!sessionId || !messageId) return;
+    if (locked) return;
     const next = feedbackLocal === value ? 0 : value;
     setFeedbackLocal(next);
     try {
@@ -232,7 +237,8 @@ export function MessageBubble({
   }, [editing]);
 
   const canEdit =
-    editable && !!sessionId && !!messageId && !streaming && !selectionMode;
+    editable && !!sessionId && !!messageId && !streaming && !selectionMode && !locked;
+  const canMeta = !!sessionId && !!messageId && !locked;
 
   function startEditing(rewind = false) {
     // Seed the draft from the displayed body so re-opening after a
@@ -403,7 +409,7 @@ export function MessageBubble({
                 <IconEdit size={11} />
               </button>
             )}
-            {sessionId && messageId && (
+            {sessionId && messageId && !locked && (
               <button
                 type="button"
                 className="bubble-tiny-btn"
@@ -413,7 +419,7 @@ export function MessageBubble({
                 ✏ 재전송
               </button>
             )}
-            {onBranchFrom && (
+            {onBranchFrom && !locked && (
               <button
                 type="button"
                 className="bubble-tiny-btn"
@@ -506,7 +512,8 @@ export function MessageBubble({
                   type="button"
                   className={`bubble-tiny-btn${feedbackLocal === 1 ? " active" : ""}`}
                   onClick={() => setFeedback(1)}
-                  title={feedbackLocal === 1 ? "좋아요 취소" : "좋아요"}
+                  disabled={locked}
+                  title={locked ? "대화 잠금 중" : feedbackLocal === 1 ? "좋아요 취소" : "좋아요"}
                 >
                   <IconThumbsUp size={11} />
                 </button>
@@ -514,7 +521,8 @@ export function MessageBubble({
                   type="button"
                   className={`bubble-tiny-btn${feedbackLocal === -1 ? " active" : ""}`}
                   onClick={() => setFeedback(-1)}
-                  title={feedbackLocal === -1 ? "싫어요 취소" : "싫어요"}
+                  disabled={locked}
+                  title={locked ? "대화 잠금 중" : feedbackLocal === -1 ? "싫어요 취소" : "싫어요"}
                 >
                   <IconThumbsDown size={11} />
                 </button>
@@ -535,75 +543,82 @@ export function MessageBubble({
                   type="button"
                   className={`bubble-tiny-btn${starredLocal ? " active starred" : ""}`}
                   onClick={toggleStar}
-                  title={starredLocal ? "별표 해제" : "별표"}
+                  disabled={locked}
+                  title={locked ? "대화 잠금 중" : starredLocal ? "별표 해제" : "별표"}
                 >
                   <IconStar size={11} />
                 </button>
-                <button
-                  type="button"
-                  className="bubble-tiny-btn"
-                  onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent("chat:regenerate-last", {}),
-                    )
-                  }
-                  title="같은 질문으로 답변 다시 받기"
-                >
-                  🔁
-                </button>
-                <button
-                  type="button"
-                  className="bubble-tiny-btn"
-                  onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent("chat:choice-picked", {
-                        detail: { text: "위 답변을 더 짧게 요약해 주세요." },
-                      }),
-                    )
-                  }
-                  title="더 짧은 답변 요청"
-                >
-                  📏 짧게
-                </button>
-                <button
-                  type="button"
-                  className="bubble-tiny-btn"
-                  onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent("chat:choice-picked", {
-                        detail: { text: "위 답변을 더 자세히 설명해 주세요." },
-                      }),
-                    )
-                  }
-                  title="더 자세한 답변 요청"
-                >
-                  📏 자세히
-                </button>
-                <button
-                  type="button"
-                  className="bubble-tiny-btn"
-                  onClick={() => {
-                    // 사용자가 본문에서 일부를 선택한 상태라면 그 부분
-                    // 만, 아니면 본문 첫 200자를 인용으로 채운다.
-                    const sel = window.getSelection()?.toString().trim() || "";
-                    const pick =
-                      sel.length > 0 && sel.length < 500
-                        ? sel
-                        : body.slice(0, 200).trim();
-                    const quote = pick
-                      .split("\n")
-                      .map((l) => "> " + l)
-                      .join("\n");
-                    window.dispatchEvent(
-                      new CustomEvent("chat:quote-pick", {
-                        detail: { text: quote + "\n\n" },
-                      }),
-                    );
-                  }}
-                  title="이 답변을 인용해서 다음 질문 시작"
-                >
-                  💬 인용
-                </button>
+                {!locked && (
+                  <button
+                    type="button"
+                    className="bubble-tiny-btn"
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("chat:regenerate-last", {}),
+                      )
+                    }
+                    title="같은 질문으로 답변 다시 받기"
+                  >
+                    🔁
+                  </button>
+                )}
+                {!locked && (
+                  <>
+                    <button
+                      type="button"
+                      className="bubble-tiny-btn"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("chat:choice-picked", {
+                            detail: { text: "위 답변을 더 짧게 요약해 주세요." },
+                          }),
+                        )
+                      }
+                      title="더 짧은 답변 요청"
+                    >
+                      📏 짧게
+                    </button>
+                    <button
+                      type="button"
+                      className="bubble-tiny-btn"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("chat:choice-picked", {
+                            detail: { text: "위 답변을 더 자세히 설명해 주세요." },
+                          }),
+                        )
+                      }
+                      title="더 자세한 답변 요청"
+                    >
+                      📏 자세히
+                    </button>
+                    <button
+                      type="button"
+                      className="bubble-tiny-btn"
+                      onClick={() => {
+                        // 사용자가 본문에서 일부를 선택한 상태라면 그 부분
+                        // 만, 아니면 본문 첫 200자를 인용으로 채운다.
+                        const sel = window.getSelection()?.toString().trim() || "";
+                        const pick =
+                          sel.length > 0 && sel.length < 500
+                            ? sel
+                            : body.slice(0, 200).trim();
+                        const quote = pick
+                          .split("\n")
+                          .map((l) => "> " + l)
+                          .join("\n");
+                        window.dispatchEvent(
+                          new CustomEvent("chat:quote-pick", {
+                            detail: { text: quote + "\n\n" },
+                          }),
+                        );
+                      }}
+                      title="이 답변을 인용해서 다음 질문 시작"
+                    >
+                      💬 인용
+                    </button>
+                  </>
+                )}
                 <TtsButton text={body} />
                 <button
                   type="button"

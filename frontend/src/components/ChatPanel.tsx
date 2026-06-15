@@ -261,6 +261,45 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     localStorage.setItem("chat:line-height", v);
   }
   const [typoOpen, setTypoOpen] = useState(false);
+
+  // ── 세션 내 검색 (#17) ───────────────────────────────────
+  // 헤더의 🔎 또는 Ctrl/⌘+F 로 본문 입력칸 토글. 입력에 매칭되는
+  // 메시지 ID 목록을 만들어 ↓ / ↑ 또는 Enter 로 순회 — 기존
+  // scroll-flash 패턴 재활용.
+  const [searchBarOpen, setSearchBarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchIdx, setSearchIdx] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // ── 대화 잠금 (#21) ─────────────────────────────────────
+  // 세션별로 localStorage 에 저장. 잠그면 composer + 편집/별표/평가/
+  // 분기/재전송 버튼이 비활성화돼 실수 수정 방지. 백엔드 스키마는
+  // 안 건드림 — 클라이언트 가드만으로 충분.
+  const lockedKey = `chat:session:${sessionId}:locked`;
+  const [locked, _setLocked] = useState<boolean>(
+    () => localStorage.getItem(lockedKey) === "1",
+  );
+  function setLocked(v: boolean) {
+    _setLocked(v);
+    if (v) localStorage.setItem(lockedKey, "1");
+    else localStorage.removeItem(lockedKey);
+  }
+
+  // ── 자동 요약 카드 (#22) ────────────────────────────────
+  // 메시지 30개 넘으면 상단에 "지금까지의 흐름" 카드. 사용자가
+  // 닫아도 다시 30개 단위로 재등장하지 않도록 localStorage 에
+  // dismissed 표시. 본문은 클라이언트에서 첫 사용자 질문 + 직전
+  // 어시스턴트 답변 짧게 발췌 — 백엔드 요약 호출 없이 가볍게.
+  const summaryDismissKey = `chat:session:${sessionId}:summary-dismissed`;
+  const [summaryDismissed, _setSummaryDismissed] = useState<boolean>(
+    () => localStorage.getItem(summaryDismissKey) === "1",
+  );
+  function dismissSummary() {
+    _setSummaryDismissed(true);
+    localStorage.setItem(summaryDismissKey, "1");
+  }
+  const [summaryOpen, setSummaryOpen] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -273,7 +312,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // 다음 turn 으로 보낼 텍스트를 ref 에 두는 패턴 — composer 가 비어
   // 있어도 prefill 만 할 수 있게.
   const promptSetterRef = useRef<((next: string) => void) | null>(null);
-  const sessionRef = useRef<{ messages: { role: string; content: string }[] } | null>(null);
+  const sessionRef = useRef<{
+    messages: {
+      id: string;
+      role: string;
+      content: string;
+      starred?: boolean;
+    }[];
+  } | null>(null);
   useEffect(() => {
     function onChoice(e: Event) {
       const ev = e as CustomEvent<{ text: string }>;
@@ -505,6 +551,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const stickToBottomRef = useRef(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
+  // 마지막 스크롤 위치 저장 — 세션 다시 열 때 그 자리로 돌아오게 (#18).
+  // rAF 로 처리량 제한해서 흘러가는 메시지 본문에 영향 없게.
+  const scrollSaveKey = `chat:session:${sessionId}:scroll`;
+  const scrollSaveRafRef = useRef<number | null>(null);
   function onMessagesScroll() {
     const el = scrollRef.current;
     if (!el) return;
@@ -512,6 +562,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     const atBottom = distance < 80;
     stickToBottomRef.current = atBottom;
     setShowJumpToLatest(!atBottom);
+    // 바닥에 붙은 상태면 굳이 저장하지 않음 — 다음 진입 때 어차피
+    // 새 메시지가 와 있으면 그쪽으로 스크롤 됨.
+    if (scrollSaveRafRef.current != null)
+      cancelAnimationFrame(scrollSaveRafRef.current);
+    scrollSaveRafRef.current = requestAnimationFrame(() => {
+      try {
+        if (atBottom) localStorage.removeItem(scrollSaveKey);
+        else localStorage.setItem(scrollSaveKey, String(el.scrollTop));
+      } catch {
+        // localStorage 가득 / private 모드 — 조용히 무시.
+      }
+    });
   }
 
   function jumpToLatest() {
@@ -574,6 +636,139 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   useEffect(() => {
     stickToBottomRef.current = true;
   }, [sessionId]);
+
+  // ── 마지막 위치 복원 (#18) ──────────────────────────────
+  // 세션 메시지가 처음 그려졌을 때, 저장된 scrollTop 이 있으면 그
+  // 자리로 점프. 딥링크(scrollToMessageId)가 잡혀 있으면 그쪽이 우선
+  // 이므로 패스. 처음 한 번만 실행되도록 ref 가드.
+  const scrollRestoredRef = useRef(false);
+  useEffect(() => {
+    if (scrollRestoredRef.current) return;
+    if (!session || session.messages.length === 0) return;
+    if (scrollToMessageId) {
+      scrollRestoredRef.current = true;
+      return;
+    }
+    const saved = localStorage.getItem(scrollSaveKey);
+    if (!saved) {
+      scrollRestoredRef.current = true;
+      return;
+    }
+    const top = Number(saved);
+    if (!Number.isFinite(top)) {
+      scrollRestoredRef.current = true;
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        el.scrollTo({ top, behavior: "auto" });
+        stickToBottomRef.current = false;
+        scrollRestoredRef.current = true;
+      });
+    });
+  }, [session, scrollToMessageId, scrollSaveKey]);
+  // 세션이 바뀌면 다음 첫 렌더에서 다시 복원하도록 가드 리셋.
+  useEffect(() => {
+    scrollRestoredRef.current = false;
+  }, [sessionId]);
+
+  // ── 세션 내 검색 매칭 (#17) ─────────────────────────────
+  // 입력값으로 message 본문 substring 매치 (대소문자 무시). 매칭된
+  // ID 목록을 메모이즈, 현재 인덱스가 범위 밖이면 0 으로 클램프.
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q || !session) return [] as string[];
+    return session.messages
+      .filter((m) => m.content.toLowerCase().includes(q))
+      .map((m) => m.id);
+  }, [searchQuery, session]);
+  useEffect(() => {
+    if (searchIdx >= searchMatches.length) setSearchIdx(0);
+  }, [searchMatches, searchIdx]);
+  // 매칭 결과 + 인덱스가 바뀔 때마다 그 메시지를 가운데로 스크롤 + 플래시.
+  useEffect(() => {
+    if (!searchBarOpen) return;
+    const id = searchMatches[searchIdx];
+    if (!id) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    requestAnimationFrame(() => {
+      const node = root.querySelector<HTMLElement>(
+        `[data-message-id="${id}"]`,
+      );
+      if (!node) return;
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      node.classList.add("search-flash");
+      stickToBottomRef.current = false;
+      window.setTimeout(() => node.classList.remove("search-flash"), 1400);
+    });
+  }, [searchIdx, searchMatches, searchBarOpen]);
+
+  // Ctrl/⌘+F → 검색 토글, ? → 단축키 도움말 (App 측 처리),
+  // [ / ] → 별표 메시지 사이 이동 (#20). 입력칸 포커스 중이면 무시.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      const inField =
+        tag === "input" || tag === "textarea" || tag === "select" ||
+        (e.target as HTMLElement | null)?.isContentEditable;
+      if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey)) {
+        // composer 안에서 누른 경우에도 채팅 검색을 띄움 — 브라우저
+        // find 는 어차피 messages 컨테이너 안 가상 스크롤이 아니라
+        // 모든 메시지가 DOM 에 있어 정상 동작하지만, 인앱 검색이 더
+        // 빠르고 메시지 단위 이동이 가능.
+        e.preventDefault();
+        setSearchBarOpen(true);
+        window.setTimeout(() => searchInputRef.current?.focus(), 0);
+        return;
+      }
+      if (inField) return;
+      if (e.key === "[" || e.key === "]") {
+        const s = sessionRef.current;
+        const msgs = s?.messages ?? [];
+        const stars = msgs.filter((m) => !!m.starred).map((m) => m.id);
+        if (stars.length === 0) return;
+        const root = scrollRef.current;
+        if (!root) return;
+        // 현재 화면 중앙에 가장 가까운 별표 메시지를 기준점으로 잡고
+        // 이전/다음으로 이동. 단순히 첫 번째 → 다음 으로 잡지 않는
+        // 이유: 사용자가 중간에 있으면 자기 위치에서 인접한 게
+        // 자연스러움.
+        const viewCenter =
+          root.scrollTop + root.clientHeight / 2;
+        let nearestIdx = 0;
+        let nearestDist = Infinity;
+        stars.forEach((id, i) => {
+          const node = root.querySelector<HTMLElement>(
+            `[data-message-id="${id}"]`,
+          );
+          if (!node) return;
+          const d = Math.abs(node.offsetTop - viewCenter);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearestIdx = i;
+          }
+        });
+        const next =
+          e.key === "]"
+            ? (nearestIdx + 1) % stars.length
+            : (nearestIdx - 1 + stars.length) % stars.length;
+        const tgtId = stars[next];
+        const tgt = root.querySelector<HTMLElement>(
+          `[data-message-id="${tgtId}"]`,
+        );
+        if (tgt) {
+          tgt.scrollIntoView({ behavior: "smooth", block: "center" });
+          tgt.classList.add("search-flash");
+          window.setTimeout(() => tgt.classList.remove("search-flash"), 1400);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function uploadFiles(files: File[]) {
     if (files.length === 0) return;
@@ -791,6 +986,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
   function send(override?: string) {
     if (streaming || !activeProvider) return;
+    if (locked) return;
     const text = (override ?? prompt).trim();
     if (!text) return;
 
@@ -983,6 +1179,30 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
+          <button
+            type="button"
+            className="panel-toggle"
+            onClick={() => {
+              setSearchBarOpen((v) => {
+                const nv = !v;
+                if (nv) window.setTimeout(() => searchInputRef.current?.focus(), 0);
+                return nv;
+              });
+            }}
+            title="이 대화에서 검색 (Ctrl/⌘+F)"
+            aria-label="대화 내 검색"
+          >
+            <IconSearch size={13} /> 찾기
+          </button>
+          <button
+            type="button"
+            className={`panel-toggle${locked ? " locked-on" : ""}`}
+            onClick={() => setLocked(!locked)}
+            title={locked ? "대화 잠금 해제" : "대화 잠금 — 실수 편집·삭제 방지"}
+            aria-label={locked ? "대화 잠금 해제" : "대화 잠금"}
+          >
+            {locked ? "🔒 잠김" : "🔓"}
+          </button>
           <div className="chat-typo-wrap">
             <button
               type="button"
@@ -1127,6 +1347,138 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         }
       >
         <div className="messages-inner">
+          {searchBarOpen && (
+            <div className="chat-search-bar" role="search">
+              <input
+                ref={searchInputRef}
+                className="chat-search-input"
+                placeholder="이 대화에서 찾기"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setSearchBarOpen(false);
+                    setSearchQuery("");
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (searchMatches.length === 0) return;
+                    setSearchIdx((i) =>
+                      e.shiftKey
+                        ? (i - 1 + searchMatches.length) % searchMatches.length
+                        : (i + 1) % searchMatches.length,
+                    );
+                  } else if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    if (searchMatches.length > 0)
+                      setSearchIdx((i) => (i + 1) % searchMatches.length);
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    if (searchMatches.length > 0)
+                      setSearchIdx(
+                        (i) =>
+                          (i - 1 + searchMatches.length) % searchMatches.length,
+                      );
+                  }
+                }}
+              />
+              <span className="chat-search-count">
+                {searchQuery.trim() === ""
+                  ? "Enter ↑↓ 로 이동, Esc 로 닫기"
+                  : searchMatches.length === 0
+                    ? "결과 없음"
+                    : `${searchIdx + 1} / ${searchMatches.length}`}
+              </span>
+              <button
+                type="button"
+                className="chat-search-nav"
+                onClick={() => {
+                  if (searchMatches.length === 0) return;
+                  setSearchIdx(
+                    (i) =>
+                      (i - 1 + searchMatches.length) % searchMatches.length,
+                  );
+                }}
+                aria-label="이전 결과"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="chat-search-nav"
+                onClick={() => {
+                  if (searchMatches.length === 0) return;
+                  setSearchIdx((i) => (i + 1) % searchMatches.length);
+                }}
+                aria-label="다음 결과"
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="chat-search-close"
+                onClick={() => {
+                  setSearchBarOpen(false);
+                  setSearchQuery("");
+                }}
+                aria-label="검색 닫기"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {!summaryDismissed && session.messages.length >= 30 && (() => {
+            const firstUser = session.messages.find((m) => m.role === "user");
+            const lastAssistant = [...session.messages]
+              .reverse()
+              .find((m) => m.role === "assistant" && !m.hidden);
+            return (
+              <div className={`chat-summary-card${summaryOpen ? " open" : ""}`}>
+                <div className="chat-summary-head">
+                  <button
+                    type="button"
+                    className="chat-summary-toggle"
+                    onClick={() => setSummaryOpen((v) => !v)}
+                  >
+                    {summaryOpen ? "▾" : "▸"} 지금까지의 흐름 · 메시지 {session.messages.length}개
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-summary-dismiss"
+                    onClick={dismissSummary}
+                    title="이 세션에서 더 안 보이게"
+                    aria-label="요약 카드 닫기"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {summaryOpen && (
+                  <div className="chat-summary-body">
+                    {firstUser && (
+                      <div className="chat-summary-row">
+                        <span className="chat-summary-label">첫 질문</span>
+                        <span className="chat-summary-text">
+                          {firstUser.content.slice(0, 240)}
+                          {firstUser.content.length > 240 ? "…" : ""}
+                        </span>
+                      </div>
+                    )}
+                    {lastAssistant && (
+                      <div className="chat-summary-row">
+                        <span className="chat-summary-label">최근 답변</span>
+                        <span className="chat-summary-text">
+                          {lastAssistant.content.slice(0, 240)}
+                          {lastAssistant.content.length > 240 ? "…" : ""}
+                        </span>
+                      </div>
+                    )}
+                    <div className="chat-summary-hint">
+                      대화가 길어졌어요. ⌘/Ctrl+F 로 본문 검색, [ / ] 로 별표 사이 이동.
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {session.messages.length === 0 && !streaming && (
             <EmptyGreeting userName={user?.name ?? null} />
           )}
@@ -1159,6 +1511,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   createdAt={m.created_at}
                   latencyMs={m.latency_ms ?? null}
                   tokensOut={m.tokens_out ?? null}
+                  locked={locked}
                   onBranchFrom={async () => {
                     try {
                       const ns = await api.branchSessionFrom(session.id, m.id);
@@ -1454,12 +1807,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               }
               if (e.key === "Enter" && !e.shiftKey && !slashOpen) {
                 e.preventDefault();
+                if (locked) return;
                 send();
               }
             }}
-            disabled={streaming}
+            disabled={streaming || locked}
             rows={1}
           />
+          {locked && (
+            <div className="composer-locked-banner">
+              🔒 대화 잠금 중 — 헤더의 자물쇠를 다시 눌러 해제하면 보낼 수 있어요.
+            </div>
+          )}
           <div className="composer-actions">
             <div className="composer-left">
               <input
@@ -1512,8 +1871,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 <button
                   className="send-btn"
                   onClick={() => send()}
-                  disabled={uploading || !prompt.trim() || !activeProvider}
+                  disabled={uploading || !prompt.trim() || !activeProvider || locked}
                   aria-label="전송"
+                  title={locked ? "대화 잠금 중" : "전송"}
                 >
                   <IconSend size={16} />
                 </button>
