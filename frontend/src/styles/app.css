@@ -3400,6 +3400,23 @@ body {
 .src-duckduckgo { background: #de5833; }
 .src-wikipedia { background: #555; }
 
+.rag-dl-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.rag-dl-btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 .rag-chip-used {
   background: var(--accent-soft);
   border-color: var(--accent);

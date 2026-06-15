@@ -659,6 +659,8 @@ export interface RagChunk {
   start_line: number;
   end_line: number;
   score: number;
+  /** 다운로드 엔드포인트 호출에 필요. */
+  project_id?: string | null;
   /** 청크가 인용된 RAG 프로젝트 이름 (UI 출처 표기). */
   project_name?: string | null;
   /** false = 다른 관리자가 공유한 KB 의 청크. true = 본인 소유. */
@@ -1358,6 +1360,47 @@ export const api = {
     }>(`/code/workspaces/${id}/run-tests`, { method: "POST" }),
   /** 워크스페이스 전체를 zip 으로 받는다. .git / node_modules / 빌드
    *  산출물 자동 제외, 50 MB 초과 시 서버가 409. */
+  /** 청크가 인용한 원본 문서를 다운로드. upload/folder 소스는 원본
+   *  파일, 그 외는 청크 텍스트 .txt 로 fallback. */
+  downloadChunkSource: async (
+    projectId: string,
+    filename: string,
+    startLine: number,
+    endLine: number,
+  ) => {
+    const qs = new URLSearchParams({
+      filename,
+      start_line: String(startLine),
+      end_line: String(endLine),
+    });
+    const res = await fetch(
+      `${BASE}/projects/${projectId}/chunk-source?${qs.toString()}`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) {
+      let detail = `${res.status}`;
+      try {
+        const j = await res.json();
+        detail = j.detail ?? detail;
+      } catch { /* not JSON */ }
+      throw new Error(detail);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    const dlname = m
+      ? decodeURIComponent(m[1])
+      : filename.split("/").pop() || "chunk.txt";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = dlname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
   downloadWorkspaceZip: async (id: string) => {
     const res = await fetch(
       `${BASE}/code/workspaces/${id}/download.zip`,

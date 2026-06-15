@@ -1653,6 +1653,29 @@ function RagChunksBox({
               :{c.start_line}-{c.end_line}
             </span>
             <CitationChip score={c.score} />
+            {c.project_id && (
+              <button
+                type="button"
+                className="rag-dl-btn"
+                title="원본 문서 다운로드 (없으면 청크 텍스트)"
+                onClick={async () => {
+                  try {
+                    await api.downloadChunkSource(
+                      c.project_id!,
+                      c.filename,
+                      c.start_line,
+                      c.end_line,
+                    );
+                  } catch (e) {
+                    window.alert(
+                      `다운로드 실패: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                  }
+                }}
+              >
+                💾
+              </button>
+            )}
           </li>
         ))}
       </ol>

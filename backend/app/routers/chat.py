@@ -1176,6 +1176,7 @@ async def chat_single(
                 "start_line": c.start_line,
                 "end_line": c.end_line,
                 "score": c.score,
+                "project_id": c.project_id,
                 "project_name": c.project_name,
                 "project_owned": c.project_owned,
             }
