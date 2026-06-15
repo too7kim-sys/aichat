@@ -262,6 +262,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     localStorage.setItem("chat:line-height", v);
   }
   const [typoOpen, setTypoOpen] = useState(false);
+  const typoRef = useRef<HTMLDivElement | null>(null);
+  const statsRef = useRef<HTMLDivElement | null>(null);
 
   // ── 세션 내 검색 (#17) ───────────────────────────────────
   // 헤더의 🔎 또는 Ctrl/⌘+F 로 본문 입력칸 토글. 입력에 매칭되는
@@ -311,9 +313,56 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     if (v === "default") localStorage.removeItem("chat:tone");
     else localStorage.setItem("chat:tone", v);
   }
+  const [toneOpen, setToneOpen] = useState(false);
+  const toneRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!toneOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!toneRef.current) return;
+      if (toneRef.current.contains(e.target as Node)) return;
+      setToneOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setToneOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [toneOpen]);
+  const TONE_LABEL: Record<typeof tone, string> = {
+    default: "기본",
+    formal: "격식",
+    casual: "친근",
+    brief: "짧게",
+  };
 
   // ── 세션 통계 카드 (#26) ────────────────────────────────
   const [statsOpen, setStatsOpen] = useState(false);
+  // 헤더 popover 들의 click-outside / Esc 처리 (UI 최적화).
+  useEffect(() => {
+    if (!typoOpen && !statsOpen) return;
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as Node;
+      if (typoOpen && typoRef.current && !typoRef.current.contains(t))
+        setTypoOpen(false);
+      if (statsOpen && statsRef.current && !statsRef.current.contains(t))
+        setStatsOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (typoOpen) setTypoOpen(false);
+      if (statsOpen) setStatsOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [typoOpen, statsOpen]);
 
   // ── 이미지 분석 / 예측 (29) ─────────────────────────────
   // 첨부된 이미지의 data URI 를 라이트박스에서 확대해 본다. null 이면
@@ -1301,7 +1350,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           >
             {locked ? "🔒 잠김" : "🔓"}
           </button>
-          <div className="chat-stats-wrap">
+          <div className="chat-stats-wrap" ref={statsRef}>
             <button
               type="button"
               className="panel-toggle"
@@ -1362,7 +1411,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               );
             })()}
           </div>
-          <div className="chat-typo-wrap">
+          <div className="chat-typo-wrap" ref={typoRef}>
             <button
               type="button"
               className="panel-toggle chat-typo-btn"
@@ -2129,25 +2178,43 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               >
                 🛒 <span>쇼핑</span>
               </button>
-              <div className="composer-tone" title="AI 말투 — 다음 메시지에 적용">
-                {(
-                  [
-                    ["default", "기본"],
-                    ["formal", "격식"],
-                    ["casual", "친근"],
-                    ["brief", "짧게"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`composer-tone-chip${tone === key ? " picked" : ""}`}
-                    onClick={() => setTone(key)}
-                    disabled={streaming}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="composer-tone-wrap" ref={toneRef}>
+                <button
+                  type="button"
+                  className={`composer-tone-btn${tone !== "default" ? " picked" : ""}`}
+                  onClick={() => setToneOpen((v) => !v)}
+                  disabled={streaming}
+                  title="AI 말투 — 다음 메시지에 적용"
+                  aria-haspopup="menu"
+                  aria-expanded={toneOpen}
+                >
+                  말투: {TONE_LABEL[tone]} ▾
+                </button>
+                {toneOpen && (
+                  <div className="composer-tone-pop" role="menu">
+                    {(
+                      [
+                        ["default", "기본"],
+                        ["formal", "격식체 / 존댓말"],
+                        ["casual", "친근한 반말"],
+                        ["brief", "짧게 (3~5줄)"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        role="menuitem"
+                        className={tone === key ? "picked" : ""}
+                        onClick={() => {
+                          setTone(key);
+                          setToneOpen(false);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="composer-right">

@@ -149,6 +149,38 @@ export function MessageBubble({
   const [noteLocal, setNoteLocal] = useState<string | null>(feedbackNote);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [noteDraft, setNoteDraft] = useState(feedbackNote ?? "");
+  // 액션 행 ⋯ 오버플로우 메뉴 + 빠른 답장 칩 접기 (UI 최적화).
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onDocClick(e: MouseEvent) {
+      const el = moreRef.current;
+      if (!el) return;
+      if (el.contains(e.target as Node)) return;
+      setMoreOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setMoreOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [moreOpen]);
+  const [quickRepliesOpen, setQuickRepliesOpen] = useState<boolean>(() => {
+    return localStorage.getItem("chat:quick-replies-open") === "1";
+  });
+  function toggleQuickReplies() {
+    setQuickRepliesOpen((cur) => {
+      const next = !cur;
+      if (next) localStorage.setItem("chat:quick-replies-open", "1");
+      else localStorage.removeItem("chat:quick-replies-open");
+      return next;
+    });
+  }
   useEffect(() => setStarredLocal(starred), [starred]);
   useEffect(() => setFeedbackLocal(feedback), [feedback]);
   useEffect(() => {
@@ -505,7 +537,7 @@ export function MessageBubble({
           </div>
         )}
         {!streaming && body && !editing && (
-          <div className="bubble-actions">
+          <div className={`bubble-actions${moreOpen ? " pinned" : ""}`}>
             {sessionId && messageId && (
               <>
                 <button
@@ -562,99 +594,117 @@ export function MessageBubble({
                     🔁
                   </button>
                 )}
-                {!locked && (
-                  <>
-                    <button
-                      type="button"
-                      className="bubble-tiny-btn"
-                      onClick={() =>
-                        window.dispatchEvent(
-                          new CustomEvent("chat:choice-picked", {
-                            detail: { text: "위 답변을 더 짧게 요약해 주세요." },
-                          }),
-                        )
-                      }
-                      title="더 짧은 답변 요청"
-                    >
-                      📏 짧게
-                    </button>
-                    <button
-                      type="button"
-                      className="bubble-tiny-btn"
-                      onClick={() =>
-                        window.dispatchEvent(
-                          new CustomEvent("chat:choice-picked", {
-                            detail: { text: "위 답변을 더 자세히 설명해 주세요." },
-                          }),
-                        )
-                      }
-                      title="더 자세한 답변 요청"
-                    >
-                      📏 자세히
-                    </button>
-                    <button
-                      type="button"
-                      className="bubble-tiny-btn"
-                      onClick={() => {
-                        // 사용자가 본문에서 일부를 선택한 상태라면 그 부분
-                        // 만, 아니면 본문 첫 200자를 인용으로 채운다.
-                        const sel = window.getSelection()?.toString().trim() || "";
-                        const pick =
-                          sel.length > 0 && sel.length < 500
-                            ? sel
-                            : body.slice(0, 200).trim();
-                        const quote = pick
-                          .split("\n")
-                          .map((l) => "> " + l)
-                          .join("\n");
-                        window.dispatchEvent(
-                          new CustomEvent("chat:quote-pick", {
-                            detail: { text: quote + "\n\n" },
-                          }),
-                        );
-                      }}
-                      title="이 답변을 인용해서 다음 질문 시작"
-                    >
-                      💬 인용
-                    </button>
-                  </>
-                )}
                 <TtsButton text={body} />
-                <button
-                  type="button"
-                  className="bubble-tiny-btn"
-                  onClick={() => {
-                    if (!sessionId || !messageId) return;
-                    const u = new URL(window.location.href);
-                    u.search = "";
-                    u.searchParams.set("session", sessionId);
-                    u.searchParams.set("message", messageId);
-                    const link = u.toString();
-                    navigator.clipboard
-                      .writeText(link)
-                      .then(() =>
-                        window.dispatchEvent(
-                          new CustomEvent("chat:toast", {
-                            detail: { text: "🔗 공유 링크가 복사됐어요" },
-                          }),
-                        ),
-                      )
-                      .catch(() =>
-                        window.prompt("아래 링크를 복사하세요", link),
-                      );
-                  }}
-                  title="이 답변으로 바로 오는 링크 복사"
-                >
-                  🔗 공유
-                </button>
-                <button
-                  type="button"
-                  className="bubble-tiny-btn"
-                  onClick={() => printSingleMessage(provider, body)}
-                  title="이 답변만 인쇄/PDF 저장"
-                >
-                  🖨
-                </button>
+                <div className="bubble-more-wrap" ref={moreRef}>
+                  <button
+                    type="button"
+                    className={`bubble-tiny-btn${moreOpen ? " active" : ""}`}
+                    onClick={() => setMoreOpen((v) => !v)}
+                    title="추가 작업"
+                    aria-haspopup="menu"
+                    aria-expanded={moreOpen}
+                  >
+                    ⋯
+                  </button>
+                  {moreOpen && (
+                    <div className="bubble-more-menu" role="menu">
+                      {!locked && (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMoreOpen(false);
+                              window.dispatchEvent(
+                                new CustomEvent("chat:choice-picked", {
+                                  detail: { text: "위 답변을 더 짧게 요약해 주세요." },
+                                }),
+                              );
+                            }}
+                          >
+                            📏 더 짧게
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMoreOpen(false);
+                              window.dispatchEvent(
+                                new CustomEvent("chat:choice-picked", {
+                                  detail: { text: "위 답변을 더 자세히 설명해 주세요." },
+                                }),
+                              );
+                            }}
+                          >
+                            📏 더 자세히
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMoreOpen(false);
+                              const sel =
+                                window.getSelection()?.toString().trim() || "";
+                              const pick =
+                                sel.length > 0 && sel.length < 500
+                                  ? sel
+                                  : body.slice(0, 200).trim();
+                              const quote = pick
+                                .split("\n")
+                                .map((l) => "> " + l)
+                                .join("\n");
+                              window.dispatchEvent(
+                                new CustomEvent("chat:quote-pick", {
+                                  detail: { text: quote + "\n\n" },
+                                }),
+                              );
+                            }}
+                          >
+                            💬 인용해서 묻기
+                          </button>
+                          <div className="bubble-more-sep" />
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          if (!sessionId || !messageId) return;
+                          const u = new URL(window.location.href);
+                          u.search = "";
+                          u.searchParams.set("session", sessionId);
+                          u.searchParams.set("message", messageId);
+                          const link = u.toString();
+                          navigator.clipboard
+                            .writeText(link)
+                            .then(() =>
+                              window.dispatchEvent(
+                                new CustomEvent("chat:toast", {
+                                  detail: { text: "🔗 공유 링크가 복사됐어요" },
+                                }),
+                              ),
+                            )
+                            .catch(() =>
+                              window.prompt("아래 링크를 복사하세요", link),
+                            );
+                        }}
+                      >
+                        🔗 공유 링크 복사
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          printSingleMessage(provider, body);
+                        }}
+                      >
+                        🖨 인쇄 / PDF
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             )}
             {canEdit && (
@@ -671,7 +721,17 @@ export function MessageBubble({
           </div>
         )}
         {!streaming && body && !editing && !locked && sessionId && messageId && (
-          <div className="bubble-quick-replies" aria-label="빠른 후속 질문">
+          <div className="bubble-quick-wrap">
+            <button
+              type="button"
+              className="bubble-quick-toggle"
+              onClick={toggleQuickReplies}
+              aria-expanded={quickRepliesOpen}
+            >
+              {quickRepliesOpen ? "▾ 더 묻기 접기" : "▸ 더 묻기"}
+            </button>
+            {quickRepliesOpen && (
+            <div className="bubble-quick-replies" aria-label="빠른 후속 질문">
             {(
               [
                 ["예시 더", "위 답변에 대한 구체적인 예시를 2~3개 더 들어 주세요."],
@@ -698,6 +758,8 @@ export function MessageBubble({
                 {label}
               </button>
             ))}
+            </div>
+            )}
           </div>
         )}
         {showNoteEditor && sessionId && messageId && (
