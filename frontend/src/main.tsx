@@ -12,6 +12,16 @@ import "./styles/app.css";
   document.documentElement.setAttribute("data-theme", theme);
 })();
 
+// PWA 서비스 워커 등록 (#51) — 정적 자원 cache-first.  HTTPS / localhost
+// 만 지원하므로 보안 컨텍스트 아니면 자동 skip.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* 등록 실패해도 앱 자체는 정상 — 단순 캐시 손실. */
+    });
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

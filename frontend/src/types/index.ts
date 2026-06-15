@@ -45,6 +45,8 @@ export interface Session {
   pinned?: boolean;
   /** 휴지통 진입 시각 (#31).  null = 정상.  값 있으면 휴지통. */
   deleted_at?: string | null;
+  /** 세션 비밀번호 잠금 여부 (#52). */
+  has_passphrase?: boolean;
   created_at: string;
   updated_at: string;
 }

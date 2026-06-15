@@ -9708,6 +9708,222 @@ body {
   background: rgba(220, 38, 38, 0.08);
 }
 
+/* 슬래시 picker '팀' 배지 (#48). */
+.slash-picker-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 9.5px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Cmd 팔레트 (#49). */
+.cmdpal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  z-index: 9700;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 80px 16px;
+}
+.cmdpal {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+  width: min(620px, 100%);
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow: hidden;
+}
+.cmdpal-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  font: inherit;
+  font-size: 14px;
+  padding: 12px 14px;
+  color: var(--text);
+}
+.cmdpal-input:focus { outline: none; }
+.cmdpal-list {
+  list-style: none;
+  padding: 4px;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+.cmdpal-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.cmdpal-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.cmdpal-item.active { background: var(--accent-soft); color: var(--accent); }
+.cmdpal-kind {
+  width: 22px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.cmdpal-label { flex: 1; }
+.cmdpal-hint {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdpal-foot {
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* 모델 비교 (#47). */
+.compare-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 9400;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+}
+.compare-modal {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.3);
+  width: min(1000px, 100%);
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.compare-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.compare-head h3 { margin: 0; font-size: 16px; }
+.compare-head button {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px 8px;
+}
+.compare-prompt {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text);
+  resize: vertical;
+}
+.compare-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.compare-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  color: var(--text);
+}
+.compare-model-chip input { margin: 0; accent-color: var(--accent); }
+.compare-run {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.compare-run:disabled { opacity: 0.5; cursor: not-allowed; }
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.compare-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.compare-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.compare-card-head strong { color: var(--text); font-weight: 600; }
+.compare-card-body pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 38vh;
+  overflow-y: auto;
+}
+.compare-card-err { color: #c43; }
+.compare-card-pick {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 /* 세션 내 검색 매치 강조 (#46). */
 .bubble-search-mark {
   background: #fff59d;

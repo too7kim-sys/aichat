@@ -1,0 +1,19 @@
+{
+  "name": "Chat — 사내 AI",
+  "short_name": "Chat",
+  "description": "사내 AI 챗 + RAG + 회의록 + 워크플로",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf9f7",
+  "theme_color": "#cc785c",
+  "orientation": "portrait",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

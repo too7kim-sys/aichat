@@ -114,6 +114,11 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_deleted_at "
                     "ON sessions(deleted_at)"
                 )
+            if "passphrase_hash" not in existing:
+                # 세션 비밀번호 잠금 (#52).
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN passphrase_hash VARCHAR(64)"
+                )
             # Message-hidden flag for the transcription pipeline — the
             # raw whisper output stores hidden=1 so the chat panel
             # collapses it by default while keeping the row available

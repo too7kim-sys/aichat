@@ -1,8 +1,8 @@
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -83,10 +83,19 @@ async def _load_owned(db: AsyncSession, session_id: str, user_id: str) -> models
 @router.get("/{session_id}", response_model=schemas.SessionDetail)
 async def get_session(
     session_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    return await _load_owned(db, session_id, user.id)
+    session = await _load_owned(db, session_id, user.id)
+    # 잠긴 세션은 X-Session-Passphrase 헤더가 일치해야 본문 노출 (#52).
+    # 헤더가 없으면 403 — UI 는 '잠금' 상태로 비번 입력칸을 띄움.
+    if session.passphrase_hash:
+        sent = request.headers.get("x-session-passphrase") or ""
+        import hashlib as _hh
+        if _hh.sha256(sent.encode("utf-8")).hexdigest() != session.passphrase_hash:
+            raise HTTPException(403, "이 세션은 잠겨 있어요")
+    return session
 
 
 @router.patch("/{session_id}", response_model=schemas.SessionOut)
@@ -648,6 +657,171 @@ async def get_shared(
     if not sess:
         raise HTTPException(404, "원본 세션을 찾을 수 없어요")
     return sess
+
+
+# ── 세션 비밀번호 잠금 (#52) ────────────────────────────────
+import hashlib as _hashlib
+
+
+def _hash_passphrase(p: str) -> str:
+    return _hashlib.sha256(p.encode("utf-8")).hexdigest()
+
+
+class LockPayload(BaseModel):
+    passphrase: str | None = None  # None / "" = 해제
+
+
+@router.patch("/{session_id}/lock", response_model=schemas.SessionOut)
+async def lock_session(
+    session_id: str,
+    payload: LockPayload,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """세션에 비밀번호 잠금 설정/해제.  잠그면 이후 GET 호출이
+    X-Session-Passphrase 헤더 없이는 403 으로 거부."""
+    session = await _load_owned(db, session_id, user.id)
+    p = (payload.passphrase or "").strip()
+    session.passphrase_hash = _hash_passphrase(p) if p else None
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+class UnlockPayload(BaseModel):
+    passphrase: str
+
+
+@router.post("/{session_id}/unlock", response_model=schemas.SessionDetail)
+async def unlock_session(
+    session_id: str,
+    payload: UnlockPayload,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """비밀번호 확인 후 세션 본문을 반환.  잠긴 세션을 GET 으로 직접
+    못 받게 한 뒤, 별도 POST 로 비번을 검사하면 응답 본문에 메시지
+    까지 함께 노출."""
+    session = await _load_owned(db, session_id, user.id)
+    if not session.passphrase_hash:
+        return session  # 이미 해제됨
+    if session.passphrase_hash != _hash_passphrase(payload.passphrase):
+        raise HTTPException(403, "비밀번호가 일치하지 않아요")
+    return session
+
+
+# ── 자동 제목 (#50) ──────────────────────────────────────────
+class AutoTitlePayload(BaseModel):
+    force: bool = False  # 기본은 'New chat' 같은 기본 제목일 때만 갱신
+
+
+@router.post("/{session_id}/auto-title", response_model=schemas.SessionOut)
+async def auto_title(
+    session_id: str,
+    payload: AutoTitlePayload | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """첫 사용자 메시지를 기반으로 짧은 제목을 AI 가 추천 → Session.title
+    에 반영.  force=False (기본) 이면 'New chat' / 'Untitled' 같이 기본
+    제목일 때만 덮어쓰기.  메시지가 없으면 그대로.
+    """
+    import httpx
+    from ..config import settings as _settings
+
+    session = await _load_owned(db, session_id, user.id)
+    p = payload or AutoTitlePayload()
+    default_titles = {"New chat", "Untitled", "새 대화", "(제목 없음)"}
+    if not p.force and session.title not in default_titles:
+        return session
+    first_user = next(
+        (m for m in session.messages if m.role == "user"), None
+    )
+    if first_user is None or not (first_user.content or "").strip():
+        return session
+    body = first_user.content.strip()[:1200]
+    sys_prompt = (
+        "다음 사용자 메시지를 가장 잘 요약하는 짧고 명확한 한국어 제목을 "
+        "한 줄로 만들어 주세요.  10~30자 이내, 부호·따옴표 없이, 명사구 "
+        "위주.  반드시 본문 외의 설명이나 머리말을 붙이지 마세요."
+    )
+    timeout = httpx.Timeout(30.0, connect=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                f"{_settings.ollama_base_url.rstrip('/')}/api/chat",
+                json={
+                    "model": _settings.ollama_model,
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": body},
+                    ],
+                },
+            )
+        if r.status_code < 400:
+            text = ((r.json() or {}).get("message") or {}).get("content") or ""
+            new_title = text.strip().split("\n")[0].strip().strip('"').strip("'")
+            if 1 <= len(new_title) <= 60:
+                session.title = new_title
+                await db.commit()
+                await db.refresh(session)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("auto-title failed: %s", exc)
+    return session
+
+
+# ── 모델 비교 (#47) ───────────────────────────────────────────
+class CompareInput(BaseModel):
+    prompt: str = Field(min_length=1, max_length=20_000)
+    models: list[str] = Field(min_length=1, max_length=4)
+
+
+@router.post("/{session_id}/compare")
+async def compare_models(
+    session_id: str,
+    payload: CompareInput,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """같은 prompt 를 여러 Ollama 모델에 병렬로 보내, 결과를 모두 반환.
+    세션에는 저장하지 *않음* — 사용자가 비교한 뒤 마음에 드는 모델을
+    골라 일반 채팅으로 보내는 흐름.  최대 4개 모델."""
+    import asyncio
+    import httpx
+    from ..config import settings as _settings
+
+    await _load_owned(db, session_id, user.id)
+    models_list = [m.strip() for m in payload.models if m and m.strip()][:4]
+    if not models_list:
+        raise HTTPException(400, "모델을 1~4개 지정해 주세요")
+
+    async def _one(model: str) -> dict:
+        timeout = httpx.Timeout(120.0, connect=5.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                t0 = datetime.utcnow()
+                r = await client.post(
+                    f"{_settings.ollama_base_url.rstrip('/')}/api/chat",
+                    json={
+                        "model": model,
+                        "stream": False,
+                        "messages": [
+                            {"role": "user", "content": payload.prompt},
+                        ],
+                    },
+                )
+            ms = int((datetime.utcnow() - t0).total_seconds() * 1000)
+            if r.status_code >= 400:
+                return {"model": model, "error": f"HTTP {r.status_code}", "latency_ms": ms}
+            data = r.json() or {}
+            text = (data.get("message") or {}).get("content") or ""
+            return {"model": model, "content": text, "latency_ms": ms}
+        except Exception as exc:  # noqa: BLE001
+            return {"model": model, "error": f"{type(exc).__name__}: {exc}"}
+
+    results = await asyncio.gather(*(_one(m) for m in models_list))
+    return {"prompt": payload.prompt, "results": results}
 
 
 # ── 메시지 번역 (#40) ────────────────────────────────────────

@@ -26,9 +26,18 @@ export class HttpError extends Error {
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
+  // 호출자가 init.headers 를 넘기면 그것도 *병합* — 단순 spread 는
+  // headers 를 통째로 덮어써 Authorization / Content-Type 이 사라지므로
+  // 별도 merge.  X-Session-Passphrase 같은 추가 헤더가 안전하게 함께
+  // 전송됨.
+  const mergedHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...authHeaders(),
+    ...((init?.headers as Record<string, string>) || {}),
+  };
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...authHeaders() },
     ...init,
+    headers: mergedHeaders,
   });
   if (!res.ok) {
     if (res.status === 401) {
@@ -733,7 +742,13 @@ export const api = {
   listOllamaModels: () => json<OllamaModelList>("/ollama/models"),
   listSessions: (deleted = false) =>
     json<Session[]>(`/sessions${deleted ? "?deleted=true" : ""}`),
-  getSession: (id: string) => json<SessionDetail>(`/sessions/${id}`),
+  getSession: (id: string, passphrase?: string) =>
+    json<SessionDetail>(
+      `/sessions/${id}`,
+      passphrase
+        ? { headers: { "X-Session-Passphrase": passphrase } }
+        : undefined,
+    ),
   /** Create a session, optionally pre-filed under a chat project. */
   createSession: (title: string, chatProjectId?: string | null) =>
     json<Session>("/sessions", {
@@ -781,6 +796,47 @@ export const api = {
     }),
   getSharedSession: (token: string) =>
     json<SessionDetail>(`/sessions/_share/${token}`),
+  /** 모델 비교 (#47) — 같은 prompt 를 여러 모델에 동시 전송. */
+  compareModels: (sessionId: string, prompt: string, models: string[]) =>
+    json<{
+      prompt: string;
+      results: {
+        model: string;
+        content?: string;
+        error?: string;
+        latency_ms?: number;
+      }[];
+    }>(`/sessions/${sessionId}/compare`, {
+      method: "POST",
+      body: JSON.stringify({ prompt, models }),
+    }),
+  /** 자동 제목 (#50). */
+  autoTitle: (sessionId: string, force = false) =>
+    json<Session>(`/sessions/${sessionId}/auto-title`, {
+      method: "POST",
+      body: JSON.stringify({ force }),
+    }),
+  /** 세션 비밀번호 잠금 (#52). */
+  lockSession: (id: string, passphrase: string | null) =>
+    json<Session>(`/sessions/${id}/lock`, {
+      method: "PATCH",
+      body: JSON.stringify({ passphrase }),
+    }),
+  unlockSession: (id: string, passphrase: string) =>
+    json<SessionDetail>(`/sessions/${id}/unlock`, {
+      method: "POST",
+      body: JSON.stringify({ passphrase }),
+    }),
+  /** 시스템 매크로 (#48). */
+  listSystemMacros: () =>
+    json<{ id: string; name: string; body: string }[]>("/system-macros"),
+  createSystemMacro: (name: string, body: string) =>
+    json<{ id: string; name: string; body: string }>("/system-macros", {
+      method: "POST",
+      body: JSON.stringify({ name, body }),
+    }),
+  deleteSystemMacro: (id: string) =>
+    json<void>(`/system-macros/${id}`, { method: "DELETE" }),
   /** 메시지 번역 (#40). */
   translateMessage: (
     sessionId: string,

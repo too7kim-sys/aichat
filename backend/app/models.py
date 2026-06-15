@@ -237,6 +237,12 @@ class Session(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, index=True
     )
+    # 세션 비밀번호 잠금 (#52).  설정되면 GET 시 X-Session-Passphrase
+    # 헤더로 같은 해시를 보내야 본문 열람 가능.  NULL = 잠금 없음.
+    # 평문 비밀번호는 저장하지 않으며 SHA-256 해시만.
+    passphrase_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -248,6 +254,10 @@ class Session(Base):
         cascade="all, delete-orphan",
         order_by="Message.created_at",
     )
+
+    @property
+    def has_passphrase(self) -> bool:
+        return bool(self.passphrase_hash)
 
 
 class ChatProject(Base):
@@ -799,4 +809,28 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
+    )
+
+
+class SystemMacro(Base):
+    """관리자가 등록한 팀 공유 매크로 (#48).  모든 사용자의 슬래시
+    picker 에 시스템 매크로 섹션으로 노출.  UserMacro 와 별 컬럼만
+    빼면 동일."""
+
+    __tablename__ = "system_macros"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    body: Mapped[str] = mapped_column(Text)
+    # 누가 마지막으로 수정했는지 — 운영 감사용.
+    updated_by_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )

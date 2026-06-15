@@ -91,6 +91,9 @@ class SessionOut(BaseModel):
     # 사이드바 고정 / 휴지통 (#29, #31).
     pinned: bool = False
     deleted_at: datetime | None = None
+    # 세션 비밀번호 잠금 (#52) — 해시 자체는 노출 안 함, 잠금 여부만.
+    # Session 모델의 @property has_passphrase 가 채워줌.
+    has_passphrase: bool = False
     created_at: datetime
     updated_at: datetime
 

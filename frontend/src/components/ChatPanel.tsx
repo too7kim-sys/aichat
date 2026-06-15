@@ -376,6 +376,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // 🛒 쇼핑 브라우저 — 별도 모달에서 Naver shop 직접 검색 후
   // 선택한 상품으로 AI 에 비교/추천 요청 프롬프트 자동 생성.
   const [shopBrowserOpen, setShopBrowserOpen] = useState(false);
+  // 모델 비교 (#47) — 같은 질문을 여러 모델에 보내고 결과 비교.
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const summaryDismissKey = `chat:session:${sessionId}:summary-dismissed`;
   const [summaryDismissed, _setSummaryDismissed] = useState<boolean>(
@@ -1513,6 +1515,79 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           >
             🔗 공유
           </button>
+          <button
+            type="button"
+            className="panel-toggle"
+            onClick={() => setCompareOpen(true)}
+            title="같은 질문을 여러 모델로 비교"
+          >
+            ⚖ 비교
+          </button>
+          <button
+            type="button"
+            className="panel-toggle"
+            onClick={async () => {
+              try {
+                const updated = await api.autoTitle(session.id, true);
+                onTitleSync?.();
+                setSession((prev) => prev ? { ...prev, title: updated.title } : prev);
+                window.dispatchEvent(
+                  new CustomEvent("chat:toast", {
+                    detail: { text: `✨ 제목: ${updated.title}` },
+                  }),
+                );
+              } catch (e) {
+                window.alert(
+                  `자동 제목 실패: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
+            }}
+            title="첫 사용자 메시지를 바탕으로 AI 가 제목 제안"
+          >
+            ✨ 제목
+          </button>
+          <button
+            type="button"
+            className={`panel-toggle${session.has_passphrase ? " locked-on" : ""}`}
+            onClick={async () => {
+              if (session.has_passphrase) {
+                if (!window.confirm("세션 잠금을 해제할까요?")) return;
+                try {
+                  await api.lockSession(session.id, null);
+                  setSession((prev) =>
+                    prev ? { ...prev, has_passphrase: false } : prev,
+                  );
+                } catch (e) {
+                  window.alert(
+                    `해제 실패: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+                return;
+              }
+              const p = window.prompt(
+                "이 세션을 잠글 비밀번호를 입력하세요.  잊으면 본문을 다시 볼 수 없어요.",
+              );
+              if (!p) return;
+              try {
+                await api.lockSession(session.id, p);
+                setSession((prev) =>
+                  prev ? { ...prev, has_passphrase: true } : prev,
+                );
+                window.dispatchEvent(
+                  new CustomEvent("chat:toast", {
+                    detail: { text: "🔐 세션이 잠겼어요" },
+                  }),
+                );
+              } catch (e) {
+                window.alert(
+                  `잠금 실패: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
+            }}
+            title={session.has_passphrase ? "잠금 해제" : "세션 비밀번호 잠금"}
+          >
+            {session.has_passphrase ? "🔐 잠김" : "🔓"}
+          </button>
           {session.workspace_id && (
             <button
               type="button"
@@ -2317,6 +2392,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           send(text);
         }}
       />
+      {compareOpen && session && (
+        <ModelCompareModal
+          sessionId={session.id}
+          providers={providers}
+          initialPrompt={prompt}
+          onClose={() => setCompareOpen(false)}
+          onSendToChat={(text) => {
+            send(text);
+            setCompareOpen(false);
+          }}
+        />
+      )}
       {lightbox && (
         <div
           className="image-lightbox-backdrop"
@@ -2876,6 +2963,8 @@ function SlashPromptPicker({
 }) {
   const [prompts, setPrompts] = useState<Awaited<ReturnType<typeof api.listPrompts>>>([]);
   const [macros, setMacros] = useState<Awaited<ReturnType<typeof api.listMacros>>>([]);
+  // 시스템(팀) 매크로 (#48) — 관리자가 등록, 모두 사용 가능.
+  const [sysMacros, setSysMacros] = useState<Awaited<ReturnType<typeof api.listSystemMacros>>>([]);
   // 매크로 추가 인라인 폼 (#33).
   const [adding, setAdding] = useState(false);
   const [macroName, setMacroName] = useState("");
@@ -2885,6 +2974,11 @@ function SlashPromptPicker({
       setMacros(await api.listMacros());
     } catch {
       setMacros([]);
+    }
+    try {
+      setSysMacros(await api.listSystemMacros());
+    } catch {
+      setSysMacros([]);
     }
   }
   useEffect(() => {
@@ -2906,6 +3000,9 @@ function SlashPromptPicker({
     })
     .slice(0, 8);
   const filteredMacros = macros
+    .filter((m) => !q || m.name.toLowerCase().includes(q))
+    .slice(0, 8);
+  const filteredSysMacros = sysMacros
     .filter((m) => !q || m.name.toLowerCase().includes(q))
     .slice(0, 8);
 
@@ -2943,6 +3040,27 @@ function SlashPromptPicker({
         <span>📚 프롬프트 + ⌨ 내 매크로</span>
         <span className="slash-picker-hint">Esc 닫기</span>
       </div>
+      {filteredSysMacros.length > 0 && (
+        <>
+          <div className="slash-picker-sec">팀 공통 매크로</div>
+          <ul>
+            {filteredSysMacros.map((m) => (
+              <li key={m.id}>
+                <button type="button" onClick={() => onPick(m.body)}>
+                  <div className="slash-picker-name">
+                    <code>/{m.name}</code>
+                    <span className="slash-picker-badge">팀</span>
+                  </div>
+                  <div className="slash-picker-snippet">
+                    {m.body.slice(0, 120)}
+                    {m.body.length > 120 ? "…" : ""}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {filteredMacros.length > 0 && (
         <>
           <div className="slash-picker-sec">내 매크로</div>
@@ -3169,5 +3287,138 @@ function MicButton({
     >
       {busy ? "⏳" : recording ? "⏹" : "🎙"}
     </button>
+  );
+}
+
+
+/** 모델 비교 모달 (#47) — 같은 질문을 여러 모델에 동시 보내 답변을
+ *  카드로 나란히 보여줌.  결과 카드에서 '이 답변 채팅으로' 를 누르면
+ *  부모(send) 에게 텍스트를 넘겨 일반 메시지로 발송. */
+function ModelCompareModal({
+  sessionId,
+  providers: _providers,
+  initialPrompt,
+  onClose,
+  onSendToChat,
+}: {
+  sessionId: string;
+  providers: ProviderInfo[];
+  initialPrompt: string;
+  onClose: () => void;
+  onSendToChat: (text: string) => void;
+}) {
+  const [prompt, setPrompt] = useState(initialPrompt);
+  const [models, setModels] = useState<string[]>([]);
+  const [available, setAvailable] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<
+    { model: string; content?: string; error?: string; latency_ms?: number }[]
+  >([]);
+
+  // Ollama 가 알려주는 모델 풀에서 비교 후보를 고를 수 있게.
+  useEffect(() => {
+    api
+      .listOllamaModels()
+      .then((r) => {
+        const names = (r?.models || []).map((m) => m.name);
+        setAvailable(names);
+        setModels(names.slice(0, 2));
+      })
+      .catch(() => setAvailable([]));
+  }, []);
+
+  async function run() {
+    if (!prompt.trim() || models.length === 0) return;
+    setLoading(true);
+    setResults([]);
+    try {
+      const r = await api.compareModels(sessionId, prompt.trim(), models);
+      setResults(r.results);
+    } catch (e) {
+      window.alert(`비교 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="compare-backdrop" onClick={onClose}>
+      <div
+        className="compare-modal"
+        role="dialog"
+        aria-label="모델 비교"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="compare-head">
+          <h3>⚖ 모델 비교</h3>
+          <button type="button" onClick={onClose} aria-label="닫기">✕</button>
+        </div>
+        <textarea
+          className="compare-prompt"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="비교할 질문을 입력하세요"
+          rows={3}
+        />
+        <div className="compare-models">
+          <span>모델 (최대 4개)</span>
+          {available.map((m) => (
+            <label key={m} className="compare-model-chip">
+              <input
+                type="checkbox"
+                checked={models.includes(m)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    if (models.length >= 4) return;
+                    setModels([...models, m]);
+                  } else {
+                    setModels(models.filter((x) => x !== m));
+                  }
+                }}
+              />
+              <span>{m}</span>
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="compare-run"
+          onClick={run}
+          disabled={!prompt.trim() || models.length === 0 || loading}
+        >
+          {loading ? "응답 받는 중…" : `▶ ${models.length || 0}개 모델로 비교`}
+        </button>
+        {results.length > 0 && (
+          <div className="compare-grid">
+            {results.map((r) => (
+              <div key={r.model} className="compare-card">
+                <div className="compare-card-head">
+                  <strong>{r.model}</strong>
+                  {r.latency_ms != null && (
+                    <span>{(r.latency_ms / 1000).toFixed(1)}s</span>
+                  )}
+                </div>
+                <div className="compare-card-body">
+                  {r.error ? (
+                    <span className="compare-card-err">⚠ {r.error}</span>
+                  ) : (
+                    <pre>{r.content}</pre>
+                  )}
+                </div>
+                {!r.error && r.content && (
+                  <button
+                    type="button"
+                    className="compare-card-pick"
+                    onClick={() => onSendToChat(prompt)}
+                  >
+                    이 질문으로 정식 보내기
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

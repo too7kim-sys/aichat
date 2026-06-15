@@ -4,6 +4,7 @@ import { BrandLogo } from "./components/BrandLogo";
 import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
 import { SearchBar, type SearchBarHandle } from "./components/SearchBar";
 import { Sidebar, type Workspace } from "./components/Sidebar";
+import { CmdPalette } from "./components/CmdPalette";
 import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AuthForm } from "./auth/AuthForm";
@@ -181,6 +182,8 @@ function AppInner({
   // 단축키 도움말 모달 (#19) — ? 키로 토글. 입력칸 포커스 중이면
   // 평범한 텍스트 입력이라 무시.
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  // Cmd 팔레트 (#49) — Ctrl/⌘+Shift+P 로 띄움.
+  const [cmdPalOpen, setCmdPalOpen] = useState(false);
 
   // Global keyboard shortcut: ⌘K / Ctrl+K focuses the header search
   // input from anywhere on the page. The input lives in the header
@@ -193,6 +196,16 @@ function AppInner({
       if (isCmdK) {
         e.preventDefault();
         searchRef.current?.focus();
+        return;
+      }
+      // Cmd 팔레트 — Ctrl/⌘+Shift+P (#49).
+      const isCmdShiftP =
+        (e.key === "p" || e.key === "P") &&
+        e.shiftKey &&
+        (e.metaKey || e.ctrlKey);
+      if (isCmdShiftP) {
+        e.preventDefault();
+        setCmdPalOpen((v) => !v);
         return;
       }
       // ? 단축키 — 도움말 모달 토글.  입력칸 포커스 중이면 패스.
@@ -443,6 +456,13 @@ function AppInner({
         <div className="chat-toast" role="status" aria-live="polite">
           {toast}
         </div>
+      )}
+      {cmdPalOpen && (
+        <CmdPalette
+          sessions={sessions}
+          onCreateChat={() => handleCreate(null)}
+          onClose={() => setCmdPalOpen(false)}
+        />
       )}
       {shortcutHelpOpen && (
         <div
