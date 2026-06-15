@@ -10,6 +10,15 @@ from ..files.merge import MergeError, MergeInput, merge as do_merge
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 
+def _size_error(declared_or_total: int) -> str:
+    cap_mb = settings.max_upload_bytes / (1024 * 1024)
+    actual_mb = declared_or_total / (1024 * 1024)
+    return (
+        f"파일이 너무 커요 — {actual_mb:.1f} MB (제한 {cap_mb:.0f} MB).  "
+        "큰 자료는 관리자 → 프로젝트 업로드 흐름으로 올려 RAG 청크로 등록해 주세요."
+    )
+
+
 @router.post("/extract")
 async def extract_file(
     request: Request,
@@ -23,10 +32,7 @@ async def extract_file(
     declared = request.headers.get("content-length")
     if declared and declared.isdigit():
         if int(declared) > settings.max_upload_bytes + 8 * 1024:
-            raise HTTPException(
-                413,
-                f"파일이 너무 큽니다 (limit {settings.max_upload_bytes} bytes)",
-            )
+            raise HTTPException(413, _size_error(int(declared)))
 
     # Stream the upload up to the limit instead of reading it all at
     # once. file.read(n) returns at most n bytes.
@@ -38,16 +44,13 @@ async def extract_file(
             break
         total += len(chunk)
         if total > settings.max_upload_bytes:
-            raise HTTPException(
-                413,
-                f"파일이 너무 큽니다 (limit {settings.max_upload_bytes} bytes)",
-            )
+            raise HTTPException(413, _size_error(total))
         chunks.append(chunk)
     blob = b"".join(chunks)
     try:
         result = extract(file.filename or "uploaded", blob)
     except ExtractError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, f"{file.filename or '파일'}: {exc}")
     return {
         "filename": result.filename,
         "text": result.text,

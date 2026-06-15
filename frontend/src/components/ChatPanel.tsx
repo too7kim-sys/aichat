@@ -930,8 +930,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           // re-uploaded for format-preserving merge.
           additions.push({ ...ext, _file: f });
         } catch (e) {
+          // 어떤 종류의 실패인지 사용자가 바로 알 수 있게 — 사이즈
+          // 초과는 413, 추출 못 한 형식은 400, 토큰 만료/네트워크는
+          // 그 외.  메시지에 파일 크기도 함께 표시.
+          const sizeMb = (f.size / (1024 * 1024)).toFixed(1);
           failures.push(
-            `${f.name}: ${e instanceof Error ? e.message : String(e)}`
+            `${f.name} (${sizeMb} MB): ${
+              e instanceof Error ? e.message : String(e)
+            }`,
           );
         }
         done += 1;
@@ -2820,11 +2826,31 @@ function MicButton({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    return null;
-  }
+  // 환경 점검 — getUserMedia 가 동작하는 조건:
+  //   1) 보안 컨텍스트 (https:// 또는 localhost / 127.0.0.1)
+  //   2) navigator.mediaDevices 존재
+  // 둘 다 만족해도 클릭 시 사용자가 마이크 거부하면 NotAllowedError.
+  // 폐쇄망이라도 IP/HTTP 로 접속하면 브라우저가 mediaDevices 자체를
+  // 노출하지 않으므로, 버튼은 그대로 보이되 누르면 "왜 안 되는지"
+  // 정확히 알려주는 안내가 더 친절.
+  const isSecure =
+    typeof window !== "undefined" &&
+    (window.isSecureContext ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1");
+  const hasGUM =
+    typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+  const supported = isSecure && hasGUM;
 
   async function start() {
+    if (!supported) {
+      const why = !isSecure
+        ? "이 페이지가 HTTPS 가 아니라 브라우저가 마이크 권한 요청 자체를 막아요. " +
+          "관리자에게 HTTPS 적용 또는 localhost 로 접속을 요청해 주세요."
+        : "이 브라우저는 마이크 캡처 API 를 지원하지 않아요. 최신 Chrome / Edge / Firefox 로 다시 시도해 주세요.";
+      window.alert(`🎙 음성 입력 사용 불가\n\n${why}`);
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = MediaRecorder.isTypeSupported("audio/webm")
@@ -2856,9 +2882,21 @@ function MicButton({
       rec.start();
       setRecording(true);
     } catch (e) {
-      window.alert(
-        `마이크 사용 권한이 필요합니다: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      // NotAllowedError 면 사용자가 권한을 거부했거나, 시스템 설정에서
+      // 사이트별 마이크 권한이 차단된 상태.  공식 안내 문구를 곁들임.
+      const name = (e as { name?: string }).name || "";
+      const msg = e instanceof Error ? e.message : String(e);
+      let hint = "";
+      if (name === "NotAllowedError" || /permission/i.test(msg)) {
+        hint =
+          "\n\n주소창 좌측 자물쇠 아이콘 → '사이트 권한 → 마이크' 를 " +
+          "'허용' 으로 바꾼 뒤 다시 시도해 주세요.";
+      } else if (name === "NotFoundError" || /not found/i.test(msg)) {
+        hint = "\n\n시스템에 마이크 장치가 인식되지 않았어요. 케이블/드라이버를 확인해 주세요.";
+      } else if (name === "NotReadableError") {
+        hint = "\n\n다른 앱(Zoom·Teams 등) 이 마이크를 잡고 있을 수 있어요. 그 앱 종료 후 재시도.";
+      }
+      window.alert(`🎙 마이크 접근 실패 (${name || "오류"})\n${msg}${hint}`);
     }
   }
   function stop() {
@@ -2870,15 +2908,19 @@ function MicButton({
   return (
     <button
       type="button"
-      className={`composer-mic-btn${recording ? " recording" : ""}`}
+      className={`composer-mic-btn${recording ? " recording" : ""}${
+        supported ? "" : " unsupported"
+      }`}
       onClick={recording ? stop : start}
       disabled={disabled || busy}
       title={
-        busy
-          ? "전사 중…"
-          : recording
-            ? "녹음 중 — 클릭해 멈추고 전사"
-            : "🎙 음성 입력"
+        !supported
+          ? "🎙 음성 입력 사용 불가 — HTTPS 환경에서만 동작 (클릭하면 자세한 안내)"
+          : busy
+            ? "전사 중…"
+            : recording
+              ? "녹음 중 — 클릭해 멈추고 전사"
+              : "🎙 음성 입력"
       }
     >
       {busy ? "⏳" : recording ? "⏹" : "🎙"}

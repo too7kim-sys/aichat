@@ -3461,6 +3461,13 @@ body {
   color: #c0392b;
   animation: mic-pulse 1.2s ease-in-out infinite;
 }
+/* 보안 컨텍스트(HTTPS) 가 아니거나 브라우저가 mediaDevices 미지원
+ * 인 경우 — 버튼을 dim 처리해 시각적으로 '비활성' 느낌만 주되,
+ * 클릭은 가능하게 두어 안내 alert 가 뜨도록. */
+.composer-mic-btn.unsupported {
+  opacity: 0.5;
+  color: var(--text-muted);
+}
 @keyframes mic-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0); }
   50% { box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.18); }

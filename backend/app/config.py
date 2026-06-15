@@ -293,7 +293,10 @@ class Settings(BaseSettings):
 
     tesseract_cmd: str = ""  # e.g. C:\\Program Files\\Tesseract-OCR\\tesseract.exe
     ocr_languages: str = "eng+kor"
-    max_upload_bytes: int = 5 * 1024 * 1024  # 5 MB
+    # 5MB 는 사진 한 장이면 넘어가 일상 PDF/PPT/XLSX 도 못 올림.  사내
+    # 문서 첨부가 실 사용 시나리오라 25MB 로 올림.  진짜 큰 RAG 자료는
+    # admin → projects 업로드 흐름을 권장.
+    max_upload_bytes: int = 25 * 1024 * 1024  # 25 MB
     max_attachment_chars: int = 50_000
 
     @property
