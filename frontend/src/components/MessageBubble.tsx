@@ -52,6 +52,13 @@ interface Props {
     feedback?: number;
     feedback_note?: string | null;
   }) => void;
+  /** 정확 시각 — 어시스턴트는 답변 받은 시각, 사용자는 발송 시각. */
+  createdAt?: string | null;
+  /** 어시스턴트 응답 메타 (provider · latency · tokens). */
+  latencyMs?: number | null;
+  tokensOut?: number | null;
+  /** 분기·삭제 등 트리 액션을 부모가 처리 — 새 세션 ID 로 전환 등. */
+  onBranchFrom?: () => void | Promise<void>;
 }
 
 function bubbleAttachmentBasename(filename: string): string {
@@ -114,6 +121,10 @@ export function MessageBubble({
   feedback = 0,
   feedbackNote = null,
   onMetaChanged,
+  createdAt = null,
+  latencyMs = null,
+  tokensOut = null,
+  onBranchFrom,
 }: Props) {
   // Local optimistic content + collapsed/edit state. Re-seeds when
   // the parent's `content` changes (e.g., after streaming completes
@@ -325,6 +336,7 @@ export function MessageBubble({
       <div
         className="bubble-row user-row"
         data-message-id={messageId || undefined}
+        title={createdAt ? new Date(createdAt).toLocaleString() : undefined}
       >
         {selectCheckbox}
         <div className="bubble user">
@@ -395,6 +407,16 @@ export function MessageBubble({
                 ✏ 재전송
               </button>
             )}
+            {onBranchFrom && (
+              <button
+                type="button"
+                className="bubble-tiny-btn"
+                onClick={() => onBranchFrom()}
+                title="이 시점에서 새 세션으로 분기"
+              >
+                🌿 분기
+              </button>
+            )}
             <CopyButton text={body} />
           </div>
         )}
@@ -403,7 +425,11 @@ export function MessageBubble({
   }
   const showAssistantAttachments = attachments && attachments.length > 0;
   return (
-    <div className="bubble assistant" data-message-id={messageId || undefined}>
+    <div
+      className="bubble assistant"
+      data-message-id={messageId || undefined}
+      title={createdAt ? new Date(createdAt).toLocaleString() : undefined}
+    >
       {selectCheckbox}
       <div
         className={`avatar avatar-brand${streaming ? " thinking" : ""}`}
@@ -450,6 +476,22 @@ export function MessageBubble({
             </div>
           )}
         </div>
+        {!streaming && body && !editing && (provider || latencyMs || tokensOut) && (
+          <div className="bubble-meta">
+            {provider && <span>{provider}</span>}
+            {typeof latencyMs === "number" && latencyMs > 0 && (
+              <span>· {(latencyMs / 1000).toFixed(1)}s</span>
+            )}
+            {typeof tokensOut === "number" && tokensOut > 0 && (
+              <span>· {tokensOut.toLocaleString()} 토큰</span>
+            )}
+            {createdAt && (
+              <span className="bubble-meta-time">
+                · {relativeTime(createdAt)}
+              </span>
+            )}
+          </div>
+        )}
         {!streaming && body && !editing && (
           <div className="bubble-actions">
             {sessionId && messageId && (
@@ -556,6 +598,7 @@ export function MessageBubble({
                 >
                   💬 인용
                 </button>
+                <TtsButton text={body} />
               </>
             )}
             {canEdit && (
@@ -664,3 +707,68 @@ const MessageEditor = forwardRef<
     </div>
   );
 });
+
+
+/** 사람 친화적 상대 시간. 30초 미만 = "방금 전", 그 외는 "N분/시간/일 전". */
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  const diff = Date.now() - t;
+  if (diff < 30_000) return "방금 전";
+  const m = Math.floor(diff / 60_000);
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}일 전`;
+  return new Date(t).toLocaleDateString();
+}
+
+
+/** 🔊 답변 읽어주기 — 브라우저 SpeechSynthesis 그대로 사용. 한국어
+ *  음성이 있으면 우선 선택. 다시 누르면 멈춤. 다른 메시지 재생 시
+ *  자동 cancel. */
+function TtsButton({ text }: { text: string }) {
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => {
+    // 컴포넌트 unmount 시 자동 cancel.
+    return () => {
+      try { window.speechSynthesis.cancel(); } catch { /* not supported */ }
+    };
+  }, []);
+  if (typeof window === "undefined" || !window.speechSynthesis) return null;
+
+  function speak() {
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.0;
+      u.pitch = 1.0;
+      u.lang = /[가-힣]/.test(text) ? "ko-KR" : "en-US";
+      // 한국어 음성이 있으면 그걸 우선 사용.
+      const voices = window.speechSynthesis.getVoices();
+      const ko = voices.find((v) => v.lang.startsWith("ko"));
+      if (ko && u.lang.startsWith("ko")) u.voice = ko;
+      u.onend = () => setPlaying(false);
+      u.onerror = () => setPlaying(false);
+      window.speechSynthesis.speak(u);
+      setPlaying(true);
+    } catch {
+      setPlaying(false);
+    }
+  }
+  function stop() {
+    try { window.speechSynthesis.cancel(); } catch {}
+    setPlaying(false);
+  }
+
+  return (
+    <button
+      type="button"
+      className={`bubble-tiny-btn${playing ? " active" : ""}`}
+      onClick={playing ? stop : speak}
+      title={playing ? "읽기 중지" : "답변 읽어주기 🔊"}
+    >
+      {playing ? "⏹" : "🔊"}
+    </button>
+  );
+}

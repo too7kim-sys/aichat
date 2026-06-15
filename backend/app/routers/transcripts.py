@@ -198,6 +198,55 @@ async def _resolve_orphan_session(
     )
 
 
+@router.post("/_inline")
+async def transcribe_inline(
+    file: UploadFile = File(...),
+    user: models.User = Depends(get_current_user),
+):
+    """짧은 오디오 한 토막을 받아 텍스트만 반환 (세션 / Transcript 행
+    생성 안 함). 채팅 composer 의 🎙 음성 입력에서 사용 — Whisper
+    모델 인프라 그대로 재활용."""
+    _guard_enabled()
+    fname = file.filename or "voice.webm"
+    ext = os.path.splitext(fname)[1].lower()
+    if ext not in _AUDIO_EXTS:
+        raise HTTPException(400, f"지원하지 않는 오디오 형식: {ext}")
+
+    # 인라인 STT 는 짧은 발화 (≤ 60초) 가정 — 30 MB 캡으로 충분.
+    cap = 30 * 1024 * 1024
+    tmp = tempfile.NamedTemporaryFile(
+        prefix="aichat-stt-", suffix=ext, delete=False,
+    )
+    total = 0
+    try:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > cap:
+                tmp.close()
+                os.unlink(tmp.name)
+                raise HTTPException(413, "오디오가 너무 큽니다 (30 MB)")
+            tmp.write(chunk)
+    finally:
+        tmp.close()
+
+    try:
+        from ..transcribe.whisper import transcribe as _whisper
+        import asyncio as _aio
+        segments, _info = await _aio.to_thread(_whisper, tmp.name)
+        text = " ".join(s.text.strip() for s in segments if s.text.strip()).strip()
+        return {"text": text, "duration": float(_info.get("duration", 0.0))}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"전사 실패: {exc}")
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
 @router.delete("/{transcript_id}", status_code=204)
 async def delete_transcript(
     transcript_id: str,

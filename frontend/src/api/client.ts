@@ -725,6 +725,30 @@ export const api = {
   /** 사용자가 별표한 메시지를 다른 세션 가리지 않고 한 번에 모아 옴. */
   /** 메시지 수정 후 재생성 / 재생성 흐름의 핵심 — 주어진 메시지 이후
    *  의 모든 메시지를 삭제. 대상 메시지 자체는 보존. */
+  /** 짧은 오디오 한 토막을 Whisper 로 전사해 텍스트만 반환. 채팅 composer
+   *  🎙 마이크 입력에서 사용. */
+  transcribeInline: async (audio: Blob): Promise<{ text: string; duration: number }> => {
+    const form = new FormData();
+    const ext = audio.type.includes("webm") ? "webm" : audio.type.includes("ogg") ? "ogg" : "wav";
+    form.append("file", audio, `voice.${ext}`);
+    const res = await fetch(`${BASE}/transcripts/_inline`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: form,
+    });
+    if (!res.ok) {
+      let detail = `${res.status}`;
+      try { detail = (await res.json()).detail ?? detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  },
+  /** 주어진 메시지 시점에서 새 세션으로 분기 — 이력 복사 후 새 ID 반환. */
+  branchSessionFrom: (sessionId: string, messageId: string) =>
+    json<Session>(
+      `/sessions/${sessionId}/messages/${messageId}/branch`,
+      { method: "POST" },
+    ),
   rewindSessionAfter: (sessionId: string, messageId: string) =>
     json<void>(
       `/sessions/${sessionId}/messages/${messageId}/rewind`,

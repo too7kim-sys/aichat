@@ -223,6 +223,22 @@ function AppInner({
     refreshChatProjects();
   }, []);
 
+  // 메시지 분기 (🌿) 가 새 세션을 만들고 chat:switch-session 이벤트
+  // 를 띄우면, 사이드바 목록 갱신 + activeId 전환.
+  useEffect(() => {
+    function onSwitch(e: Event) {
+      const ev = e as CustomEvent<{ sessionId: string }>;
+      const sid = ev.detail?.sessionId;
+      if (!sid) return;
+      void (async () => {
+        await refreshSessions();
+        setActiveId(sid);
+      })();
+    }
+    window.addEventListener("chat:switch-session", onSwitch);
+    return () => window.removeEventListener("chat:switch-session", onSwitch);
+  }, []);
+
   // Wipe artifact panel state whenever the user switches sessions so old
   // code tabs don't bleed into a new conversation.
   useEffect(() => {

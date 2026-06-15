@@ -1070,6 +1070,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   starred={!!m.starred}
                   feedback={m.feedback ?? 0}
                   feedbackNote={m.feedback_note ?? null}
+                  createdAt={m.created_at}
+                  latencyMs={m.latency_ms ?? null}
+                  tokensOut={m.tokens_out ?? null}
+                  onBranchFrom={async () => {
+                    try {
+                      const ns = await api.branchSessionFrom(session.id, m.id);
+                      onTitleSync?.();
+                      // 새 세션이 만들어졌으니 onSelect 와 같은 흐름으로
+                      // 전환 — 외부에 콜백이 없으면 location 으로 폴백.
+                      window.dispatchEvent(
+                        new CustomEvent("chat:switch-session", {
+                          detail: { sessionId: ns.id },
+                        }),
+                      );
+                    } catch (e) {
+                      window.alert(
+                        `분기 실패: ${e instanceof Error ? e.message : String(e)}`,
+                      );
+                    }
+                  }}
                   onMetaChanged={(patch) =>
                     setSession((prev) =>
                       prev
@@ -1386,6 +1406,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               </button>
             </div>
             <div className="composer-right">
+              <MicButton
+                disabled={streaming || uploading}
+                onTranscribed={(text) => {
+                  setPrompt((cur) => (cur ? cur + " " + text : text));
+                  window.setTimeout(() => textareaRef.current?.focus(), 0);
+                }}
+              />
               {streaming ? (
                 <button
                   className="stop-btn"
@@ -1920,5 +1947,90 @@ function SlashPromptPicker({
         ✕
       </button>
     </div>
+  );
+}
+
+
+/**
+ * 🎙 음성 입력 — MediaRecorder 로 마이크 캡처, 멈춤 시 백엔드 /api/
+ * transcripts/_inline 으로 Whisper STT. 결과 텍스트는 onTranscribed
+ * 콜백으로 부모(composer)에 전달. 브라우저 권한이 없거나 STT 가 꺼져
+ * 있으면 버튼 자체가 숨김.
+ */
+function MicButton({
+  disabled,
+  onTranscribed,
+}: {
+  disabled: boolean;
+  onTranscribed: (text: string) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    return null;
+  }
+
+  async function start() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
+        chunksRef.current = [];
+        if (blob.size === 0) return;
+        setBusy(true);
+        try {
+          const r = await api.transcribeInline(blob);
+          if (r.text) onTranscribed(r.text);
+        } catch (e) {
+          window.alert(
+            `음성 인식 실패: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        } finally {
+          setBusy(false);
+        }
+      };
+      recorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch (e) {
+      window.alert(
+        `마이크 사용 권한이 필요합니다: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  function stop() {
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") rec.stop();
+    setRecording(false);
+  }
+
+  return (
+    <button
+      type="button"
+      className={`composer-mic-btn${recording ? " recording" : ""}`}
+      onClick={recording ? stop : start}
+      disabled={disabled || busy}
+      title={
+        busy
+          ? "전사 중…"
+          : recording
+            ? "녹음 중 — 클릭해 멈추고 전사"
+            : "🎙 음성 입력"
+      }
+    >
+      {busy ? "⏳" : recording ? "⏹" : "🎙"}
+    </button>
   );
 }

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,8 @@ from sqlalchemy.orm import selectinload
 from .. import models, schemas
 from ..auth import get_current_user
 from ..database import get_db
+
+log = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -356,6 +360,56 @@ async def export_session_hwpx(
             "Content-Disposition": f"attachment; filename*=UTF-8''{safe}.hwpx"
         },
     )
+
+
+@router.post("/{session_id}/messages/{message_id}/branch", response_model=schemas.SessionOut)
+async def branch_from_message(
+    session_id: str,
+    message_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """주어진 메시지 시점에서 새 세션으로 분기. 그 메시지(포함) 까지의
+    히스토리를 새 Session 으로 복사 + 같은 폴더(project)·워크스페이스
+    링크 그대로 유지. 분기점 이후는 안 따라간다. UI 가 새 세션으로
+    이동시키는 흐름은 onSwitchSession 콜백."""
+    session = await _load_owned(db, session_id, user.id)
+    target = next((m for m in session.messages if m.id == message_id), None)
+    if target is None:
+        raise HTTPException(404, "message not found")
+    pivot = target.created_at
+
+    new_session = models.Session(
+        user_id=user.id,
+        title=f"↩ {session.title}",
+        project_id=session.project_id,
+        chat_project_id=session.chat_project_id,
+        workspace_id=session.workspace_id,
+        code_focused=session.code_focused,
+    )
+    db.add(new_session)
+    await db.flush()
+
+    copied = 0
+    for m in sorted(session.messages, key=lambda x: x.created_at):
+        if m.created_at > pivot:
+            break
+        db.add(models.Message(
+            session_id=new_session.id,
+            role=m.role,
+            provider=m.provider,
+            content=m.content,
+            attachments_summary=m.attachments_summary,
+            hidden=m.hidden,
+        ))
+        copied += 1
+    await db.commit()
+    await db.refresh(new_session)
+    log.info(
+        "session branch: %s → %s (copied %d msgs at %s)",
+        session_id, new_session.id, copied, pivot,
+    )
+    return new_session
 
 
 @router.post("/{session_id}/messages/{message_id}/rewind", status_code=204)

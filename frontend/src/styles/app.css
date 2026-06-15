@@ -3400,6 +3400,44 @@ body {
 .src-duckduckgo { background: #de5833; }
 .src-wikipedia { background: #555; }
 
+.bubble-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.bubble-meta-time {
+  margin-left: auto;
+}
+
+.composer-mic-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+  margin-right: 4px;
+}
+.composer-mic-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.composer-mic-btn.recording {
+  background: rgba(192, 57, 43, 0.12);
+  border-color: #c0392b;
+  color: #c0392b;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.18); }
+}
+
 .slash-picker {
   position: absolute;
   bottom: 100%;
