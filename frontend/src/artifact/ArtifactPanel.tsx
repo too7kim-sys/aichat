@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { useArtifacts, type Artifact } from "./ArtifactContext";
 import { detectRunnable, run, type RunResult } from "./runners";
+import { copyText } from "../lib/clipboard";
 
 const PREVIEW_LANGS = new Set(["html", "htm"]);
 
@@ -89,11 +90,7 @@ export function ArtifactPanel({
 
   async function copy() {
     if (!active) return;
-    try {
-      await navigator.clipboard.writeText(active.code);
-    } catch {
-      // ignore
-    }
+    await copyText(active.code, "아래 코드를 복사하세요");
   }
 
   function sendToChat() {

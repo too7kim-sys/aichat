@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, auth, type AuditEvent } from "../api/client";
+import { copyText } from "../lib/clipboard";
 import { useAuth } from "./AuthContext";
 import { PasswordStrength } from "./PasswordStrength";
 
@@ -298,7 +299,7 @@ function ApiKeysPanel() {
             <button
               type="button"
               onClick={() => {
-                navigator.clipboard.writeText(issued.token);
+                void copyText(issued.token, "아래 API 키를 복사하세요");
               }}
             >
               복사

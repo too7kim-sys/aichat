@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { api, type AttachmentSummary } from "../api/client";
+import { copyText } from "../lib/clipboard";
 import { BrandLogo } from "./BrandLogo";
 import { BubbleContent } from "./BubbleContent";
 import { IconChevronDown, IconChevronRight, IconEdit, IconFileText, IconImage, IconStar, IconThumbsDown, IconThumbsUp, IconX } from "./Icon";
@@ -78,22 +79,10 @@ function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(text);
+    const ok = await copyText(text, "아래 답변을 복사하세요");
+    if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      } finally {
-        document.body.removeChild(ta);
-      }
     }
   }
 
@@ -868,18 +857,18 @@ export function MessageBubble({
                           u.searchParams.set("session", sessionId);
                           u.searchParams.set("message", messageId);
                           const link = u.toString();
-                          navigator.clipboard
-                            .writeText(link)
-                            .then(() =>
+                          void copyText(link, "아래 링크를 복사하세요").then(
+                            (ok) =>
                               window.dispatchEvent(
                                 new CustomEvent("chat:toast", {
-                                  detail: { text: "🔗 공유 링크가 복사됐어요" },
+                                  detail: {
+                                    text: ok
+                                      ? "🔗 공유 링크가 복사됐어요"
+                                      : "🔗 위 prompt 에서 링크 복사",
+                                  },
                                 }),
                               ),
-                            )
-                            .catch(() =>
-                              window.prompt("아래 링크를 복사하세요", link),
-                            );
+                          );
                         }}
                       >
                         🔗 공유 링크 복사

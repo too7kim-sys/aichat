@@ -1,6 +1,7 @@
 import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { copyText } from "../lib/clipboard";
 import { useAuth } from "../auth/AuthContext";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
@@ -1489,10 +1490,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               try {
                 const r = await api.createSessionShare(session.id, null);
                 const link = `${window.location.origin}${r.url}`;
-                await navigator.clipboard.writeText(link);
+                const ok = await copyText(
+                  link,
+                  "아래 공유 링크를 복사하세요",
+                );
                 window.dispatchEvent(
                   new CustomEvent("chat:toast", {
-                    detail: { text: `🔗 공유 링크가 복사됐어요` },
+                    detail: {
+                      text: ok
+                        ? "🔗 공유 링크가 복사됐어요"
+                        : "🔗 공유 링크 생성됨 — 위 prompt 에서 복사",
+                    },
                   }),
                 );
               } catch (e) {

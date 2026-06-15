@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { api } from "../api/client";
+import { copyText } from "../lib/clipboard";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { useChatWorkspace } from "../state/ChatWorkspaceContext";
 
@@ -15,18 +16,11 @@ interface Props {
 function CodeCopy({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
+    const ok = await copyText(text, "아래 코드를 복사하세요");
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
     }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
   }
   return (
     <button type="button" className="code-copy" onClick={copy}>
