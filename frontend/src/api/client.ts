@@ -426,6 +426,29 @@ export const admin = {
         created_at: string | null;
       }>;
     }>(`/admin/errors?limit=${limit}`),
+  // ── 답변 품질 분석 (#37) ──────────────────────────────
+  listDisliked: (limit = 100) =>
+    json<
+      {
+        message_id: string;
+        session_id: string;
+        session_title: string;
+        user_email: string;
+        provider: string | null;
+        content: string;
+        feedback_note: string | null;
+        created_at: string | null;
+      }[]
+    >(`/admin/disliked?limit=${limit}`),
+  // ── 시스템 헬스 (#39) ────────────────────────────────
+  health: () =>
+    json<{
+      ollama: { ok: boolean; latency_ms?: number; error?: string; models?: number };
+      qdrant: { ok: boolean; latency_ms?: number; error?: string; collections?: number };
+      db: { ok: boolean; latency_ms?: number; error?: string };
+      errors_24h: number;
+      checked_at: string;
+    }>("/admin/health"),
   approve: (userId: string) =>
     json<AdminUser>(`/admin/users/${userId}/approve`, { method: "POST" }),
   reject: (userId: string, reason: string) =>
@@ -730,6 +753,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ session_ids: ids, action }),
     }),
+  /** 공유 링크 생성 (#38). */
+  createSessionShare: (id: string, expiresDays: number | null = null) =>
+    json<{
+      id: string;
+      token: string;
+      url: string;
+      expires_at: string | null;
+      created_at: string;
+    }>(`/sessions/${id}/share`, {
+      method: "POST",
+      body: JSON.stringify({ expires_days: expiresDays }),
+    }),
+  getSharedSession: (token: string) =>
+    json<SessionDetail>(`/sessions/_share/${token}`),
+  /** 메시지 번역 (#40). */
+  translateMessage: (
+    sessionId: string,
+    messageId: string,
+    target: "ko" | "en" | "ja" | "zh" = "ko",
+  ) =>
+    json<{ text: string; target: string }>(
+      `/sessions/${sessionId}/messages/${messageId}/translate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ target }),
+      },
+    ),
   updateSession: (id: string, title: string) =>
     json<Session>(`/sessions/${id}`, {
       method: "PATCH",

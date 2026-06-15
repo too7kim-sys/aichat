@@ -17,6 +17,10 @@ class AttachmentSummary(BaseModel):
 
 class MessageOut(BaseModel):
     id: str
+    # 다른 세션의 메시지를 한 화면에 모을 때 (별표 모음, 환영 위젯
+    # 등) 라우팅에 사용.  대부분의 응답에서 채워지지만, 동일 세션
+    # 안의 내용만 다루는 호출은 None 일 수 있음.
+    session_id: str | None = None
     role: Literal["user", "assistant"]
     provider: str | None = None
     content: str

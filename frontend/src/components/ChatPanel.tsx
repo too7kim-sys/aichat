@@ -1466,6 +1466,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             )}
           </div>
           <ExportSessionMenu sessionId={session.id} title={session.title} />
+          <button
+            type="button"
+            className="panel-toggle"
+            onClick={async () => {
+              try {
+                const r = await api.createSessionShare(session.id, null);
+                const link = `${window.location.origin}${r.url}`;
+                await navigator.clipboard.writeText(link);
+                window.dispatchEvent(
+                  new CustomEvent("chat:toast", {
+                    detail: { text: `🔗 공유 링크가 복사됐어요` },
+                  }),
+                );
+              } catch (e) {
+                window.alert(
+                  `공유 링크 생성 실패: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
+            }}
+            title="이 대화의 공유 링크 (로그인된 사용자 읽기 전용)"
+          >
+            🔗 공유
+          </button>
           {session.workspace_id && (
             <button
               type="button"
@@ -2331,6 +2354,30 @@ function EmptyGreeting({ userName }: { userName: string | null }) {
     return { headline, sub, suggestions };
   }, [userName]);
 
+  // 빈 채팅 환영 위젯 (#36) — 최근 별표 + 자주 쓴 매크로 카드.
+  // 둘 다 비어 있어도 기본 suggestions 가 채워 빈 화면처럼 보이지 않게.
+  const [starred, setStarred] = useState<
+    { id: string; content: string; session_id: string }[]
+  >([]);
+  const [macros, setMacros] = useState<{ id: string; name: string; body: string }[]>([]);
+  useEffect(() => {
+    api
+      .listStarredMessages?.()
+      .then((rows) =>
+        setStarred(
+          rows.slice(0, 5).map((r) => ({
+            id: r.id,
+            content: r.content,
+            session_id: r.session_id ?? "",
+          })),
+        ),
+      )
+      .catch(() => setStarred([]));
+    api.listMacros?.()
+      .then((rows) => setMacros(rows.slice(0, 5)))
+      .catch(() => setMacros([]));
+  }, []);
+
   return (
     <div className="empty-greeting">
       <div className="empty-greeting-logo" aria-hidden="true">
@@ -2348,6 +2395,59 @@ function EmptyGreeting({ userName }: { userName: string | null }) {
           </li>
         ))}
       </ul>
+      {(starred.length > 0 || macros.length > 0) && (
+        <div className="empty-greeting-cards">
+          {macros.length > 0 && (
+            <div className="empty-greeting-card">
+              <div className="empty-greeting-card-head">⌨ 내 매크로</div>
+              <ul>
+                {macros.map((m) => (
+                  <li key={m.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("chat:quote-pick", {
+                            detail: { text: m.body },
+                          }),
+                        )
+                      }
+                      title={m.body.slice(0, 200)}
+                    >
+                      <code>/{m.name}</code>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {starred.length > 0 && (
+            <div className="empty-greeting-card">
+              <div className="empty-greeting-card-head">⭐ 최근 별표한 답변</div>
+              <ul>
+                {starred.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("chat:switch-session", {
+                            detail: { sessionId: s.session_id, messageId: s.id },
+                          }),
+                        )
+                      }
+                      title={s.content.slice(0, 240)}
+                    >
+                      {s.content.slice(0, 60)}
+                      {s.content.length > 60 ? "…" : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -747,3 +747,29 @@ class UserMacro(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class SessionShare(Base):
+    """공유 가능한 읽기 토큰 (#38).  같은 워크스페이스 내의 다른 인증
+    사용자가 토큰 URL 로 세션을 읽을 수 있게.  외부 anon 노출은 폐쇄망
+    원칙상 비활성 — 토큰 + 로그인 모두 요구."""
+
+    __tablename__ = "session_shares"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), index=True
+    )
+    # URL 안전 랜덤 토큰 — secrets.token_urlsafe(24) 권장.  unique 인덱스.
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # 만들었던 사용자 (cascade SET NULL — 사용자 탈퇴해도 링크는 유효).
+    created_by_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # 만료 시각.  NULL = 무기한 (사용자 직접 revoke 까지).
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )

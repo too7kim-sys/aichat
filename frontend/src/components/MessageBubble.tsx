@@ -189,6 +189,22 @@ export function MessageBubble({
   function removeTag(t: string) {
     void saveTags(tagsLocal.filter((x) => x !== t));
   }
+  // 번역 (#40) — 답변 본문 아래 번역 결과 표시.  null = 안 함,
+  // {target, text} = 표시. 'loading' 은 호출 중.
+  const [translation, setTranslation] = useState<
+    { target: string; text: string } | "loading" | null
+  >(null);
+  async function translateTo(target: "ko" | "en" | "ja" | "zh") {
+    if (!sessionId || !messageId) return;
+    setTranslation("loading");
+    try {
+      const r = await api.translateMessage(sessionId, messageId, target);
+      setTranslation({ target, text: r.text });
+    } catch (e) {
+      setTranslation(null);
+      window.alert(`번역 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   // 액션 행 ⋯ 오버플로우 메뉴 + 빠른 답장 칩 접기 (UI 최적화).
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
@@ -754,6 +770,27 @@ export function MessageBubble({
                           🏷 태그 붙이기
                         </button>
                       )}
+                      <div className="bubble-more-sep" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          translateTo("ko");
+                        }}
+                      >
+                        🌐 한국어로 번역
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          translateTo("en");
+                        }}
+                      >
+                        🌐 영어로 번역
+                      </button>
                     </div>
                   )}
                 </div>
@@ -770,6 +807,30 @@ export function MessageBubble({
               </button>
             )}
             <CopyButton text={body} />
+          </div>
+        )}
+        {translation && (
+          <div className="bubble-translation">
+            {translation === "loading" ? (
+              <div className="bubble-translation-loading">
+                번역 중…
+              </div>
+            ) : (
+              <>
+                <div className="bubble-translation-head">
+                  🌐 {translation.target === "ko" ? "한국어" : translation.target === "en" ? "English" : translation.target} 번역
+                  <button
+                    type="button"
+                    className="bubble-translation-close"
+                    onClick={() => setTranslation(null)}
+                    aria-label="번역 접기"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="bubble-translation-body">{translation.text}</div>
+              </>
+            )}
           </div>
         )}
         {(tagsLocal.length > 0 || tagInputOpen) && !streaming && (

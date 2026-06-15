@@ -10,6 +10,7 @@ import { AuthForm } from "./auth/AuthForm";
 import { ForgotPasswordForm } from "./auth/ForgotPasswordForm";
 import { AdminPage } from "./admin/AdminPage";
 import { MyPage } from "./auth/MyPage";
+import { SharedSessionView } from "./SharedSessionView";
 import { ResetPasswordForm } from "./auth/ResetPasswordForm";
 import { UserMenu } from "./auth/UserMenu";
 import { VerifyBanner } from "./auth/VerifyBanner";
@@ -126,6 +127,19 @@ function AuthGate() {
   if (view === "mypage") return <MyPage onBack={() => setView("chat")} />;
   if (view === "admin")
     return <AdminPage onBack={() => setView("chat")} />;
+  // 공유 링크 진입 (#38) — /share/<token> URL 이면 SharedSessionView 로.
+  const sharePath = window.location.pathname.match(/^\/share\/([\w-]+)/);
+  if (sharePath) {
+    return (
+      <SharedSessionView
+        token={sharePath[1]}
+        onExit={() => {
+          window.history.replaceState({}, "", "/");
+          setView("chat");
+        }}
+      />
+    );
+  }
   return (
     <AppInner
       onOpenMyPage={() => setView("mypage")}
@@ -258,12 +272,14 @@ function AppInner({
   // 를 띄우면, 사이드바 목록 갱신 + activeId 전환.
   useEffect(() => {
     function onSwitch(e: Event) {
-      const ev = e as CustomEvent<{ sessionId: string }>;
+      const ev = e as CustomEvent<{ sessionId: string; messageId?: string }>;
       const sid = ev.detail?.sessionId;
+      const mid = ev.detail?.messageId;
       if (!sid) return;
       void (async () => {
         await refreshSessions();
         setActiveId(sid);
+        if (mid) setPendingScrollMessageId(mid);
       })();
     }
     window.addEventListener("chat:switch-session", onSwitch);

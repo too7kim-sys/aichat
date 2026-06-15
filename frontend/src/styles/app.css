@@ -1,10 +1,13 @@
-/* Claude-inspired palette */
+/* Claude-inspired palette (light theme — default).  사용자 명시 토글
+ * 이 없으면 라이트로 시작.  data-theme="dark" 면 다크 팔레트로 전환,
+ * data-theme="system" 면 prefers-color-scheme 따름. */
 :root {
   --bg: #faf9f7;
   --bg-sidebar: #f5f1ea;
   --bg-card: #ffffff;
   --bg-user: #f0ebe3;
   --bg-input: #ffffff;
+  --bg-subtle: rgba(0, 0, 0, 0.03);
   --border: #e8e2d6;
   --border-strong: #d8d0bf;
   --text: #2c2a26;
@@ -15,6 +18,47 @@
   --accent-hover: #b86545;
   --danger: #c54444;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* 다크 팔레트 — 명시 토글 또는 system + prefers: dark 시 활성. */
+:root[data-theme="dark"],
+:root[data-theme="system"]:where(.dark-os) {
+  --bg: #1a1815;
+  --bg-sidebar: #14120f;
+  --bg-card: #221f1a;
+  --bg-user: #2a2520;
+  --bg-input: #221f1a;
+  --bg-subtle: rgba(255, 255, 255, 0.04);
+  --border: #3a342c;
+  --border-strong: #4c463c;
+  --text: #ece8e0;
+  --text-muted: #a8a298;
+  --text-faint: #7c766c;
+  --accent: #e58c6a;
+  --accent-soft: rgba(229, 140, 106, 0.16);
+  --accent-hover: #f4a584;
+  --danger: #e5645c;
+  --shadow: 0 1px 4px rgba(0, 0, 0, 0.36);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --bg: #1a1815;
+    --bg-sidebar: #14120f;
+    --bg-card: #221f1a;
+    --bg-user: #2a2520;
+    --bg-input: #221f1a;
+    --bg-subtle: rgba(255, 255, 255, 0.04);
+    --border: #3a342c;
+    --border-strong: #4c463c;
+    --text: #ece8e0;
+    --text-muted: #a8a298;
+    --text-faint: #7c766c;
+    --accent: #e58c6a;
+    --accent-soft: rgba(229, 140, 106, 0.16);
+    --accent-hover: #f4a584;
+    --danger: #e5645c;
+    --shadow: 0 1px 4px rgba(0, 0, 0, 0.36);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -9454,6 +9498,295 @@ body {
   font-size: 11px;
   padding: 2px 8px;
   width: 100px;
+}
+
+/* 공유 링크 읽기 전용 뷰 (#38). */
+.shared-view {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+.shared-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.shared-view-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.shared-view-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.shared-view-main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 60px;
+}
+.shared-view-title { font-size: 20px; margin: 0 0 8px; }
+.shared-view-readonly {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+.shared-view-messages {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.shared-view-msg {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+}
+.shared-view-msg-user { background: var(--bg-user); }
+.shared-view-msg-head {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.shared-view-msg-body { white-space: pre-wrap; line-height: 1.55; }
+.shared-view-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.shared-view-error { color: var(--danger); }
+
+/* 메시지 번역 블록 (#40). */
+.bubble-translation {
+  margin-top: 8px;
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bubble-translation-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.bubble-translation-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 4px;
+}
+.bubble-translation-close:hover { color: var(--accent); }
+.bubble-translation-loading {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 12px;
+}
+.bubble-translation-body { color: var(--text); }
+
+/* 답변 품질 패널 (#37). */
+.admin-quality-snippet {
+  font-size: 12px;
+  color: var(--text);
+  max-width: 360px;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.admin-quality-meta {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.admin-quality-note {
+  font-size: 12px;
+  color: #b45309;
+  white-space: pre-wrap;
+  max-width: 240px;
+}
+
+/* 시스템 헬스 인디케이터 (#39). */
+.admin-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.admin-health { position: relative; }
+.admin-health button {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.admin-health-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2ea043;
+}
+.admin-health-warn .admin-health-dot { background: #d29922; }
+.admin-health-err .admin-health-dot { background: #cf222e; }
+.admin-health-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  z-index: 60;
+  min-width: 240px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.admin-health-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.admin-health-row:last-of-type { border-bottom: none; }
+.admin-health-checked {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* 빈 채팅 환영 위젯 카드 (#36). */
+.empty-greeting-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+  max-width: 640px;
+  width: 100%;
+}
+.empty-greeting-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.empty-greeting-card-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.empty-greeting-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.empty-greeting-card ul li button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.empty-greeting-card ul li button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.empty-greeting-card ul li button code {
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.05));
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+/* UserMenu 안의 테마 토글 (#35). */
+.user-menu-theme {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.user-menu-theme-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.user-menu-theme-chips {
+  display: flex;
+  gap: 4px;
+}
+.user-menu-theme-chip {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.user-menu-theme-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.user-menu-theme-chip.picked {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 /* 슬래시 picker 안의 매크로 섹션 + 인라인 추가 폼 (#33). */

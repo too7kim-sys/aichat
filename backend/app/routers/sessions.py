@@ -554,6 +554,170 @@ async def bulk_action(
     await db.commit()
 
 
+# ── 세션 공유 링크 (#38) ─────────────────────────────────────
+import secrets as _secrets
+
+
+class ShareCreatePayload(BaseModel):
+    expires_days: int | None = None  # None = 무기한
+
+
+class ShareOut(BaseModel):
+    id: str
+    token: str
+    url: str
+    expires_at: datetime | None
+    created_at: datetime
+
+
+@router.post("/{session_id}/share", response_model=ShareOut)
+async def create_share(
+    session_id: str,
+    payload: ShareCreatePayload | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """공유 토큰 생성.  세션 소유자만 호출 가능.  expires_days 지정 시
+    그 시점부터 만료, 미지정이면 무기한 (사용자가 직접 revoke 가능).
+    """
+    session = await _load_owned(db, session_id, user.id)
+    days = (payload.expires_days if payload else None) or 0
+    expires_at = (
+        datetime.utcnow() + timedelta(days=days) if days > 0 else None
+    )
+    row = models.SessionShare(
+        session_id=session.id,
+        token=_secrets.token_urlsafe(24),
+        created_by_id=user.id,
+        expires_at=expires_at,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return ShareOut(
+        id=row.id,
+        token=row.token,
+        url=f"/share/{row.token}",
+        expires_at=row.expires_at,
+        created_at=row.created_at,
+    )
+
+
+@router.delete("/{session_id}/share/{share_id}", status_code=204)
+async def revoke_share(
+    session_id: str,
+    share_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """공유 링크 회수.  세션 소유자만."""
+    session = await _load_owned(db, session_id, user.id)
+    row = await db.scalar(
+        select(models.SessionShare).where(
+            models.SessionShare.id == share_id,
+            models.SessionShare.session_id == session.id,
+        )
+    )
+    if not row:
+        raise HTTPException(404, "공유 링크를 찾을 수 없어요")
+    await db.delete(row)
+    await db.commit()
+
+
+@router.get("/_share/{token}", response_model=schemas.SessionDetail)
+async def get_shared(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """토큰으로 공유된 세션을 읽기 전용으로 불러옴.  로그인은 여전히
+    필요 — 폐쇄망 원칙상 anon 접근은 비활성.  만료된 토큰은 404.
+    """
+    share = await db.scalar(
+        select(models.SessionShare).where(models.SessionShare.token == token)
+    )
+    if not share:
+        raise HTTPException(404, "공유 링크를 찾을 수 없어요")
+    if share.expires_at and share.expires_at < datetime.utcnow():
+        raise HTTPException(410, "공유 링크가 만료됐어요")
+    sess = await db.scalar(
+        select(models.Session)
+        .where(models.Session.id == share.session_id)
+        .options(selectinload(models.Session.messages))
+    )
+    if not sess:
+        raise HTTPException(404, "원본 세션을 찾을 수 없어요")
+    return sess
+
+
+# ── 메시지 번역 (#40) ────────────────────────────────────────
+class TranslatePayload(BaseModel):
+    target: str = "ko"  # ko | en | ja | zh ...
+
+
+@router.post("/{session_id}/messages/{message_id}/translate")
+async def translate_message(
+    session_id: str,
+    message_id: str,
+    payload: TranslatePayload,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """메시지 본문을 다른 언어로 번역.  세션 저장은 안 함 — 결과 텍스트
+    만 응답.  Ollama 의 일반 chat 엔드포인트를 1회 호출 (stream=false).
+    """
+    import httpx
+    from ..config import settings as _settings
+
+    session = await _load_owned(db, session_id, user.id)
+    msg = next((m for m in session.messages if m.id == message_id), None)
+    if msg is None:
+        raise HTTPException(404, "message not found")
+    body = (msg.content or "").strip()
+    if not body:
+        return {"text": "", "target": payload.target}
+
+    target_label = {
+        "ko": "한국어",
+        "en": "English",
+        "ja": "일본어",
+        "zh": "중국어 간체",
+    }.get(payload.target, payload.target)
+
+    sys_prompt = (
+        f"You are a professional translator.  Translate the following text "
+        f"into {target_label}.  Preserve formatting (markdown, code fences, "
+        f"line breaks).  Do not add any commentary or preamble — output the "
+        f"translated text only.  If a sentence is already in the target "
+        f"language, leave it as-is."
+    )
+
+    timeout = httpx.Timeout(60.0, connect=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                f"{_settings.ollama_base_url.rstrip('/')}/api/chat",
+                json={
+                    "model": _settings.ollama_model,
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": body},
+                    ],
+                },
+            )
+        if r.status_code >= 400:
+            raise HTTPException(502, f"Ollama {r.status_code}: {r.text[:200]}")
+        data = r.json()
+        text = (data.get("message") or {}).get("content") or ""
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"번역 실패: {exc}") from exc
+
+    return {"text": text.strip(), "target": payload.target}
+
+
 async def purge_expired_trash(retention_days: int = 30) -> int:
     """30 일 지난 휴지통 행 영구 삭제.  lifespan 부팅 시 1 회 호출."""
     from sqlalchemy import delete as _del

@@ -1117,3 +1117,123 @@ async def delete_backup(
 # router only — `get_current_user` is referenced via require_staff /
 # require_admin transitively.
 _ = get_current_user
+
+
+# ── 답변 품질 분석 (#37) ─────────────────────────────────────
+# 사용자가 👎 를 누른 어시스턴트 메시지를 한 화면에 모아 운영자가
+# 어디서 답변이 부족했는지 점검.  feedback_note 가 있으면 함께,
+# 없으면 메시지 본문 앞부분만.
+
+@router.get("/disliked")
+async def list_disliked(
+    limit: int = 100,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    limit = max(1, min(int(limit or 100), 500))
+    rows = (
+        await db.execute(
+            select(models.Message, models.Session.title, models.Session.user_id)
+            .join(models.Session, models.Session.id == models.Message.session_id)
+            .where(models.Message.feedback == -1)
+            .order_by(models.Message.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    user_ids = {uid for _m, _t, uid in rows if uid}
+    email_of: dict[str, str] = {}
+    if user_ids:
+        urows = (
+            await db.execute(
+                select(models.User.id, models.User.email).where(
+                    models.User.id.in_(user_ids)
+                )
+            )
+        ).all()
+        email_of = {uid: em for (uid, em) in urows}
+    return [
+        {
+            "message_id": m.id,
+            "session_id": m.session_id,
+            "session_title": title or "(제목 없음)",
+            "user_email": email_of.get(uid or "", "(unknown)"),
+            "provider": m.provider,
+            "content": (m.content or "")[:600],
+            "feedback_note": m.feedback_note,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for (m, title, uid) in rows
+    ]
+
+
+# ── 시스템 헬스 (#39) ─────────────────────────────────────────
+# 관리자 헤더 인디케이터용.  Ollama / Qdrant / DB / 최근 에러 카운트
+# 를 한 번의 호출로 받아 가벼운 점등 표시.
+
+@router.get("/health")
+async def health_check(
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    import asyncio as _asyncio
+    import httpx as _httpx
+    from datetime import datetime as _dt, timedelta as _td
+
+    from ..config import settings as _settings
+
+    async def _ollama() -> dict:
+        try:
+            timeout = _httpx.Timeout(3.5, connect=1.5)
+            async with _httpx.AsyncClient(timeout=timeout) as client:
+                t0 = _dt.utcnow()
+                r = await client.get(f"{_settings.ollama_base_url}/api/tags")
+                ms = int((_dt.utcnow() - t0).total_seconds() * 1000)
+                if r.status_code >= 400:
+                    return {"ok": False, "error": f"HTTP {r.status_code}", "latency_ms": ms}
+                models_n = len((r.json() or {}).get("models") or [])
+                return {"ok": True, "latency_ms": ms, "models": models_n}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    async def _qdrant() -> dict:
+        try:
+            url = getattr(_settings, "qdrant_url", None) or "http://localhost:6333"
+            timeout = _httpx.Timeout(3.5, connect=1.5)
+            async with _httpx.AsyncClient(timeout=timeout) as client:
+                t0 = _dt.utcnow()
+                r = await client.get(f"{url}/collections")
+                ms = int((_dt.utcnow() - t0).total_seconds() * 1000)
+                if r.status_code >= 400:
+                    return {"ok": False, "error": f"HTTP {r.status_code}", "latency_ms": ms}
+                cols = ((r.json() or {}).get("result") or {}).get("collections") or []
+                return {"ok": True, "latency_ms": ms, "collections": len(cols)}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    async def _db_ping() -> dict:
+        try:
+            from sqlalchemy import text as _text
+            t0 = _dt.utcnow()
+            await db.execute(_text("SELECT 1"))
+            ms = int((_dt.utcnow() - t0).total_seconds() * 1000)
+            return {"ok": True, "latency_ms": ms}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    cutoff = _dt.utcnow() - _td(hours=24)
+    err_24h = await db.scalar(
+        select(func.count(models.ErrorLog.id)).where(
+            models.ErrorLog.created_at >= cutoff
+        )
+    )
+
+    ollama, qdrant, dbping = await _asyncio.gather(
+        _ollama(), _qdrant(), _db_ping()
+    )
+    return {
+        "ollama": ollama,
+        "qdrant": qdrant,
+        "db": dbping,
+        "errors_24h": int(err_24h or 0),
+        "checked_at": _dt.utcnow().isoformat(),
+    }

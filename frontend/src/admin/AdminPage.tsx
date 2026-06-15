@@ -20,7 +20,7 @@ interface Props {
   onBack: () => void;
 }
 
-type View = "users" | "roles" | "knowledge" | "errors" | "audit" | "sessions" | "ops";
+type View = "users" | "roles" | "knowledge" | "errors" | "audit" | "sessions" | "ops" | "quality";
 
 type Tab = "pending" | "approved" | "suspended" | "rejected" | "all";
 
@@ -29,6 +29,7 @@ const VIEW_LABELS: Record<View, string> = {
   roles: "역할 코드",
   knowledge: "지식베이스",
   errors: "오류 모니터링",
+  quality: "답변 품질",
   audit: "감사 로그",
   sessions: "활성 세션",
   ops: "운영 대시보드",
@@ -296,9 +297,12 @@ export function AdminPage({ onBack }: Props) {
   return (
     <div className="admin-shell">
       <header className="admin-header">
-        <button className="admin-back" onClick={onBack}>
-          ← 뒤로
-        </button>
+        <div className="admin-header-top">
+          <button className="admin-back" onClick={onBack}>
+            ← 뒤로
+          </button>
+          <HealthIndicator />
+        </div>
         <h1>권한 관리</h1>
         <p>사용자의 권한을 부여·회수하고 가입 신청을 검토합니다.</p>
         <div className="admin-view-tabs">
@@ -327,6 +331,7 @@ export function AdminPage({ onBack }: Props) {
       {view === "knowledge" && <KnowledgePanel isAdmin={isAdmin} />}
 
       {view === "errors" && <ErrorsPanel />}
+      {view === "quality" && <QualityPanel />}
       {view === "audit" && <AuditPanel />}
       {view === "sessions" && <ActiveSessionsPanel />}
       {view === "ops" && <OpsDashboardPanel />}
@@ -1958,4 +1963,160 @@ function fmtBytes(n: number): string {
   let v = n;
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(v >= 100 ? 0 : 1)} ${u[i]}`;
+}
+
+
+// ── 답변 품질 분석 (#37) ─────────────────────────────────────
+// 👎 받은 어시스턴트 답변을 한 곳에 모아 운영자가 어떤 부분이
+// 부족했는지 점검.  세션 본문으로 점프 가능.
+function QualityPanel() {
+  type Row = Awaited<ReturnType<typeof admin.listDisliked>>[number];
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await admin.listDisliked(100);
+        setRows(r);
+        setErr(null);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <div className="admin-empty">불러오는 중...</div>;
+  if (err) return <div className="admin-empty admin-error">{err}</div>;
+
+  return (
+    <div className="admin-errors">
+      <div className="admin-errors-head">
+        <div>
+          <h2>👎 답변 품질 — 싫어요 받은 답변</h2>
+          <p>
+            사용자가 만족하지 못한 답변을 한 화면에서 점검할 수 있어요.
+            메모가 있으면 어떤 점이 아쉬웠는지 함께 표시됩니다.
+          </p>
+        </div>
+        <span className="admin-errors-stamp">{rows.length}건</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="admin-empty">✓ 최근 싫어요 표시된 답변이 없습니다.</div>
+      ) : (
+        <table className="admin-table admin-error-table">
+          <thead>
+            <tr>
+              <th>사용자</th>
+              <th>세션</th>
+              <th>답변</th>
+              <th>메모</th>
+              <th>시각</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.message_id}>
+                <td>{r.user_email}</td>
+                <td>
+                  <a
+                    href={`?session=${r.session_id}&message=${r.message_id}`}
+                    title="이 세션으로 이동"
+                  >
+                    {r.session_title}
+                  </a>
+                </td>
+                <td>
+                  <div className="admin-quality-snippet">{r.content}</div>
+                  {r.provider && (
+                    <div className="admin-quality-meta">{r.provider}</div>
+                  )}
+                </td>
+                <td>
+                  {r.feedback_note ? (
+                    <div className="admin-quality-note">{r.feedback_note}</div>
+                  ) : (
+                    <span className="admin-cell-muted">—</span>
+                  )}
+                </td>
+                <td>
+                  {r.created_at
+                    ? new Date(r.created_at).toLocaleString()
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+
+// ── 시스템 헬스 인디케이터 (#39) ───────────────────────────
+// 관리자 헤더에 작은 점등 — Ollama / Qdrant / DB / 최근 에러 카운트.
+// 30 초마다 자동 갱신.  데이터가 안 와도 페이지 자체는 정상 동작.
+export function HealthIndicator() {
+  type Data = Awaited<ReturnType<typeof admin.health>>;
+  const [data, setData] = useState<Data | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      try {
+        const r = await admin.health();
+        if (!cancelled) setData(r);
+      } catch {
+        if (!cancelled) setData(null);
+      }
+    }
+    void tick();
+    const id = window.setInterval(tick, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+  if (!data) return null;
+  const overall =
+    data.ollama.ok && data.qdrant.ok && data.db.ok && data.errors_24h < 5;
+  const status = overall ? "ok" : data.db.ok ? "warn" : "err";
+  return (
+    <div className={`admin-health admin-health-${status}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="시스템 헬스 — 클릭해 자세히"
+      >
+        <span className="admin-health-dot" /> 헬스
+      </button>
+      {open && (
+        <div className="admin-health-pop">
+          <Row k="Ollama" v={data.ollama} />
+          <Row k="Qdrant" v={data.qdrant} />
+          <Row k="DB" v={data.db} />
+          <div className="admin-health-row">
+            <span>24시간 오류</span>
+            <b>{data.errors_24h.toLocaleString()}</b>
+          </div>
+          <div className="admin-health-checked">
+            점검: {new Date(data.checked_at).toLocaleTimeString()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function Row({ k, v }: { k: string; v: { ok: boolean; latency_ms?: number; error?: string } }) {
+  return (
+    <div className="admin-health-row">
+      <span>
+        {v.ok ? "✓" : "✕"} {k}
+      </span>
+      <b>{v.ok ? `${v.latency_ms ?? "?"}ms` : v.error || "fail"}</b>
+    </div>
+  );
 }
