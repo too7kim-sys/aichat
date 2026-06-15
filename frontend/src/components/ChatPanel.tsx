@@ -290,6 +290,30 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // 닫아도 다시 30개 단위로 재등장하지 않도록 localStorage 에
   // dismissed 표시. 본문은 클라이언트에서 첫 사용자 질문 + 직전
   // 어시스턴트 답변 짧게 발췌 — 백엔드 요약 호출 없이 가볍게.
+  // ── 작성 중 자동 저장 (#23) ─────────────────────────────
+  // composer 의 prompt 값을 세션별 localStorage 에 저장. 새로고침이나
+  // 다른 세션 갔다가 돌아와도 그대로. 빈 문자열이면 키 삭제.
+  const draftKey = `chat:session:${sessionId}:draft`;
+
+  // ── AI 말투 (#28) ──────────────────────────────────────
+  // composer 옆 칩으로 격식/친근/짧게 선택. 다음 send 시 prompt 앞에
+  // 짧은 디렉티브를 prepend.  세션과 무관한 전역 설정.
+  const [tone, _setTone] = useState<"default" | "formal" | "casual" | "brief">(
+    () => {
+      const v = localStorage.getItem("chat:tone");
+      if (v === "formal" || v === "casual" || v === "brief" || v === "default") return v;
+      return "default";
+    },
+  );
+  function setTone(v: "default" | "formal" | "casual" | "brief") {
+    _setTone(v);
+    if (v === "default") localStorage.removeItem("chat:tone");
+    else localStorage.setItem("chat:tone", v);
+  }
+
+  // ── 세션 통계 카드 (#26) ────────────────────────────────
+  const [statsOpen, setStatsOpen] = useState(false);
+
   const summaryDismissKey = `chat:session:${sessionId}:summary-dismissed`;
   const [summaryDismissed, _setSummaryDismissed] = useState<boolean>(
     () => localStorage.getItem(summaryDismissKey) === "1",
@@ -503,6 +527,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     setSession(null);
     setLoadError(null);
     setAttachments([]);
+    // 세션 전환 시 그 세션에 저장돼 있던 작성 중 텍스트 복원 (#23).
+    // 없으면 빈 문자열로 리셋.
+    const savedDraft = localStorage.getItem(draftKey) ?? "";
+    setPrompt(savedDraft);
     api
       .getSession(sessionId)
       .then((s) => {
@@ -519,6 +547,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     };
   }, [sessionId, loadAttempt]);
 
+  // 입력값 변화에 따라 draft 저장 — debounce 없이 setItem 은 동기지만
+  // localStorage 쓰기는 한국어 길이에서도 미세하므로 그대로 둠.
+  useEffect(() => {
+    try {
+      if (prompt.trim() === "") localStorage.removeItem(draftKey);
+      else localStorage.setItem(draftKey, prompt);
+    } catch {
+      // private 모드 / quota — 조용히 무시.
+    }
+  }, [prompt, draftKey]);
+
   // When a stream for this session finishes, refetch so the persisted
   // assistant message replaces the live overlay.
   useEffect(() => {
@@ -531,6 +570,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       })
       .catch(() => {});
     onTitleSync?.();
+    // ── 답변 완료 알림 (#24) ────────────────────────────────
+    // 탭이 백그라운드면 document.title 에 깜빡 표시 + 사용자가
+    // 알림 권한을 허용한 경우 시스템 Notification.
+    if (document.hidden && liveStream.errors.length === 0) {
+      const base = document.title.replace(/^●\s*답변 도착\s*·\s*/, "");
+      document.title = `● 답변 도착 · ${base}`;
+      try {
+        if (
+          "Notification" in window &&
+          Notification.permission === "granted"
+        ) {
+          new Notification("답변이 도착했어요", {
+            body: "탭을 클릭해 확인하세요.",
+            tag: `chat-reply-${sessionId}`,
+          });
+        }
+      } catch {
+        // 권한·환경 이슈 — 조용히 무시.
+      }
+    }
     if (liveStream.errors.length) {
       alert(`응답 실패:\n\n${liveStream.errors.join("\n")}`);
     }
@@ -673,6 +732,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   useEffect(() => {
     scrollRestoredRef.current = false;
   }, [sessionId]);
+
+  // 답변 알림 (#24) — 탭이 다시 보이면 title 접두사 제거.
+  useEffect(() => {
+    function onVis() {
+      if (!document.hidden) {
+        document.title = document.title.replace(
+          /^●\s*답변 도착\s*·\s*/,
+          "",
+        );
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   // ── 세션 내 검색 매칭 (#17) ─────────────────────────────
   // 입력값으로 message 본문 substring 매치 (대소문자 무시). 매칭된
@@ -987,7 +1060,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   function send(override?: string) {
     if (streaming || !activeProvider) return;
     if (locked) return;
-    const text = (override ?? prompt).trim();
+    let text = (override ?? prompt).trim();
     if (!text) return;
 
     // Composer slash command: `/merge`, `/병합`, "합쳐줘", "[제목]로 병합".
@@ -1001,7 +1074,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       return;
     }
 
-    if (override === undefined) setPrompt("");
+    // 말투 토글 (#28) — 짧은 디렉티브를 prompt 끝에 한 줄로 부착.
+    // 끝에 두는 이유: 본문이 짧은 인사·질문일 때 prefix 가 시선을 끌어
+    // 어색해지는 걸 막기 위함.  메시지에 그대로 저장되므로 사용자가
+    // 의도를 인지할 수 있게 한국어로 명시.
+    if (tone === "formal") text += "\n\n(격식체·존댓말로 답해 주세요.)";
+    else if (tone === "casual") text += "\n\n(편안한 반말로, 친한 사람처럼 답해 주세요.)";
+    else if (tone === "brief") text += "\n\n(핵심만 3~5줄 이내로 짧게 답해 주세요.)";
+
+    if (override === undefined) {
+      setPrompt("");
+      // 작성 자동저장 (#23) — 보낸 직후 draft 클리어.
+      try { localStorage.removeItem(draftKey); } catch {}
+    }
     setMergeStatus(null);
     const sentAttachments = attachments;
     setAttachments([]);
@@ -1203,6 +1288,67 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           >
             {locked ? "🔒 잠김" : "🔓"}
           </button>
+          <div className="chat-stats-wrap">
+            <button
+              type="button"
+              className="panel-toggle"
+              onClick={() => setStatsOpen((v) => !v)}
+              title="이 세션의 통계"
+              aria-label="세션 통계"
+            >
+              📊
+            </button>
+            {statsOpen && session && (() => {
+              const msgs = session.messages;
+              const total = msgs.length;
+              const userCount = msgs.filter((m) => m.role === "user").length;
+              const aiCount = total - userCount;
+              const starCount = msgs.filter((m) => m.starred).length;
+              const latencies = msgs
+                .map((m) => m.latency_ms)
+                .filter((v): v is number => typeof v === "number" && v > 0);
+              const avgLatency =
+                latencies.length === 0
+                  ? null
+                  : latencies.reduce((a, b) => a + b, 0) / latencies.length;
+              const tokens = msgs
+                .map((m) => m.tokens_out ?? 0)
+                .reduce((a, b) => a + b, 0);
+              const firstAt = msgs[0]?.created_at;
+              const lastAt = msgs[msgs.length - 1]?.created_at;
+              return (
+                <div className="chat-stats-popover" role="dialog">
+                  <div className="chat-stats-row"><span>메시지</span><b>{total}</b></div>
+                  <div className="chat-stats-row"><span>↳ 사용자 / AI</span><b>{userCount} / {aiCount}</b></div>
+                  <div className="chat-stats-row"><span>별표</span><b>{starCount}</b></div>
+                  <div className="chat-stats-row">
+                    <span>평균 응답 시간</span>
+                    <b>{avgLatency === null ? "—" : `${(avgLatency / 1000).toFixed(1)}s`}</b>
+                  </div>
+                  <div className="chat-stats-row">
+                    <span>출력 토큰 합</span>
+                    <b>{tokens.toLocaleString()}</b>
+                  </div>
+                  {firstAt && lastAt && (
+                    <div className="chat-stats-row chat-stats-since">
+                      <span>기간</span>
+                      <b>
+                        {new Date(firstAt).toLocaleDateString()} ~
+                        {" "}{new Date(lastAt).toLocaleDateString()}
+                      </b>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="chat-stats-close"
+                    onClick={() => setStatsOpen(false)}
+                  >
+                    닫기
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
           <div className="chat-typo-wrap">
             <button
               type="button"
@@ -1327,6 +1473,33 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           </aside>
         )}
         <div className="chat-main">
+      {session.messages.length >= 8 && (
+        <div className="chat-minimap" aria-hidden="true">
+          {session.messages.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              className={`chat-minimap-dot ${m.role === "user" ? "u" : "a"}${m.starred ? " star" : ""}${m.feedback === -1 ? " bad" : ""}`}
+              title={`${m.role === "user" ? "나" : "AI"} · ${m.content.slice(0, 40)}${m.content.length > 40 ? "…" : ""}`}
+              onClick={() => {
+                const root = scrollRef.current;
+                if (!root) return;
+                const node = root.querySelector<HTMLElement>(
+                  `[data-message-id="${m.id}"]`,
+                );
+                if (!node) return;
+                node.scrollIntoView({ behavior: "smooth", block: "center" });
+                node.classList.add("search-flash");
+                stickToBottomRef.current = false;
+                window.setTimeout(
+                  () => node.classList.remove("search-flash"),
+                  1400,
+                );
+              }}
+            />
+          ))}
+        </div>
+      )}
       <div
         className="messages"
         ref={scrollRef}
@@ -1849,6 +2022,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 <IconSearch size={14} />
                 <span>{webSearch ? "검색 ON" : "검색"}</span>
               </button>
+              <div className="composer-tone" title="AI 말투 — 다음 메시지에 적용">
+                {(
+                  [
+                    ["default", "기본"],
+                    ["formal", "격식"],
+                    ["casual", "친근"],
+                    ["brief", "짧게"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`composer-tone-chip${tone === key ? " picked" : ""}`}
+                    onClick={() => setTone(key)}
+                    disabled={streaming}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="composer-right">
               <MicButton

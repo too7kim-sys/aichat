@@ -670,6 +670,36 @@ export function MessageBubble({
             <CopyButton text={body} />
           </div>
         )}
+        {!streaming && body && !editing && !locked && sessionId && messageId && (
+          <div className="bubble-quick-replies" aria-label="빠른 후속 질문">
+            {(
+              [
+                ["예시 더", "위 답변에 대한 구체적인 예시를 2~3개 더 들어 주세요."],
+                ["표로", "위 내용을 표(Markdown) 로 정리해 주세요."],
+                ["다른 방법", "위와 다른 접근 방법이 있다면 알려 주세요."],
+                ["핵심만", "위 답변의 핵심만 3줄 이내로 요약해 주세요."],
+                ["출처는?", "이 답변의 근거나 출처를 알려 주세요."],
+                ["다음 단계", "다음으로 무엇을 해야 할지 단계별로 알려 주세요."],
+              ] as const
+            ).map(([label, prompt]) => (
+              <button
+                key={label}
+                type="button"
+                className="bubble-quick-chip"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent("chat:choice-picked", {
+                      detail: { text: prompt },
+                    }),
+                  )
+                }
+                title={prompt}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {showNoteEditor && sessionId && messageId && (
           <div className="bubble-feedback-note">
             {feedbackLocal === -1 && (

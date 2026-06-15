@@ -8594,3 +8594,153 @@ body {
   color: var(--text-muted);
   text-align: right;
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * 빠른 답장 칩 (#25) — 어시스턴트 답변 액션 바 아래에 한 줄.
+ * ───────────────────────────────────────────────────────────── */
+.bubble-quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.bubble-quick-chip {
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.bubble-quick-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 세션 통계 팝오버 (#26) — 헤더 📊 옆.
+ * ───────────────────────────────────────────────────────────── */
+.chat-stats-wrap { position: relative; display: inline-block; }
+.chat-stats-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  padding: 10px 12px;
+  min-width: 240px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.chat-stats-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.chat-stats-row:last-of-type { border-bottom: none; }
+.chat-stats-row span { color: var(--text-muted); }
+.chat-stats-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+.chat-stats-since b { font-size: 11.5px; }
+.chat-stats-close {
+  margin-top: 6px;
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.chat-stats-close:hover { color: var(--accent); }
+
+/* ─────────────────────────────────────────────────────────────
+ * 메시지 미니맵 (#27) — 오른쪽 외곽에 작은 점들. 클릭 = 점프.
+ * ───────────────────────────────────────────────────────────── */
+.chat-main { position: relative; }
+.chat-minimap {
+  position: absolute;
+  top: 80px;
+  right: 6px;
+  bottom: 140px;
+  width: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+  pointer-events: auto;
+  z-index: 20;
+  opacity: 0.55;
+  transition: opacity 0.15s;
+  overflow: hidden;
+}
+.chat-minimap:hover { opacity: 1; }
+.chat-minimap-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: var(--border-strong, #b8c0c8);
+}
+.chat-minimap-dot.u { background: #9aa3ad; }
+.chat-minimap-dot.a { background: #6cabf0; }
+.chat-minimap-dot.star {
+  background: #f6c83a;
+  box-shadow: 0 0 0 1px #d6a91a;
+}
+.chat-minimap-dot.bad {
+  background: #d96666;
+}
+.chat-minimap-dot:hover {
+  transform: scale(1.6);
+}
+@media (max-width: 720px) {
+  /* 좁은 화면에서 메시지와 겹치지 않도록 숨김 */
+  .chat-minimap { display: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * AI 말투 토글 (#28) — composer-left 옆 작은 칩.
+ * ───────────────────────────────────────────────────────────── */
+.composer-tone {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  margin-left: 6px;
+}
+.composer-tone-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.composer-tone-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.composer-tone-chip.picked {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.composer-tone-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
