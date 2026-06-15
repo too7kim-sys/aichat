@@ -44,24 +44,9 @@ const SORT_OPTIONS: { value: Sort; label: string }[] = [
   { value: "dsc", label: "높은가격" },
 ];
 
-// 한국 대표 쇼핑몰 — Naver shop 의 mallName 부분일치 필터로 좁힌다.
-const MALL_PRESETS = [
-  "전체",
-  "쿠팡",
-  "11번가",
-  "G마켓",
-  "옥션",
-  "위메프",
-  "티몬",
-  "롯데ON",
-  "SSG",
-  "네이버",
-];
-
 export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("sim");
-  const [mall, setMall] = useState<string>("전체");
   const [items, setItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -102,7 +87,6 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
       const res = await api.searchShop(query.trim(), {
         sort,
         display: 40,
-        mall: mall === "전체" ? "" : mall,
         sources: providerFilter,
       });
       setItems(res.items);
@@ -152,7 +136,7 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
         : `'${query}' 로 검색한 상품 ${list.length}개입니다. 가격·평판·실사용 후기 관점에서 추천을 해 주세요.`;
     const text = `${intro}\n\n${lines.join("\n\n")}\n\n(검색어: ${query}, 정렬: ${
       SORT_OPTIONS.find((o) => o.value === sort)?.label ?? sort
-    }${mall !== "전체" ? `, 몰: ${mall}` : ""})`;
+    })`;
     onSendToChat(text);
     onClose();
   }
@@ -228,17 +212,6 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
               onClick={() => setSort(o.value)}
             >
               {o.label}
-            </button>
-          ))}
-          <span className="shop-browser-filter-label">몰</span>
-          {MALL_PRESETS.map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`shop-browser-chip${mall === m ? " picked" : ""}`}
-              onClick={() => setMall(m)}
-            >
-              {m}
             </button>
           ))}
         </div>
