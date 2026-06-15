@@ -894,6 +894,41 @@ export const api = {
     const params = new URLSearchParams({ q, limit: String(limit) });
     return json<MessageSearchResult[]>(`/search/messages?${params.toString()}`);
   },
+  /** Naver 쇼핑 단일 호출. sort = sim(정확도) / date(최신) /
+   *  asc(낮은가격) / dsc(높은가격).  관리자가 NAVER_CLIENT_ID/
+   *  SECRET 을 .env 에 넣지 않았다면 503 으로 떨어진다. */
+  searchShop: (
+    q: string,
+    opts: {
+      sort?: "sim" | "date" | "asc" | "dsc";
+      display?: number;
+      start?: number;
+      mall?: string;
+    } = {},
+  ) => {
+    const params = new URLSearchParams({
+      q,
+      sort: opts.sort ?? "sim",
+      display: String(opts.display ?? 30),
+      start: String(opts.start ?? 1),
+    });
+    if (opts.mall) params.set("mall", opts.mall);
+    return json<{
+      items: {
+        title: string;
+        link: string;
+        image: string;
+        lprice: number | null;
+        hprice: number | null;
+        mall: string;
+        brand: string;
+        category: string;
+        productId: string;
+      }[];
+      sort: "sim" | "date" | "asc" | "dsc";
+      query: string;
+    }>(`/search/shop?${params.toString()}`);
+  },
   /** Persist a two-message record of a `/병합` exchange so the chat
    *  surface shows what happened — the user's slash command and an
    *  assistant-style "병합 완료" confirmation with the merged

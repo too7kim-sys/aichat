@@ -10,7 +10,7 @@ Scope is the requesting user's sessions only — the join on
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import models
 from ..auth import get_current_user
 from ..database import get_db
+from ..search import naver as naver_search
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -110,3 +111,62 @@ async def search_messages(
             )
         )
     return out
+
+
+class ShopItem(BaseModel):
+    title: str
+    link: str
+    image: str
+    lprice: int | None = None
+    hprice: int | None = None
+    mall: str
+    brand: str = ""
+    category: str = ""
+    productId: str = ""
+
+
+class ShopResponse(BaseModel):
+    items: list[ShopItem]
+    sort: Literal["sim", "date", "asc", "dsc"]
+    query: str
+
+
+@router.get("/shop", response_model=ShopResponse)
+async def search_shop(
+    q: str = Query("", description="검색어"),
+    sort: Literal["sim", "date", "asc", "dsc"] = Query(
+        "sim", description="sim=정확도, date=최신, asc=낮은가격, dsc=높은가격"
+    ),
+    display: int = Query(30, ge=1, le=100, description="결과 개수"),
+    start: int = Query(1, ge=1, le=1000, description="페이지 시작 위치 (1~1000)"),
+    mall: str = Query("", description="쇼핑몰 이름 필터 (부분일치, 대소문자 무시)"),
+    _user: models.User = Depends(get_current_user),
+):
+    """쇼핑 검색 — Naver Shopping API 직접 호출. 결과를 가격순/최신순
+    으로 정렬해 받고, 선택적으로 mall 부분일치 필터 적용.
+
+    NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 가 .env 에 없으면 503.
+    """
+    query = (q or "").strip()
+    if len(query) < 2:
+        return ShopResponse(items=[], sort=sort, query=query)
+    try:
+        raw = await naver_search.search_shop(
+            query, display=display, start=start, sort=sort
+        )
+    except naver_search.NaverSearchError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "쇼핑 검색 사용 불가 — 관리자에게 NAVER_CLIENT_ID / "
+                f"NAVER_CLIENT_SECRET 설정을 확인해 달라고 해주세요. ({exc})"
+            ),
+        ) from exc
+
+    mall_q = mall.strip().lower()
+    if mall_q:
+        raw = [
+            r for r in raw if mall_q in (r.get("mall") or "").lower()
+        ]
+    items = [ShopItem(**r) for r in raw]
+    return ShopResponse(items=items, sort=sort, query=query)

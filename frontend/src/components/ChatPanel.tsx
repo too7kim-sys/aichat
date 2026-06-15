@@ -20,6 +20,7 @@ import {
 } from "./Icon";
 import type { LocalAttachment } from "../export/MergeAttachmentsDialog";
 import { MessageBubble } from "./MessageBubble";
+import { ShoppingBrowser } from "./ShoppingBrowser";
 import { BrandLogo } from "./BrandLogo";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
@@ -321,6 +322,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     | { src: string; name: string }
     | null
   >(null);
+
+  // 🛒 쇼핑 브라우저 — 별도 모달에서 Naver shop 직접 검색 후
+  // 선택한 상품으로 AI 에 비교/추천 요청 프롬프트 자동 생성.
+  const [shopBrowserOpen, setShopBrowserOpen] = useState(false);
 
   const summaryDismissKey = `chat:session:${sessionId}:summary-dismissed`;
   const [summaryDismissed, _setSummaryDismissed] = useState<boolean>(
@@ -2115,6 +2120,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 <IconSearch size={14} />
                 <span>{webSearch ? "검색 ON" : "검색"}</span>
               </button>
+              <button
+                type="button"
+                className="shop-toggle"
+                onClick={() => setShopBrowserOpen(true)}
+                disabled={streaming}
+                title="쇼핑몰 상품 검색 — Naver Shopping API"
+              >
+                🛒 <span>쇼핑</span>
+              </button>
               <div className="composer-tone" title="AI 말투 — 다음 메시지에 적용">
                 {(
                   [
@@ -2171,6 +2185,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </div>
       </div>
       </ChatWorkspaceProvider>
+      <ShoppingBrowser
+        open={shopBrowserOpen}
+        onClose={() => setShopBrowserOpen(false)}
+        onSendToChat={(text) => {
+          // composer 에 prefill 하고 즉시 send — 사용자가 한 번 더
+          // 확인하길 원하면 send 대신 setPrompt 만 호출하도록 바꿀 수
+          // 있다. 현재는 모달에서 이미 선택을 했으므로 자동 전송.
+          send(text);
+        }}
+      />
       {lightbox && (
         <div
           className="image-lightbox-backdrop"
