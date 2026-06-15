@@ -314,6 +314,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // ── 세션 통계 카드 (#26) ────────────────────────────────
   const [statsOpen, setStatsOpen] = useState(false);
 
+  // ── 이미지 분석 / 예측 (29) ─────────────────────────────
+  // 첨부된 이미지의 data URI 를 라이트박스에서 확대해 본다. null 이면
+  // 모달 닫힘. base64 + mime 둘 다 보관해야 src 만들 수 있음.
+  const [lightbox, setLightbox] = useState<
+    | { src: string; name: string }
+    | null
+  >(null);
+
   const summaryDismissKey = `chat:session:${sessionId}:summary-dismissed`;
   const [summaryDismissed, _setSummaryDismissed] = useState<boolean>(
     () => localStorage.getItem(summaryDismissKey) === "1",
@@ -1831,6 +1839,79 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               )}
             </div>
           )}
+          {attachments.length > 0 && (() => {
+            // 첨부 타입 감지 — 이미지 / 표 데이터 / 일반 텍스트.
+            const hasImage = attachments.some((a) => !!a.image_b64);
+            const hasData = attachments.some((a) =>
+              /\.(csv|tsv|xlsx|xls|json|jsonl|parquet)$/i.test(a.filename),
+            );
+            if (!hasImage && !hasData) return null;
+            // chip 한 번 누르면 즉시 send — composer 가 비어있어도 첨부된
+            // 이미지/데이터에 대한 분석을 바로 받을 수 있게.
+            function quickAnalyze(text: string) {
+              send(text);
+            }
+            return (
+              <div className="attach-analysis-bar" role="toolbar">
+                {hasImage && (
+                  <>
+                    <span className="attach-analysis-label">
+                      🖼 이미지 분석
+                    </span>
+                    {(
+                      [
+                        ["설명", "첨부된 이미지를 한국어로 자세히 설명해 주세요. 주요 객체, 장면, 분위기, 텍스트(있다면)를 짚어 주세요."],
+                        ["OCR", "첨부된 이미지에 보이는 모든 글자를 빠짐없이 추출해 주세요. 위치/순서는 자연스럽게 유지하고, 표가 있으면 Markdown 표로 정리해 주세요."],
+                        ["차트", "첨부된 이미지가 차트라면 X·Y 축, 데이터 값, 추세를 읽어내 표로 정리해 주시고, 보이는 추세에 대한 짧은 해석도 덧붙여 주세요."],
+                        ["객체", "첨부된 이미지에서 인식되는 모든 객체를 목록으로 알려 주세요. 각 객체의 위치(좌상/우하 등)와 추정 신뢰도도 함께."],
+                        ["검수", "첨부된 이미지에서 결함·이상·위험 요소가 있으면 알려 주세요. 없다면 '특이사항 없음' 으로 답해 주세요."],
+                        ["요약", "첨부된 이미지의 핵심을 3줄 이내로 요약해 주세요."],
+                      ] as const
+                    ).map(([label, prompt]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        className="attach-analysis-chip"
+                        onClick={() => quickAnalyze(prompt)}
+                        disabled={streaming || locked}
+                        title={prompt}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </>
+                )}
+                {hasData && (
+                  <>
+                    <span className="attach-analysis-label">
+                      📊 데이터 분석·예측
+                    </span>
+                    {(
+                      [
+                        ["요약", "첨부된 표/데이터의 행·열 구조, 주요 통계(평균·중앙값·범위), 결측 비율을 정리해 주세요."],
+                        ["추세", "첨부된 데이터의 시계열·시간순 추세를 파악해 주세요. 시점 컬럼이 있다면 그 기준으로 정렬해 분석."],
+                        ["예측", "첨부된 데이터를 기반으로 다음 5~10 기간을 예측하고, 신뢰구간이나 가정도 함께 설명해 주세요. 가능하면 코드 블록(Python, pandas/statsmodels)도 제시해 Pyodide 패널에서 실행할 수 있게."],
+                        ["이상치", "첨부된 데이터에서 이상치/특이값을 찾아 행 번호와 이유를 알려 주세요."],
+                        ["상관", "첨부된 데이터 컬럼 간 상관관계가 의미 있는 쌍을 찾아 정리해 주세요."],
+                        ["차트", "첨부된 데이터를 가장 잘 보여주는 차트를 1~2종 추천하고, Python(matplotlib) 코드로 그려 주세요. Pyodide 가 자동 실행합니다."],
+                      ] as const
+                    ).map(([label, prompt]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        className="attach-analysis-chip"
+                        onClick={() => quickAnalyze(prompt)}
+                        disabled={streaming || locked}
+                        title={prompt}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            );
+          })()}
           {(attachments.length > 0 || uploading) && (
             <div className="attachments">
               {attachments.length > 0 && (
@@ -1881,12 +1962,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                       title={tooltip}
                     >
                       {isImage ? (
-                        <img
-                          className="attachment-thumb"
-                          src={`data:${guessMime};base64,${a.image_b64}`}
-                          alt=""
-                          loading="lazy"
-                        />
+                        <button
+                          type="button"
+                          className="attachment-thumb-btn"
+                          onClick={() =>
+                            setLightbox({
+                              src: `data:${guessMime};base64,${a.image_b64}`,
+                              name: basename,
+                            })
+                          }
+                          title="크게 보기"
+                        >
+                          <img
+                            className="attachment-thumb"
+                            src={`data:${guessMime};base64,${a.image_b64}`}
+                            alt=""
+                            loading="lazy"
+                          />
+                        </button>
                       ) : (
                         <span className="attachment-icon" aria-hidden="true">
                           <IconFileText size={18} />
@@ -2078,7 +2171,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </div>
       </div>
       </ChatWorkspaceProvider>
-
+      {lightbox && (
+        <div
+          className="image-lightbox-backdrop"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            type="button"
+            className="image-lightbox-close"
+            onClick={() => setLightbox(null)}
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+          <img
+            className="image-lightbox-img"
+            src={lightbox.src}
+            alt={lightbox.name}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <a
+            className="image-lightbox-download"
+            href={lightbox.src}
+            download={lightbox.name}
+            onClick={(e) => e.stopPropagation()}
+          >
+            💾 저장
+          </a>
+        </div>
+      )}
     </div>
   );
 });

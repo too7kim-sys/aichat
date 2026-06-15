@@ -8744,3 +8744,104 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * 이미지·데이터 첨부 시 빠른 분석/예측 칩 (#29) — 첨부 영역 위에
+ * 노출. 클릭 한 번으로 전송돼 결과를 바로 받음.
+ * ───────────────────────────────────────────────────────────── */
+.attach-analysis-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.attach-analysis-label {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.attach-analysis-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.attach-analysis-chip:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.attach-analysis-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 첨부 썸네일을 버튼으로 감싸 라이트박스 트리거. 기본 .attachment-
+ * thumb 스타일은 그대로 두고, 버튼은 패딩/배경 없이 클릭 영역만. */
+.attachment-thumb-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: zoom-in;
+  display: inline-flex;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 이미지 라이트박스 — 첨부 썸네일 클릭 시 큰 화면.
+ * ───────────────────────────────────────────────────────────── */
+.image-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.86);
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.image-lightbox-img {
+  max-width: 96vw;
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  background: #fff;
+}
+.image-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.image-lightbox-close:hover { background: rgba(255, 255, 255, 0.24); }
+.image-lightbox-download {
+  position: absolute;
+  bottom: 22px;
+  right: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #222;
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.image-lightbox-download:hover { background: #fff; }
