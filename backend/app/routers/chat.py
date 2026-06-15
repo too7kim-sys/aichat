@@ -1127,10 +1127,20 @@ async def chat_single(
                     "RAG auto-search: user=%s accessible=%d projects %s",
                     user.email, len(accessible), accessible,
                 )
+                # 짧은 쿼리("사내", "휴가규정" 같은 1-2단어) 는 cosine
+                # 분포가 낮은 쪽으로 쏠려 기본 임계값에서 다 잘리므로
+                # 임계값을 약간 더 낮춰 잡는다. RRF + 표시용 score 가
+                # 따로 있어 잡음 부담은 작다.
+                short_query = len(payload.prompt.split()) <= 2
+                gate = (
+                    max(0.0, settings.rag_auto_min_score - 0.10)
+                    if short_query
+                    else settings.rag_auto_min_score
+                )
                 chunks = await retrieve_many(
                     accessible,
                     payload.prompt,
-                    min_score=settings.rag_auto_min_score,
+                    min_score=gate,
                     user_id=user.id,
                 )
                 if chunks:

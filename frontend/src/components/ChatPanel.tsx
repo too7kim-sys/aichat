@@ -1412,20 +1412,11 @@ function SourcesBox({
 }: {
   sources: import("../api/client").SearchSource[];
   warning?: string | null;
-  // While the stream is live the box stays fully expanded — the user
-  // is watching the answer build. Once `streaming=false` (done) we
-  // collapse it into a small "📎 출처 N개" chip so it stops eating
-  // the bottom of the chat. The user can click to peek if needed.
+  // 기본은 항상 접힘 — 검색 출처가 답변 끝을 잡아먹지 않게. 스트리밍
+  // 중에도 접힌 칩 형태만 보이고, 사용자가 클릭해야 펼쳐진다.
   streaming?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  // Auto-collapse as soon as streaming ends. Re-expand if a new live
-  // stream begins (the count below will jump on the next answer's
-  // first sources event).
-  useEffect(() => {
-    if (streaming) setExpanded(true);
-    else setExpanded(false);
-  }, [streaming]);
+  const [expanded, setExpanded] = useState(false);
 
   if (sources.length === 0) {
     return (

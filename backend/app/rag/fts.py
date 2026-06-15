@@ -161,13 +161,25 @@ def search(
 
 def _sanitize_query(q: str) -> str:
     """FTS5 MATCH 문법에 안전한 형태로. NEAR/" 같은 연산자를 사용자가
-    의도치 않게 넣어 SQL 에러 나는 걸 막는다. 단어 단위로 따옴표 감싸기."""
+    의도치 않게 넣어 SQL 에러 나는 걸 막는다.
+
+    토큰 처리:
+      · ≥ 3자: 따옴표로 감싸 phrase 매칭 (trigram 토크나이저 한도가
+        3이므로 phrase 가 그대로 동작).
+      · 2자 한국어: prefix 와일드카드 (trigram 은 2자 단독 토큰을
+        못 만들지만 그 2자가 포함된 3-gram 을 prefix 로 잡으려면 별표
+        가 필요. 예: "사내" → 사내*).
+      · 1자: BM25 매칭 효용 없음 → 스킵.
+    """
     parts = [w.strip() for w in q.split() if w.strip()]
     if not parts:
         return ""
-    # 따옴표는 \" 로 escape, 단어 자체를 phrase 로 처리.
-    quoted = []
+    out: list[str] = []
     for w in parts[:20]:  # 20단어 cap
         w = w.replace('"', '""')
-        quoted.append(f'"{w}"')
-    return " ".join(quoted)
+        if len(w) >= 3:
+            out.append(f'"{w}"')
+        elif len(w) == 2:
+            out.append(f'"{w}"*')
+        # 1자는 스킵
+    return " ".join(out)

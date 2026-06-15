@@ -130,8 +130,9 @@ class Settings(BaseSettings):
     # "연결 안 해도 자동 활용" path). Explicit per-session links skip
     # this gate. Tuned conservative so an unrelated knowledge base
     # doesn't bleed noise into every answer; lower it if relevant
-    # bases are being missed.
-    rag_auto_min_score: float = 0.45
+    # bases are being missed. 0.30 정도가 한국어 짧은 쿼리("사내 …")
+    # 까지 잡으면서 잡음 청크는 거의 안 들어오는 균형점.
+    rag_auto_min_score: float = 0.30
     # Per-project file limits (separate from the git/folder upload
     # caps because the corpus is meant to be larger).
     rag_max_files: int = 5000
