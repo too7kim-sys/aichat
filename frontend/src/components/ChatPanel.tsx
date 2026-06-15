@@ -1752,6 +1752,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   createdAt={m.created_at}
                   latencyMs={m.latency_ms ?? null}
                   tokensOut={m.tokens_out ?? null}
+                  tags={m.tags ?? null}
                   locked={locked}
                   onBranchFrom={async () => {
                     try {
@@ -2748,14 +2749,27 @@ function SlashPromptPicker({
   onClose: () => void;
 }) {
   const [prompts, setPrompts] = useState<Awaited<ReturnType<typeof api.listPrompts>>>([]);
+  const [macros, setMacros] = useState<Awaited<ReturnType<typeof api.listMacros>>>([]);
+  // 매크로 추가 인라인 폼 (#33).
+  const [adding, setAdding] = useState(false);
+  const [macroName, setMacroName] = useState("");
+  const [macroBody, setMacroBody] = useState("");
+  async function refreshMacros() {
+    try {
+      setMacros(await api.listMacros());
+    } catch {
+      setMacros([]);
+    }
+  }
   useEffect(() => {
     if (!open) return;
     api.listPrompts().then(setPrompts).catch(() => setPrompts([]));
+    refreshMacros();
   }, [open]);
   if (!open) return null;
 
   const q = query.toLowerCase().trim();
-  const filtered = prompts
+  const filteredPrompts = prompts
     .filter((p) => {
       if (!q) return true;
       return (
@@ -2765,35 +2779,139 @@ function SlashPromptPicker({
       );
     })
     .slice(0, 8);
+  const filteredMacros = macros
+    .filter((m) => !q || m.name.toLowerCase().includes(q))
+    .slice(0, 8);
+
+  async function saveMacro() {
+    const name = macroName.trim();
+    const body = macroBody.trim();
+    if (!name || !body) return;
+    try {
+      await api.createMacro(name, body);
+      setMacroName("");
+      setMacroBody("");
+      setAdding(false);
+      await refreshMacros();
+    } catch (e) {
+      window.alert(
+        `매크로 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  async function removeMacro(id: string) {
+    if (!window.confirm("이 매크로를 삭제할까요?")) return;
+    try {
+      await api.deleteMacro(id);
+      await refreshMacros();
+    } catch (e) {
+      window.alert(
+        `매크로 삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
 
   return (
     <div className="slash-picker" role="listbox">
       <div className="slash-picker-head">
-        <span>📚 프롬프트 라이브러리</span>
-        <span className="slash-picker-hint">Esc 로 닫기</span>
+        <span>📚 프롬프트 + ⌨ 내 매크로</span>
+        <span className="slash-picker-hint">Esc 닫기</span>
       </div>
-      {filtered.length === 0 ? (
+      {filteredMacros.length > 0 && (
+        <>
+          <div className="slash-picker-sec">내 매크로</div>
+          <ul>
+            {filteredMacros.map((m) => (
+              <li key={m.id}>
+                <button type="button" onClick={() => onPick(m.body)}>
+                  <div className="slash-picker-name">
+                    <code>/{m.name}</code>
+                  </div>
+                  <div className="slash-picker-snippet">
+                    {m.body.slice(0, 120)}
+                    {m.body.length > 120 ? "…" : ""}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className="slash-picker-del"
+                  title="삭제"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeMacro(m.id);
+                  }}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {filteredPrompts.length > 0 && (
+        <>
+          <div className="slash-picker-sec">시스템 프롬프트</div>
+          <ul>
+            {filteredPrompts.map((p) => (
+              <li key={p.id}>
+                <button type="button" onClick={() => onPick(p.body)}>
+                  <div className="slash-picker-name">
+                    <code>/{p.code}</code> {p.name}
+                  </div>
+                  <div className="slash-picker-snippet">
+                    {p.body.slice(0, 120)}
+                    {p.body.length > 120 ? "…" : ""}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {filteredMacros.length === 0 && filteredPrompts.length === 0 && (
         <div className="slash-picker-empty">
-          {prompts.length === 0
-            ? "저장된 프롬프트가 없어요. Cowork → 프롬프트에서 만들 수 있어요."
+          {prompts.length + macros.length === 0
+            ? "프롬프트·매크로가 비어 있어요. 아래에서 첫 매크로를 추가해 보세요."
             : `"${query}" 일치 없음`}
         </div>
+      )}
+      {adding ? (
+        <div className="slash-picker-add">
+          <input
+            placeholder="단축어 (예: 내인사)"
+            value={macroName}
+            onChange={(e) => setMacroName(e.target.value)}
+            maxLength={80}
+            autoFocus
+          />
+          <textarea
+            placeholder="이 단축어로 채워질 본문"
+            value={macroBody}
+            onChange={(e) => setMacroBody(e.target.value)}
+            rows={3}
+          />
+          <div className="slash-picker-add-actions">
+            <button type="button" onClick={() => setAdding(false)}>
+              취소
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={saveMacro}
+              disabled={!macroName.trim() || !macroBody.trim()}
+            >
+              저장
+            </button>
+          </div>
+        </div>
       ) : (
-        <ul>
-          {filtered.map((p) => (
-            <li key={p.id}>
-              <button type="button" onClick={() => onPick(p.body)}>
-                <div className="slash-picker-name">
-                  <code>/{p.code}</code> {p.name}
-                </div>
-                <div className="slash-picker-snippet">
-                  {p.body.slice(0, 120)}
-                  {p.body.length > 120 ? "…" : ""}
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <button
+          type="button"
+          className="slash-picker-add-btn"
+          onClick={() => setAdding(true)}
+        >
+          ⌨ 매크로 추가
+        </button>
       )}
       <button
         type="button"

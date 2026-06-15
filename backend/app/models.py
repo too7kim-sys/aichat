@@ -230,6 +230,13 @@ class Session(Base):
         ForeignKey("workflows.id", ondelete="SET NULL"),
         nullable=True, index=True,
     )
+    # 사용자가 사이드바 상단에 고정한 세션 (#29).
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # 휴지통 (#31). NULL = 정상, 값 있으면 삭제된 시각.  30일 지나면
+    # lifespan 시작 시 영구 삭제 (error_log.prune 처럼).
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -676,6 +683,8 @@ class Message(Base):
     feedback_note: Mapped[str | None] = mapped_column(
         String(500), nullable=True,
     )
+    # 자유 태그 (#32) — JSON 문자열로 직렬화된 string[].  최대 8개.
+    tags: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="messages")
@@ -714,4 +723,27 @@ class ErrorLog(Base):
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
+    )
+
+
+class UserMacro(Base):
+    """사용자 슬래시 매크로 (#33).  composer 에서 `/` 누르면 SlashPrompt
+    Picker 가 시스템 prompts + 사용자 매크로를 함께 보여줌. 매크로는
+    사용자 본인 소유라 다른 계정에는 보이지 않음."""
+
+    __tablename__ = "user_macros"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # 단축어 (예: "내인사", "공통서명") — slash 뒤에 입력하면 매칭.
+    name: Mapped[str] = mapped_column(String(80))
+    # 실제 prompt 본문 — 선택 시 textarea 에 그대로 prefill.
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )

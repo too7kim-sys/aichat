@@ -27,6 +27,9 @@ export interface Message {
   latency_ms?: number | null;
   /** 어시스턴트 출력 토큰 수 — mini 표시용. */
   tokens_out?: number | null;
+  /** 자유 태그 (#32) — JSON 직렬화된 string[] 를 백엔드가 list 로
+   *  파싱해 보내옴. 빈 / null 둘 다 가능. */
+  tags?: string[] | null;
   created_at: string;
 }
 
@@ -38,6 +41,10 @@ export interface Session {
   /** Optional chat-project (folder) id. null = sits in the default
    *  ungrouped bucket on the sidebar. */
   chat_project_id: string | null;
+  /** 사이드바 상단에 고정한 세션 (#29). */
+  pinned?: boolean;
+  /** 휴지통 진입 시각 (#31).  null = 정상.  값 있으면 휴지통. */
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 }

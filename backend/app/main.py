@@ -11,8 +11,8 @@ from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
 from .routers import (
-    admin, auth, chat, chat_projects, code, files, ollama, prompts, search,
-    sessions, transcripts, workflows,
+    admin, auth, chat, chat_projects, code, files, macros, ollama, prompts,
+    search, sessions, transcripts, workflows,
 )
 
 # RAG router pulls in qdrant-client. Import lazily so a missing
@@ -48,6 +48,14 @@ async def lifespan(app: FastAPI):
         await prune_old(getattr(settings, "error_log_retention_days", 30))
     except Exception as exc:  # noqa: BLE001
         log.warning("ErrorLog prune failed: %s", exc)
+    # 휴지통 30일 지난 세션 영구 삭제 (#31).
+    try:
+        from .routers.sessions import purge_expired_trash
+        n = await purge_expired_trash(30)
+        if n:
+            log.info("session trash purge: %d 영구 삭제", n)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("session trash purge failed: %s", exc)
     # Seed runtime settings from env-var defaults (one-time on a
     # fresh install). After this the DB is the source of truth.
     from . import app_settings
@@ -260,6 +268,7 @@ app.include_router(ollama.router)
 app.include_router(code.router)
 app.include_router(admin.router)
 app.include_router(prompts.router)
+app.include_router(macros.router)
 app.include_router(workflows.router)
 app.include_router(transcripts.router)
 app.include_router(search.router)

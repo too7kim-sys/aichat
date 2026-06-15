@@ -93,6 +93,27 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_workflow_id "
                     "ON sessions(workflow_id)"
                 )
+            if "pinned" not in existing:
+                # 사이드바 고정 (#29).  pinned=1 인 세션은 상단에 따로
+                # 노출되고 updated_at 으로 정렬됨.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN pinned "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_pinned "
+                    "ON sessions(pinned)"
+                )
+            if "deleted_at" not in existing:
+                # 휴지통 (#31).  NULL = 정상, 값 있으면 삭제됨.  30일
+                # 지나면 lifespan 부팅 시 영구 삭제.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN deleted_at DATETIME"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_deleted_at "
+                    "ON sessions(deleted_at)"
+                )
             # Message-hidden flag for the transcription pipeline — the
             # raw whisper output stores hidden=1 so the chat panel
             # collapses it by default while keeping the row available
@@ -129,6 +150,11 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "CREATE INDEX IF NOT EXISTS ix_messages_feedback "
                     "ON messages(feedback) WHERE feedback != 0"
+                )
+            if mexisting and "tags" not in mexisting:
+                # 자유 태그 (#32) — JSON 문자열로 직렬화된 string[].
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN tags TEXT"
                 )
             # Users: 토큰 무효화 컷오프 (강제 로그아웃·비번 변경).
             ucols = await conn.exec_driver_sql("PRAGMA table_info(users)")

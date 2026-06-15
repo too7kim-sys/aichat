@@ -30,7 +30,28 @@ class MessageOut(BaseModel):
     starred: bool = False
     feedback: int = 0
     feedback_note: str | None = None
+    # 자유 태그 (#32) — wire 에선 list[str], DB 컬럼은 JSON 문자열.
+    tags: list[str] | None = None
     created_at: datetime
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _parse_tags(cls, v):
+        if v is None or isinstance(v, list):
+            return v or None
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None
+            try:
+                import json as _json
+
+                parsed = _json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(t) for t in parsed][:8] or None
+            except Exception:
+                return None
+        return None
 
     @field_validator("attachments_summary", mode="before")
     @classmethod
@@ -63,6 +84,9 @@ class SessionOut(BaseModel):
     # Optional chat-project (folder) id this session belongs to. None
     # = sits in the default ungrouped bucket on the sidebar.
     chat_project_id: str | None = None
+    # 사이드바 고정 / 휴지통 (#29, #31).
+    pinned: bool = False
+    deleted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -100,6 +124,8 @@ class MessageMetaUpdate(BaseModel):
     starred: bool | None = None
     feedback: int | None = Field(default=None, ge=-1, le=1)
     feedback_note: str | None = Field(default=None, max_length=500)
+    # 자유 태그 (#32) — 빈 리스트 / None 모두 허용 (None = 미변경).
+    tags: list[str] | None = None
 
 
 class SessionMove(BaseModel):

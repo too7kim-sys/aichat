@@ -694,7 +694,8 @@ export interface RagChunk {
 export const api = {
   listProviders: () => json<ProviderInfo[]>("/providers"),
   listOllamaModels: () => json<OllamaModelList>("/ollama/models"),
-  listSessions: () => json<Session[]>("/sessions"),
+  listSessions: (deleted = false) =>
+    json<Session[]>(`/sessions${deleted ? "?deleted=true" : ""}`),
   getSession: (id: string) => json<SessionDetail>(`/sessions/${id}`),
   /** Create a session, optionally pre-filed under a chat project. */
   createSession: (title: string, chatProjectId?: string | null) =>
@@ -705,8 +706,30 @@ export const api = {
         chat_project_id: chatProjectId ?? null,
       }),
     }),
-  deleteSession: (id: string) =>
-    json<void>(`/sessions/${id}`, { method: "DELETE" }),
+  /** Default = soft-delete (휴지통).  permanent=true 면 즉시 영구. */
+  deleteSession: (id: string, permanent = false) =>
+    json<void>(
+      `/sessions/${id}${permanent ? "?permanent=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  /** 휴지통에서 복원. */
+  restoreSession: (id: string) =>
+    json<Session>(`/sessions/${id}/restore`, { method: "POST" }),
+  /** 사이드바 고정 토글. */
+  pinSession: (id: string, pinned: boolean) =>
+    json<Session>(`/sessions/${id}/pin`, {
+      method: "PATCH",
+      body: JSON.stringify({ pinned }),
+    }),
+  /** 여러 세션 일괄 작업. */
+  bulkSessions: (
+    ids: string[],
+    action: "delete" | "restore" | "permanent-delete" | "pin" | "unpin",
+  ) =>
+    json<void>("/sessions/bulk", {
+      method: "POST",
+      body: JSON.stringify({ session_ids: ids, action }),
+    }),
   updateSession: (id: string, title: string) =>
     json<Session>(`/sessions/${id}`, {
       method: "PATCH",
@@ -735,17 +758,40 @@ export const api = {
   updateMessageMeta: (
     sessionId: string,
     messageId: string,
-    patch: { starred?: boolean; feedback?: -1 | 0 | 1; feedback_note?: string | null },
+    patch: {
+      starred?: boolean;
+      feedback?: -1 | 0 | 1;
+      feedback_note?: string | null;
+      tags?: string[];
+    },
   ) =>
     json<{
       id: string;
       starred: boolean;
       feedback: number;
       feedback_note: string | null;
+      tags: string[] | null;
     }>(`/sessions/${sessionId}/messages/${messageId}/meta`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  // ── 사용자 슬래시 매크로 (#33) ─────────────────────────────
+  listMacros: () =>
+    json<
+      { id: string; name: string; body: string; created_at: string | null; updated_at: string | null }[]
+    >("/macros"),
+  createMacro: (name: string, body: string) =>
+    json<{ id: string; name: string; body: string }>("/macros", {
+      method: "POST",
+      body: JSON.stringify({ name, body }),
+    }),
+  updateMacro: (id: string, name: string, body: string) =>
+    json<{ id: string; name: string; body: string }>(`/macros/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name, body }),
+    }),
+  deleteMacro: (id: string) =>
+    json<void>(`/macros/${id}`, { method: "DELETE" }),
   /** 사용자가 별표한 메시지를 다른 세션 가리지 않고 한 번에 모아 옴. */
   /** 메시지 수정 후 재생성 / 재생성 흐름의 핵심 — 주어진 메시지 이후
    *  의 모든 메시지를 삭제. 대상 메시지 자체는 보존. */

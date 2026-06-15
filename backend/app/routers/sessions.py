@@ -1,7 +1,9 @@
 import logging
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,14 +18,24 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 @router.get("", response_model=list[schemas.SessionOut])
 async def list_sessions(
+    deleted: bool = False,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(models.Session)
-        .where(models.Session.user_id == user.id)
-        .order_by(models.Session.updated_at.desc())
-    )
+    """기본 = 정상 세션만.  deleted=true 면 휴지통 (deleted_at IS NOT NULL).
+    핀 고정된 세션이 먼저, 그 다음 updated_at desc.
+    """
+    q = select(models.Session).where(models.Session.user_id == user.id)
+    if deleted:
+        q = q.where(models.Session.deleted_at.is_not(None))
+        q = q.order_by(models.Session.deleted_at.desc())
+    else:
+        q = q.where(models.Session.deleted_at.is_(None))
+        q = q.order_by(
+            models.Session.pinned.desc(),
+            models.Session.updated_at.desc(),
+        )
+    result = await db.execute(q)
     return result.scalars().all()
 
 
@@ -176,6 +188,14 @@ async def update_message_meta(
     if payload.feedback_note is not None:
         note = payload.feedback_note.strip()
         msg.feedback_note = note or None
+    if payload.tags is not None:
+        # 빈 리스트 = 태그 모두 제거.  최대 8개, 각 24자.
+        import json as _json
+
+        cleaned = [
+            t.strip()[:24] for t in payload.tags if isinstance(t, str) and t.strip()
+        ][:8]
+        msg.tags = _json.dumps(cleaned, ensure_ascii=False) if cleaned else None
     await db.commit()
     await db.refresh(msg)
     return msg
@@ -437,9 +457,116 @@ async def rewind_after_message(
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,
+    permanent: bool = False,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
+    """기본 = 휴지통으로 이동 (deleted_at = now()).  30 일 뒤 백엔드
+    부팅 시 자동 영구 삭제.  permanent=true 면 즉시 hard delete.
+    """
     session = await _load_owned(db, session_id, user.id)
-    await db.delete(session)
+    if permanent or session.deleted_at is not None:
+        await db.delete(session)
+    else:
+        session.deleted_at = datetime.utcnow()
     await db.commit()
+
+
+@router.post("/{session_id}/restore", response_model=schemas.SessionOut)
+async def restore_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """휴지통에서 복원."""
+    session = await _load_owned(db, session_id, user.id)
+    if session.deleted_at is None:
+        return session  # 이미 정상
+    session.deleted_at = None
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+class PinPayload(BaseModel):
+    pinned: bool
+
+
+@router.patch("/{session_id}/pin", response_model=schemas.SessionOut)
+async def pin_session(
+    session_id: str,
+    payload: PinPayload,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """사이드바 상단 고정 토글."""
+    session = await _load_owned(db, session_id, user.id)
+    session.pinned = bool(payload.pinned)
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+class BulkPayload(BaseModel):
+    session_ids: list[str]
+    action: str  # "delete" | "restore" | "permanent-delete" | "pin" | "unpin"
+
+
+@router.post("/bulk", status_code=204)
+async def bulk_action(
+    payload: BulkPayload,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """여러 세션에 동일 작업 적용 (#30).  대량 삭제·복원·핀 토글."""
+    if not payload.session_ids:
+        return
+    if payload.action not in {
+        "delete",
+        "restore",
+        "permanent-delete",
+        "pin",
+        "unpin",
+    }:
+        raise HTTPException(400, f"unknown action: {payload.action}")
+    # 본인 소유만 영향 — IN 절 + user_id 조건.
+    rows = (
+        await db.execute(
+            select(models.Session).where(
+                models.Session.id.in_(payload.session_ids),
+                models.Session.user_id == user.id,
+            )
+        )
+    ).scalars().all()
+    now = datetime.utcnow()
+    for s in rows:
+        if payload.action == "delete":
+            if s.deleted_at is None:
+                s.deleted_at = now
+        elif payload.action == "restore":
+            s.deleted_at = None
+        elif payload.action == "permanent-delete":
+            await db.delete(s)
+        elif payload.action == "pin":
+            s.pinned = True
+        elif payload.action == "unpin":
+            s.pinned = False
+    await db.commit()
+
+
+async def purge_expired_trash(retention_days: int = 30) -> int:
+    """30 일 지난 휴지통 행 영구 삭제.  lifespan 부팅 시 1 회 호출."""
+    from sqlalchemy import delete as _del
+
+    cutoff = datetime.utcnow() - timedelta(days=max(1, retention_days))
+    from ..database import SessionLocal
+
+    async with SessionLocal() as db:
+        result = await db.execute(
+            _del(models.Session).where(
+                models.Session.deleted_at.is_not(None),
+                models.Session.deleted_at < cutoff,
+            )
+        )
+        await db.commit()
+        return result.rowcount or 0

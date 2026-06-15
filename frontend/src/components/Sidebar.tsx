@@ -12,6 +12,7 @@ import { useWorkspaces } from "../state/WorkspacesContext";
 import type { ChatProject, Session } from "../types";
 import { CodeWorkspaceModal } from "./CodeWorkspaceModal";
 import { ChatProjectEditModal } from "./ChatProjectEditModal";
+import { TrashModal } from "./TrashModal";
 import { PromptEditModal } from "./PromptEditModal";
 import { TranscriptExportModal } from "./TranscriptExportModal";
 import { WorkflowEditModal } from "./WorkflowEditModal";
@@ -204,9 +205,15 @@ function ChatPane({
   onChatProjectsRefresh?: () => Promise<void> | void;
   onSessionRefresh?: () => Promise<void> | void;
 }) {
+  // 사이드바 상단 '핀 고정' 섹션 (#29) + 휴지통 모달 (#31) 상태.
+  const pinned = sessions.filter((s) => s.pinned);
+  const [trashOpen, setTrashOpen] = useState(false);
   // Unassigned sessions still fall into the date-bucketed groups so
-  // a brand-new install (no projects yet) looks unchanged.
-  const unassigned = sessions.filter((s) => !s.chat_project_id);
+  // a brand-new install (no projects yet) looks unchanged. 고정된
+  // 세션은 상단의 별도 핀 섹션에서만 보여 중복 표시 방지.
+  const unassigned = sessions.filter(
+    (s) => !s.chat_project_id && !s.pinned,
+  );
   const groups = groupByDate(unassigned);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   // Restore the open/closed state across reloads — the user's mental
@@ -263,8 +270,25 @@ function ChatPane({
         <button className="primary" onClick={() => onCreate(null)}>
           + 새 대화
         </button>
+        <button
+          type="button"
+          className="sidebar-trash-btn"
+          onClick={() => setTrashOpen(true)}
+          title="휴지통 — 최근 삭제된 대화 (30일 보관)"
+        >
+          🗑
+        </button>
       </div>
       <div className="sidebar-sessions">
+        <SessionGroup
+          label="📌 고정"
+          sessions={pinned}
+          chatProjects={chatProjects}
+          {...{ activeId, onSelect, onDelete }}
+          onRename={renameSession}
+          onMoveSession={moveSession}
+          onSessionRefresh={onSessionRefresh}
+        />
         {/* Projects — sidebar folders. Each header expands to reveal
           * its sessions plus a "+ 새 대화" affordance that creates a
           * session pre-filed into that folder. The "+" on the section
@@ -310,6 +334,7 @@ function ChatPane({
                   onRename={renameSession}
                   onEdit={() => setEditProject(p)}
                   onMoveSession={moveSession}
+                  onSessionRefresh={onSessionRefresh}
                   allProjects={chatProjects}
                 />
               ))}
@@ -324,6 +349,7 @@ function ChatPane({
           {...{ activeId, onSelect, onDelete }}
           onRename={renameSession}
           onMoveSession={moveSession}
+          onSessionRefresh={onSessionRefresh}
         />
         <SessionGroup
           label="어제"
@@ -332,6 +358,7 @@ function ChatPane({
           {...{ activeId, onSelect, onDelete }}
           onRename={renameSession}
           onMoveSession={moveSession}
+          onSessionRefresh={onSessionRefresh}
         />
         <SessionGroup
           label="지난 7일"
@@ -340,6 +367,7 @@ function ChatPane({
           {...{ activeId, onSelect, onDelete }}
           onRename={renameSession}
           onMoveSession={moveSession}
+          onSessionRefresh={onSessionRefresh}
         />
         <SessionGroup
           label="이전"
@@ -348,6 +376,7 @@ function ChatPane({
           {...{ activeId, onSelect, onDelete }}
           onRename={renameSession}
           onMoveSession={moveSession}
+          onSessionRefresh={onSessionRefresh}
         />
       </div>
 
@@ -368,6 +397,12 @@ function ChatPane({
           }}
         />
       )}
+      {trashOpen && (
+        <TrashModal
+          onClose={() => setTrashOpen(false)}
+          onChanged={onSessionRefresh}
+        />
+      )}
     </>
   );
 }
@@ -385,6 +420,7 @@ function ChatProjectRow({
   onRename,
   onEdit,
   onMoveSession,
+  onSessionRefresh,
   allProjects,
 }: {
   project: ChatProject;
@@ -401,6 +437,7 @@ function ChatProjectRow({
     sessionId: string,
     targetProjectId: string | null,
   ) => void | Promise<void>;
+  onSessionRefresh?: () => Promise<void> | void;
   allProjects: ChatProject[];
 }) {
   const containsActive =
@@ -472,6 +509,7 @@ function ChatProjectRow({
                   onRename={onRename}
                   chatProjects={allProjects}
                   onMoveSession={onMoveSession}
+                  onSessionRefresh={onSessionRefresh}
                   compact
                 />
               ))
@@ -645,6 +683,7 @@ function SessionGroup({
   onDelete,
   onRename,
   onMoveSession,
+  onSessionRefresh,
 }: {
   label: string;
   sessions: Session[];
@@ -657,6 +696,7 @@ function SessionGroup({
     sessionId: string,
     targetProjectId: string | null,
   ) => void | Promise<void>;
+  onSessionRefresh?: () => Promise<void> | void;
 }) {
   if (sessions.length === 0) return null;
   return (
@@ -673,6 +713,7 @@ function SessionGroup({
             onRename={onRename}
             chatProjects={chatProjects}
             onMoveSession={onMoveSession}
+            onSessionRefresh={onSessionRefresh}
           />
         ))}
       </ul>
@@ -693,6 +734,7 @@ function SessionRow({
   onRename,
   chatProjects,
   onMoveSession,
+  onSessionRefresh,
   compact = false,
 }: {
   session: Session;
@@ -709,6 +751,8 @@ function SessionRow({
     sessionId: string,
     targetProjectId: string | null,
   ) => void | Promise<void>;
+  /** 고정 토글이 끝난 뒤 sidebar 를 다시 불러올 콜백. */
+  onSessionRefresh?: () => Promise<void> | void;
   compact?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -772,16 +816,32 @@ function SessionRow({
     setDraft(s.title);
   }
 
+  async function togglePin() {
+    try {
+      await api.pinSession(s.id, !s.pinned);
+      await onSessionRefresh?.();
+    } catch (e) {
+      window.alert(
+        `고정 토글 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   return (
     <li
       className={`${active ? "active" : ""}${compact ? " cp-child" : ""}${
         editing ? " editing" : ""
-      }`}
+      }${s.pinned ? " pinned" : ""}`}
       onClick={editing ? undefined : onSelect}
     >
       <span className="session-emoji" aria-hidden="true">
         <SessionIcon session={s} />
       </span>
+      {s.pinned && (
+        <span className="session-pin-badge" title="고정됨" aria-hidden="true">
+          📌
+        </span>
+      )}
       {editing ? (
         <input
           ref={inputRef}
@@ -844,6 +904,16 @@ function SessionRow({
                   }}
                 >
                   <IconEdit size={11} /> 이름 변경
+                </button>
+                <button
+                  type="button"
+                  className="session-row-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    togglePin();
+                  }}
+                >
+                  📌 {s.pinned ? "고정 해제" : "상단 고정"}
                 </button>
                 <div className="session-row-menu-sep" />
               </>

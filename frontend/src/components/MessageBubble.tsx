@@ -51,6 +51,7 @@ interface Props {
     starred?: boolean;
     feedback?: number;
     feedback_note?: string | null;
+    tags?: string[] | null;
   }) => void;
   /** 정확 시각 — 어시스턴트는 답변 받은 시각, 사용자는 발송 시각. */
   createdAt?: string | null;
@@ -61,6 +62,8 @@ interface Props {
   onBranchFrom?: () => void | Promise<void>;
   /** 잠금 모드 — 편집/별표/평가/분기 등 메타 변경 차단 (#21). */
   locked?: boolean;
+  /** 메시지 자유 태그 (#32). */
+  tags?: string[] | null;
 }
 
 function bubbleAttachmentBasename(filename: string): string {
@@ -128,6 +131,7 @@ export function MessageBubble({
   tokensOut = null,
   onBranchFrom,
   locked = false,
+  tags = null,
 }: Props) {
   // Local optimistic content + collapsed/edit state. Re-seeds when
   // the parent's `content` changes (e.g., after streaming completes
@@ -149,6 +153,42 @@ export function MessageBubble({
   const [noteLocal, setNoteLocal] = useState<string | null>(feedbackNote);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [noteDraft, setNoteDraft] = useState(feedbackNote ?? "");
+  // 자유 태그 (#32). 낙관적 갱신.
+  const [tagsLocal, setTagsLocal] = useState<string[]>(tags ?? []);
+  const [tagInputOpen, setTagInputOpen] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
+  useEffect(() => setTagsLocal(tags ?? []), [tags]);
+  async function saveTags(next: string[]) {
+    if (!sessionId || !messageId) return;
+    const prev = tagsLocal;
+    setTagsLocal(next);
+    try {
+      await api.updateMessageMeta(sessionId, messageId, { tags: next });
+      onMetaChanged?.({ tags: next });
+    } catch (e) {
+      setTagsLocal(prev);
+      window.alert(
+        `태그 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  function addTag() {
+    const t = tagDraft.trim().slice(0, 24);
+    if (!t) return;
+    if (tagsLocal.includes(t)) {
+      setTagDraft("");
+      return;
+    }
+    if (tagsLocal.length >= 8) {
+      window.alert("태그는 메시지당 최대 8개까지 붙일 수 있어요.");
+      return;
+    }
+    void saveTags([...tagsLocal, t]);
+    setTagDraft("");
+  }
+  function removeTag(t: string) {
+    void saveTags(tagsLocal.filter((x) => x !== t));
+  }
   // 액션 행 ⋯ 오버플로우 메뉴 + 빠른 답장 칩 접기 (UI 최적화).
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
@@ -702,6 +742,18 @@ export function MessageBubble({
                       >
                         🖨 인쇄 / PDF
                       </button>
+                      {!locked && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMoreOpen(false);
+                            setTagInputOpen(true);
+                          }}
+                        >
+                          🏷 태그 붙이기
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -718,6 +770,47 @@ export function MessageBubble({
               </button>
             )}
             <CopyButton text={body} />
+          </div>
+        )}
+        {(tagsLocal.length > 0 || tagInputOpen) && !streaming && (
+          <div className="bubble-tags">
+            {tagsLocal.map((t) => (
+              <span key={t} className="bubble-tag">
+                #{t}
+                {!locked && (
+                  <button
+                    type="button"
+                    className="bubble-tag-remove"
+                    onClick={() => removeTag(t)}
+                    aria-label="태그 제거"
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            {tagInputOpen && !locked && (
+              <input
+                className="bubble-tag-input"
+                placeholder="태그 입력 후 Enter"
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addTag();
+                  } else if (e.key === "Escape") {
+                    setTagDraft("");
+                    setTagInputOpen(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (!tagDraft.trim()) setTagInputOpen(false);
+                }}
+                maxLength={24}
+                autoFocus
+              />
+            )}
           </div>
         )}
         {!streaming && body && !editing && !locked && sessionId && messageId && (
