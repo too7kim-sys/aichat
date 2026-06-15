@@ -8,7 +8,7 @@ Scope is the requesting user's sessions only — the join on
 `sessions.user_id` prevents cross-tenant disclosure.
 """
 from datetime import datetime
-from typing import Literal
+from typing import Awaitable, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -17,7 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models
 from ..auth import get_current_user
+from ..config import settings
 from ..database import get_db
+from ..search import coupang as coupang_search
+from ..search import eleven_st as eleven_search
 from ..search import naver as naver_search
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -123,12 +126,42 @@ class ShopItem(BaseModel):
     brand: str = ""
     category: str = ""
     productId: str = ""
+    # 어느 OpenAPI 에서 왔는지 — naver / eleven_st / coupang.
+    source: str = "naver"
+
+
+class ProviderStatus(BaseModel):
+    name: str
+    enabled: bool
+    count: int = 0
+    error: str | None = None
 
 
 class ShopResponse(BaseModel):
     items: list[ShopItem]
     sort: Literal["sim", "date", "asc", "dsc"]
     query: str
+    providers: list[ProviderStatus]
+
+
+def _aggregator_sort(items: list[dict], sort: str) -> list[dict]:
+    if sort == "asc":
+        return sorted(items, key=lambda r: (r.get("lprice") or 10**12))
+    if sort == "dsc":
+        return sorted(items, key=lambda r: -(r.get("lprice") or 0))
+    # sim / date 는 각 provider 내부 순서를 살리면서 round-robin 으로
+    # 섞어 한쪽 결과가 전부 위에 몰리지 않게 함.
+    if sort in ("sim", "date"):
+        buckets: dict[str, list[dict]] = {}
+        for it in items:
+            buckets.setdefault(it.get("source") or "?", []).append(it)
+        out: list[dict] = []
+        while any(buckets.values()):
+            for k in list(buckets.keys()):
+                if buckets[k]:
+                    out.append(buckets[k].pop(0))
+        return out
+    return items
 
 
 @router.get("/shop", response_model=ShopResponse)
@@ -137,36 +170,106 @@ async def search_shop(
     sort: Literal["sim", "date", "asc", "dsc"] = Query(
         "sim", description="sim=정확도, date=최신, asc=낮은가격, dsc=높은가격"
     ),
-    display: int = Query(30, ge=1, le=100, description="결과 개수"),
+    display: int = Query(30, ge=1, le=100, description="provider 당 결과 개수"),
     start: int = Query(1, ge=1, le=1000, description="페이지 시작 위치 (1~1000)"),
     mall: str = Query("", description="쇼핑몰 이름 필터 (부분일치, 대소문자 무시)"),
+    sources: str = Query(
+        "all",
+        description="쉼표 구분 provider 목록. all=설정된 모든 곳. "
+        "naver / eleven_st / coupang 중에서 선택.",
+    ),
     _user: models.User = Depends(get_current_user),
 ):
-    """쇼핑 검색 — Naver Shopping API 직접 호출. 결과를 가격순/최신순
-    으로 정렬해 받고, 선택적으로 mall 부분일치 필터 적용.
-
-    NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 가 .env 에 없으면 503.
+    """쇼핑 검색 — Naver / 11번가 / 쿠팡 OpenAPI 를 병렬 호출, 결과
+    합치기. 각 provider 의 키가 .env 에 있을 때만 활성. 모두 비활성
+    이거나 모두 실패하면 503.
     """
+    import asyncio
+
     query = (q or "").strip()
     if len(query) < 2:
-        return ShopResponse(items=[], sort=sort, query=query)
-    try:
-        raw = await naver_search.search_shop(
-            query, display=display, start=start, sort=sort
-        )
-    except naver_search.NaverSearchError as exc:
+        return ShopResponse(items=[], sort=sort, query=query, providers=[])
+
+    requested = {s.strip().lower() for s in sources.split(",") if s.strip()}
+    if "all" in requested or not requested:
+        requested = {"naver", "eleven_st", "coupang"}
+
+    # 각 provider 의 활성 여부 — 키가 .env 에 있어야 호출.
+    ShopFn = Callable[..., Awaitable[list[dict]]]
+    plan: list[tuple[str, ShopFn, bool]] = [
+        (
+            "naver",
+            naver_search.search_shop,
+            bool(settings.naver_client_id and settings.naver_client_secret),
+        ),
+        (
+            "eleven_st",
+            eleven_search.search_shop,
+            bool(settings.eleven_st_partner_key),
+        ),
+        (
+            "coupang",
+            coupang_search.search_shop,
+            bool(settings.coupang_access_key and settings.coupang_secret_key),
+        ),
+    ]
+
+    async def _call(name: str, fn) -> tuple[str, list[dict] | BaseException]:
+        try:
+            return name, await fn(query, display=display, start=start, sort=sort)
+        except Exception as exc:  # noqa: BLE001
+            return name, exc
+
+    tasks = [
+        _call(name, fn)
+        for name, fn, ok in plan
+        if ok and name in requested
+    ]
+
+    providers: list[ProviderStatus] = [
+        ProviderStatus(name=name, enabled=ok)
+        for name, _, ok in plan
+        if name in requested
+    ]
+    if not tasks:
         raise HTTPException(
             status_code=503,
             detail=(
-                "쇼핑 검색 사용 불가 — 관리자에게 NAVER_CLIENT_ID / "
-                f"NAVER_CLIENT_SECRET 설정을 확인해 달라고 해주세요. ({exc})"
+                "활성화된 쇼핑 provider 가 없습니다 — .env 에 "
+                "NAVER_CLIENT_ID/SECRET, ELEVEN_ST_PARTNER_KEY, "
+                "COUPANG_ACCESS_KEY/SECRET_KEY 중 하나 이상을 설정해 주세요."
             ),
-        ) from exc
+        )
+
+    results = await asyncio.gather(*tasks)
+
+    merged: list[dict] = []
+    success = 0
+    for name, res in results:
+        slot = next((p for p in providers if p.name == name), None)
+        if isinstance(res, BaseException):
+            if slot:
+                slot.error = f"{type(res).__name__}: {res}"
+            continue
+        success += 1
+        for r in res:
+            r.setdefault("source", name)
+        merged.extend(res)
+        if slot:
+            slot.count = len(res)
+
+    if success == 0:
+        # 모든 provider 가 실패 — 가장 구체적인 에러를 503 으로 노출.
+        errs = "; ".join(
+            f"{p.name}={p.error}" for p in providers if p.error
+        ) or "unknown"
+        raise HTTPException(status_code=503, detail=f"쇼핑 검색 실패: {errs}")
 
     mall_q = mall.strip().lower()
     if mall_q:
-        raw = [
-            r for r in raw if mall_q in (r.get("mall") or "").lower()
+        merged = [
+            r for r in merged if mall_q in (r.get("mall") or "").lower()
         ]
-    items = [ShopItem(**r) for r in raw]
-    return ShopResponse(items=items, sort=sort, query=query)
+    merged = _aggregator_sort(merged, sort)
+    items = [ShopItem(**r) for r in merged]
+    return ShopResponse(items=items, sort=sort, query=query, providers=providers)

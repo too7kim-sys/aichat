@@ -13,7 +13,21 @@ interface Product {
   brand: string;
   category: string;
   productId: string;
+  source: string;
 }
+
+interface ProviderStatus {
+  name: string;
+  enabled: boolean;
+  count: number;
+  error: string | null;
+}
+
+const PROVIDER_LABEL: Record<string, string> = {
+  naver: "네이버",
+  eleven_st: "11번가",
+  coupang: "쿠팡",
+};
 
 interface Props {
   open: boolean;
@@ -52,6 +66,11 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // 어느 provider 를 묶어 호출할지 — 전체 / 단일.  Naver 하나만 켜놓고
+  // 11번가/쿠팡은 비활성인 환경에서도 그대로 동작.
+  const [providerFilter, setProviderFilter] = useState<string>("all");
+  // 응답에 포함된 provider 별 상태 (활성/카운트/에러).
+  const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -84,9 +103,18 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
         sort,
         display: 40,
         mall: mall === "전체" ? "" : mall,
+        sources: providerFilter,
       });
       setItems(res.items);
-      if (res.items.length === 0) setErr("결과가 없어요. 키워드나 몰을 바꿔 보세요.");
+      setProviders(res.providers);
+      if (res.items.length === 0) {
+        // 결과 0개 — provider 에러가 있다면 그걸 먼저 보여줘 원인 파악.
+        const errs = res.providers
+          .filter((p) => p.error)
+          .map((p) => `${PROVIDER_LABEL[p.name] ?? p.name}: ${p.error}`)
+          .join("\n");
+        setErr(errs || "결과가 없어요. 키워드나 몰을 바꿔 보세요.");
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setItems([]);
@@ -113,7 +141,8 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
     const lines = list.map((p, i) => {
       const price =
         p.lprice != null ? `${p.lprice.toLocaleString("ko-KR")}원` : "가격정보 없음";
-      return `${i + 1}. ${p.title}\n   - 가격: ${price}\n   - 판매처: ${p.mall || "?"}${
+      const src = PROVIDER_LABEL[p.source] ?? p.source ?? "?";
+      return `${i + 1}. ${p.title}\n   - 가격: ${price}\n   - 판매처: ${p.mall || "?"} (출처: ${src})${
         p.brand ? ` · 브랜드: ${p.brand}` : ""
       }\n   - 링크: ${p.link}`;
     });
@@ -167,6 +196,29 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
           </button>
         </div>
         <div className="shop-browser-filters">
+          <span className="shop-browser-filter-label">소스</span>
+          {(
+            [
+              ["all", "전체"],
+              ["naver", "네이버"],
+              ["eleven_st", "11번가"],
+              ["coupang", "쿠팡"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`shop-browser-chip${providerFilter === key ? " picked" : ""}`}
+              onClick={() => setProviderFilter(key)}
+              title={
+                key === "all"
+                  ? "설정된 모든 쇼핑 OpenAPI 를 병렬로 호출"
+                  : `${label} 만 호출 — 키가 .env 에 없으면 결과가 없습니다`
+              }
+            >
+              {label}
+            </button>
+          ))}
           <span className="shop-browser-filter-label">정렬</span>
           {SORT_OPTIONS.map((o) => (
             <button
@@ -190,6 +242,22 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
             </button>
           ))}
         </div>
+        {providers.length > 0 && (
+          <div className="shop-browser-providers" aria-label="provider 상태">
+            {providers.map((p) => (
+              <span
+                key={p.name}
+                className={`shop-browser-provider${
+                  p.error ? " err" : p.count > 0 ? " ok" : " empty"
+                }`}
+                title={p.error ?? `${p.count}개 결과`}
+              >
+                {PROVIDER_LABEL[p.name] ?? p.name}{" "}
+                {p.error ? "❌" : `${p.count}`}
+              </span>
+            ))}
+          </div>
+        )}
         {err && <div className="shop-browser-error">⚠ {err}</div>}
         <div className="shop-browser-grid">
           {items.map((p) => {
@@ -209,6 +277,12 @@ export function ShoppingBrowser({ open, onClose, onSendToChat }: Props) {
                 >
                   {isPicked ? "✓" : "+"}
                 </button>
+                <span
+                  className={`shop-browser-card-src src-${p.source || "naver"}`}
+                  title={`출처: ${PROVIDER_LABEL[p.source] ?? p.source}`}
+                >
+                  {PROVIDER_LABEL[p.source] ?? p.source ?? "?"}
+                </span>
                 <a
                   className="shop-browser-card-link"
                   href={p.link}

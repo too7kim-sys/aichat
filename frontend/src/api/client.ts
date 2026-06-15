@@ -904,6 +904,8 @@ export const api = {
       display?: number;
       start?: number;
       mall?: string;
+      /** 쉼표 구분 provider 목록. 비우거나 "all" 이면 활성 전체. */
+      sources?: string;
     } = {},
   ) => {
     const params = new URLSearchParams({
@@ -913,6 +915,7 @@ export const api = {
       start: String(opts.start ?? 1),
     });
     if (opts.mall) params.set("mall", opts.mall);
+    if (opts.sources) params.set("sources", opts.sources);
     return json<{
       items: {
         title: string;
@@ -924,9 +927,16 @@ export const api = {
         brand: string;
         category: string;
         productId: string;
+        source: "naver" | "eleven_st" | "coupang" | string;
       }[];
       sort: "sim" | "date" | "asc" | "dsc";
       query: string;
+      providers: {
+        name: string;
+        enabled: boolean;
+        count: number;
+        error: string | null;
+      }[];
     }>(`/search/shop?${params.toString()}`);
   },
   /** Persist a two-message record of a `/병합` exchange so the chat

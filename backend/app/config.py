@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     # 키 불필요 무료 소스 토글 — 폐쇄망에서 외부 망 차단이면 false 로.
     search_duckduckgo_enabled: bool = True
     search_wikipedia_enabled: bool = True
+    # 11번가 파트너 OpenAPI — http://openapi.11st.co.kr.  발급:
+    # openapi.11st.co.kr 가입 후 'API 신청' 으로 키 발급.  무료, 사용량
+    # 제한은 파트너 등급별.  비어 있으면 그 소스는 자동으로 건너뜀.
+    eleven_st_partner_key: str = ""
+    # 쿠팡 파트너스 OpenAPI — https://partners.coupang.com.  발급:
+    # 파트너스 가입 → API 발급으로 AccessKey/SecretKey 한 쌍 받기.
+    # HMAC-SHA256 서명 헤더가 필요해 환경에 따라 활성/비활성.  둘 다
+    # 있어야 활성, 하나라도 비면 그 소스는 건너뜀.
+    coupang_access_key: str = ""
+    coupang_secret_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     # Ollama's server default is num_ctx=2048, which silently truncates
