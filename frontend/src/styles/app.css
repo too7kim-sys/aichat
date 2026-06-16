@@ -9797,6 +9797,95 @@ body {
   color: var(--text-muted);
 }
 
+/* 워크스페이스 grep (#54). */
+.ws-grep {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.ws-grep-row { display: flex; gap: 6px; align-items: center; }
+.ws-grep-input {
+  flex: 1;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+}
+.ws-grep-toggle {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.ws-grep-toggle input { accent-color: var(--accent); }
+.ws-grep-err { margin-top: 6px; color: var(--danger); font-size: 11.5px; }
+.ws-grep-results {
+  list-style: none;
+  padding: 6px 0 0;
+  margin: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-grep-results li button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--text);
+}
+.ws-grep-results li button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ws-grep-path { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-muted); }
+.ws-grep-snip { font-family: ui-monospace, monospace; font-size: 11.5px; color: inherit; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+
+/* AI 리뷰·커밋 메시지 버튼 행 (#57, #58). */
+.wsc-ai-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.wsc-ai-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wsc-ai-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.wsc-ai-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.wsc-review-body {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 12px 16px;
+  margin: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* Monaco DiffEditor 컨테이너 (#55). */
+.wsc-diff-monaco { flex: 1; min-height: 60vh; background: var(--bg); }
+
+/* 인앱 편집 파일 헤더 dirty 표시 (#53). */
+.cw-file-dirty { color: var(--accent); font-size: 11px; font-weight: 600; margin-left: 6px; }
+
 /* 세션 내 검색 매치 강조 (#46). */
 .bubble-search-mark {
   background: #fff59d;

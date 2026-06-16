@@ -117,8 +117,27 @@ export function WorkspaceTree({
 
   return (
     <>
+      <WorkspaceGrep workspaceId={workspaceId} onSelect={onSelectFile} />
       <div className="ws-tree-toolbar">
         <TestRunnerButton workspaceId={workspaceId} />
+        <RunCommandButton
+          workspaceId={workspaceId}
+          kind="lint"
+          label="린트"
+          emoji="🩺"
+        />
+        <RunCommandButton
+          workspaceId={workspaceId}
+          kind="format"
+          label="포맷"
+          emoji="🪄"
+        />
+        <RunCommandButton
+          workspaceId={workspaceId}
+          kind="build"
+          label="빌드"
+          emoji="📦"
+        />
         <button
           type="button"
           className="ws-tree-btn"
@@ -438,5 +457,215 @@ function TestRunnerButton({ workspaceId }: { workspaceId: string }) {
         </div>
       )}
     </>
+  );
+}
+
+
+// ── 빌드 / 린트 / 포맷 버튼 (#56) ────────────────────────────
+function RunCommandButton({
+  workspaceId,
+  kind,
+  label,
+  emoji,
+}: {
+  workspaceId: string;
+  kind: "build" | "lint" | "format";
+  label: string;
+  emoji: string;
+}) {
+  type Result = Awaited<ReturnType<typeof api.runWorkspaceCommand>>;
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<Result | null>(null);
+  const [open, setOpen] = useState(false);
+
+  async function run() {
+    setBusy(true);
+    setOpen(true);
+    setResult(null);
+    try {
+      const r = await api.runWorkspaceCommand(workspaceId, kind);
+      setResult(r);
+    } catch (e) {
+      setResult({
+        runner: null,
+        kind,
+        ok: false,
+        skipped: false,
+        exit_code: null,
+        stdout: "",
+        stderr: e instanceof Error ? e.message : String(e),
+        duration_ms: 0,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="ws-tree-btn"
+        onClick={run}
+        disabled={busy}
+        title={`${label} 자동 감지 후 실행`}
+      >
+        {busy ? `⏳ ${label}…` : `${emoji} ${label}`}
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div
+            className="modal patch-preview-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header>
+              <h3>{label} 결과</h3>
+              {result && (
+                <code className="patch-preview-path">
+                  {result.runner || "자동 감지 실패"}
+                  {!result.skipped &&
+                    ` · ${result.ok ? "✅ ok" : "❌ fail"}${
+                      result.exit_code !== null
+                        ? ` (exit ${result.exit_code})`
+                        : ""
+                    }`}
+                  {` · ${result.duration_ms} ms`}
+                </code>
+              )}
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setOpen(false)}
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </header>
+            <div className="patch-preview-body">
+              {busy ? (
+                <div className="patch-preview-empty">실행 중…</div>
+              ) : result?.skipped ? (
+                <div className="patch-preview-empty">
+                  {result.reason || "자동 감지 실패"}
+                </div>
+              ) : result ? (
+                <>
+                  {result.stdout && (
+                    <>
+                      <div className="patch-preview-meta">STDOUT</div>
+                      <pre className="patch-preview-diff">{result.stdout}</pre>
+                    </>
+                  )}
+                  {result.stderr && (
+                    <>
+                      <div
+                        className="patch-preview-meta"
+                        style={{ marginTop: 10 }}
+                      >
+                        STDERR
+                      </div>
+                      <pre className="patch-preview-diff">{result.stderr}</pre>
+                    </>
+                  )}
+                  {!result.stdout && !result.stderr && (
+                    <div className="patch-preview-empty">
+                      출력이 없습니다 (exit {String(result.exit_code)}).
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+// ── 워크스페이스 grep (#54) ─────────────────────────────────
+// 트리 위쪽에 작은 검색 입력 + 결과 박스.  파일 이름 클릭 시 부모
+// onSelectFile 콜백으로 파일 열림.
+export function WorkspaceGrep({
+  workspaceId,
+  onSelect,
+}: {
+  workspaceId: string;
+  onSelect: (path: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [regex, setRegex] = useState(false);
+  const [results, setResults] = useState<
+    { path: string; line: number; snippet: string }[]
+  >([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    if (q.trim().length < 2) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.workspaceGrep(workspaceId, q.trim(), {
+        regex,
+        limit: 200,
+      });
+      setResults(r.results);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setResults([]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ws-grep">
+      <div className="ws-grep-row">
+        <input
+          className="ws-grep-input"
+          placeholder="🔍 코드 검색 (2자 이상)"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              run();
+            }
+          }}
+        />
+        <label className="ws-grep-toggle" title="정규식으로 해석">
+          <input
+            type="checkbox"
+            checked={regex}
+            onChange={(e) => setRegex(e.target.checked)}
+          />
+          regex
+        </label>
+        <button
+          type="button"
+          className="ws-tree-btn"
+          onClick={run}
+          disabled={busy || q.trim().length < 2}
+        >
+          {busy ? "⏳" : "검색"}
+        </button>
+      </div>
+      {err && <div className="ws-grep-err">⚠ {err}</div>}
+      {results.length > 0 && (
+        <ul className="ws-grep-results">
+          {results.map((r, i) => (
+            <li key={`${r.path}:${r.line}:${i}`}>
+              <button type="button" onClick={() => onSelect(r.path)}>
+                <span className="ws-grep-path">
+                  {r.path}:{r.line}
+                </span>
+                <code className="ws-grep-snip">{r.snippet}</code>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

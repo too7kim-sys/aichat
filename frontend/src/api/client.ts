@@ -1767,6 +1767,68 @@ export const api = {
         path ? `?path=${encodeURIComponent(path)}` : ""
       }`,
     ),
+  // ── 워크스페이스 grep (#54) ───────────────────────────────
+  workspaceGrep: (
+    id: string,
+    q: string,
+    opts: { regex?: boolean; caseSensitive?: boolean; limit?: number } = {},
+  ) => {
+    const params = new URLSearchParams({ q });
+    if (opts.regex) params.set("regex", "true");
+    if (opts.caseSensitive) params.set("case_sensitive", "true");
+    if (opts.limit) params.set("limit", String(opts.limit));
+    return json<{
+      query: string;
+      count: number;
+      results: { path: string; line: number; snippet: string }[];
+    }>(`/code/workspaces/${id}/grep?${params.toString()}`);
+  },
+  // ── 빌드 / 린트 / 포맷 (#56) ─────────────────────────────
+  runWorkspaceCommand: (
+    id: string,
+    kind: "build" | "lint" | "format",
+  ) =>
+    json<{
+      runner: string | null;
+      kind: string;
+      ok: boolean;
+      skipped: boolean;
+      reason?: string;
+      exit_code: number | null;
+      stdout: string;
+      stderr: string;
+      duration_ms: number;
+    }>(`/code/workspaces/${id}/run-command?kind=${kind}`, {
+      method: "POST",
+    }),
+  // ── AI 코드 리뷰 (#57) ───────────────────────────────────
+  aiReviewWorkspace: (id: string) =>
+    json<{ review: string; diff_bytes: number; model: string }>(
+      `/code/workspaces/${id}/ai-review`,
+      { method: "POST" },
+    ),
+  // ── AI 커밋 메시지 (#58) ─────────────────────────────────
+  aiCommitMessageWorkspace: (id: string) =>
+    json<{ message: string; model: string }>(
+      `/code/workspaces/${id}/ai-commit-message`,
+      { method: "POST" },
+    ),
+  // ── 인앱 편집 저장 (#53) ─────────────────────────────────
+  saveWorkspaceFile: (id: string, path: string, content: string) =>
+    json<{ path: string; size: number; sha256: string }>(
+      `/code/workspaces/${id}/save-file`,
+      {
+        method: "POST",
+        body: JSON.stringify({ path, content }),
+      },
+    ),
+  // ── 특정 리비전 파일 (Monaco DiffEditor 용, #55) ─────────
+  workspaceFileAtRev: (id: string, path: string, rev = "HEAD") =>
+    json<{ path: string; rev: string; text: string }>(
+      `/code/workspaces/${id}/file-at-rev?path=${encodeURIComponent(
+        path,
+      )}&rev=${encodeURIComponent(rev)}`,
+    ),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

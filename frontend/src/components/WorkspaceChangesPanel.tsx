@@ -1,6 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { api, type WorkspaceStatusEntry } from "../api/client";
 import { IconAlertTriangle, IconGitBranch, IconRefresh, IconTrash } from "./Icon";
+
+const DiffEditor = lazy(() =>
+  import("@monaco-editor/react").then((m) => ({ default: m.DiffEditor })),
+);
+
+function detectLang(path: string): string {
+  const ext = (path.split(".").pop() || "").toLowerCase();
+  const map: Record<string, string> = {
+    js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
+    ts: "typescript", tsx: "typescript", py: "python", go: "go", rs: "rust",
+    java: "java", kt: "kotlin", cs: "csharp", rb: "ruby", php: "php",
+    swift: "swift", sh: "shell", bash: "shell", sql: "sql",
+    html: "html", css: "css", scss: "scss", less: "less",
+    json: "json", yaml: "yaml", yml: "yaml", toml: "ini",
+    md: "markdown", xml: "xml", c: "c", h: "c", cpp: "cpp", hpp: "cpp",
+  };
+  return map[ext] || "plaintext";
+}
 
 interface Props {
   workspaceId: string;
@@ -16,21 +34,43 @@ interface DiffViewProps {
 }
 
 function DiffView({ workspaceId, path, onClose }: DiffViewProps) {
+  // 사이드 바이 사이드 (Monaco DiffEditor) 가 기본. 실패하거나 사용자가
+  // 토글하면 unified text 로 폴백.
+  const [side, setSide] = useState(true);
+  const [head, setHead] = useState<string | null>(null);
+  const [work, setWork] = useState<string | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setDiff(null);
+    setHead(null);
+    setWork(null);
     setError(null);
-    api
-      .workspaceDiff(workspaceId, path)
-      .then((res) => {
-        if (!cancelled) setDiff(res.diff || "(변경 없음 — 새 파일이거나 동일한 내용)");
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      });
+    Promise.all([
+      api
+        .workspaceFileAtRev(workspaceId, path, "HEAD")
+        .then((r) => r.text)
+        .catch(() => ""),
+      api
+        .workspaceFile(workspaceId, path)
+        .then((r) => r.text)
+        .catch(() => null),
+      api
+        .workspaceDiff(workspaceId, path)
+        .then((r) => r.diff)
+        .catch((e) => {
+          if (!cancelled)
+            setError(e instanceof Error ? e.message : String(e));
+          return "";
+        }),
+    ]).then(([h, w, d]) => {
+      if (cancelled) return;
+      setHead(h);
+      setWork(w);
+      setDiff(d || "(변경 없음 — 새 파일이거나 동일한 내용)");
+    });
     return () => {
       cancelled = true;
     };
@@ -41,6 +81,14 @@ function DiffView({ workspaceId, path, onClose }: DiffViewProps) {
       <div className="wsc-diff-box" onClick={(e) => e.stopPropagation()}>
         <header>
           <span className="wsc-diff-path">{path}</span>
+          <button
+            type="button"
+            onClick={() => setSide((v) => !v)}
+            className="wsc-diff-close"
+            title="사이드 바이 사이드 ↔ 통합 텍스트"
+          >
+            {side ? "📄 텍스트" : "↔ 사이드"}
+          </button>
           <button type="button" onClick={onClose} className="wsc-diff-close">
             닫기
           </button>
@@ -49,6 +97,32 @@ function DiffView({ workspaceId, path, onClose }: DiffViewProps) {
           <div className="wsc-diff-error">{error}</div>
         ) : diff === null ? (
           <div className="wsc-diff-loading">diff 로드 중…</div>
+        ) : side && head !== null && work !== null ? (
+          <Suspense
+            fallback={<div className="wsc-diff-loading">에디터 로딩 중…</div>}
+          >
+            <div className="wsc-diff-monaco">
+              <DiffEditor
+                height="100%"
+                original={head}
+                modified={work}
+                language={detectLang(path)}
+                theme={
+                  document.documentElement.getAttribute("data-theme") === "dark"
+                    ? "vs-dark"
+                    : "light"
+                }
+                options={{
+                  readOnly: true,
+                  renderSideBySide: true,
+                  minimap: { enabled: false },
+                  fontSize: 12.5,
+                  automaticLayout: true,
+                  scrollBeyondLastLine: false,
+                }}
+              />
+            </div>
+          </Suspense>
         ) : (
           <pre className="wsc-diff-body">{diff}</pre>
         )}
@@ -74,9 +148,13 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState<"idle" | "committing" | "pushing">("idle");
+  const [busy, setBusy] = useState<
+    "idle" | "committing" | "pushing" | "ai-review" | "ai-msg"
+  >("idle");
   const [status, setStatus] = useState<string | null>(null);
   const [statusKind, setStatusKind] = useState<"ok" | "err">("ok");
+  // AI 리뷰 결과 — 모달 텍스트 (#57).
+  const [reviewText, setReviewText] = useState<string | null>(null);
   const [diffPath, setDiffPath] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -300,6 +378,53 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
             })}
           </ul>
 
+          <div className="wsc-ai-row">
+            <button
+              type="button"
+              className="wsc-ai-btn"
+              disabled={busy !== "idle"}
+              onClick={async () => {
+                setBusy("ai-review");
+                setStatus(null);
+                setReviewText(null);
+                try {
+                  const r = await api.aiReviewWorkspace(workspaceId);
+                  setReviewText(r.review);
+                } catch (e) {
+                  setStatus(
+                    `AI 리뷰 실패: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                } finally {
+                  setBusy("idle");
+                }
+              }}
+              title="현재 변경 사항을 LLM 으로 리뷰"
+            >
+              👁 {busy === "ai-review" ? "리뷰 중…" : "AI 리뷰"}
+            </button>
+            <button
+              type="button"
+              className="wsc-ai-btn"
+              disabled={busy !== "idle"}
+              onClick={async () => {
+                setBusy("ai-msg");
+                setStatus(null);
+                try {
+                  const r = await api.aiCommitMessageWorkspace(workspaceId);
+                  setMessage(r.message);
+                } catch (e) {
+                  setStatus(
+                    `AI 커밋 메시지 실패: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                } finally {
+                  setBusy("idle");
+                }
+              }}
+              title="git diff 를 보고 LLM 이 한국어 커밋 메시지 제안"
+            >
+              ✨ {busy === "ai-msg" ? "작성 중…" : "AI 커밋 메시지"}
+            </button>
+          </div>
           <textarea
             className="wsc-msg"
             placeholder="커밋 메시지 (예: Fix XSS in login form)"
@@ -343,6 +468,19 @@ export function WorkspaceChangesPanel({ workspaceId, refreshKey }: Props) {
           path={diffPath}
           onClose={() => setDiffPath(null)}
         />
+      )}
+      {reviewText !== null && (
+        <div className="diff-backdrop" onClick={() => setReviewText(null)}>
+          <div className="diff-modal" onClick={(ev) => ev.stopPropagation()}>
+            <div className="diff-head">
+              <strong>👁 AI 코드 리뷰</strong>
+              <button type="button" onClick={() => setReviewText(null)}>
+                ✕
+              </button>
+            </div>
+            <pre className="wsc-review-body">{reviewText}</pre>
+          </div>
+        </div>
       )}
     </section>
   );

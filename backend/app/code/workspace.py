@@ -1216,3 +1216,310 @@ def git_revert_file(root: Path, rel_path: str) -> dict:
     if target.exists() and target.is_file():
         target.unlink()
     return {"path": rel, "removed": True}
+
+
+# ── 워크스페이스 grep (#54) ──────────────────────────────────
+# 전체 트리에서 키워드/정규식 검색. ripgrep 이 있으면 빠르게, 없으면
+# 파이썬 fallback. .git / node_modules / dist 같은 noise 디렉터리는
+# 패스. 결과는 (path, line_no, snippet) 리스트.
+
+_GREP_SKIP_DIRS = {
+    ".git", "node_modules", "dist", "build", "__pycache__", ".venv",
+    "venv", "target", ".next", ".cache", ".idea", ".vscode",
+}
+_GREP_TEXT_EXTS = {
+    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+    ".java", ".kt", ".go", ".rs", ".c", ".h", ".cpp", ".hpp", ".cs",
+    ".rb", ".php", ".swift", ".scala", ".sh", ".bash", ".zsh",
+    ".sql", ".html", ".css", ".scss", ".sass", ".less",
+    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+    ".md", ".rst", ".txt", ".xml", ".vue", ".svelte",
+    ".env", ".dockerfile", "Dockerfile", "Makefile",
+}
+
+
+def workspace_grep(
+    root: Path,
+    query: str,
+    *,
+    regex: bool = False,
+    case_sensitive: bool = False,
+    limit: int = 200,
+) -> list[dict]:
+    """워크스페이스 검색.  결과는 path:line:snippet 의 dict 리스트."""
+    import re as _re
+
+    q = (query or "").strip()
+    if not q or len(q) < 2:
+        return []
+    if regex:
+        try:
+            pat = _re.compile(q, 0 if case_sensitive else _re.IGNORECASE)
+        except _re.error as exc:
+            raise ValueError(f"정규식 오류: {exc}")
+    else:
+        # literal — escape, 그리고 대소문자 옵션.
+        pat = _re.compile(
+            _re.escape(q), 0 if case_sensitive else _re.IGNORECASE
+        )
+
+    out: list[dict] = []
+    root = root.resolve()
+    for dirpath, dirnames, filenames in os.walk(root):
+        # skip dirs in-place.
+        dirnames[:] = [d for d in dirnames if d not in _GREP_SKIP_DIRS]
+        for fn in filenames:
+            if len(out) >= limit:
+                return out
+            ext = os.path.splitext(fn)[1].lower()
+            if ext not in _GREP_TEXT_EXTS and fn not in _GREP_TEXT_EXTS:
+                continue
+            fp = Path(dirpath) / fn
+            try:
+                # 1MB 넘는 파일은 패스 — 검색 의미 적고 비용 큼.
+                if fp.stat().st_size > 1_000_000:
+                    continue
+                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    for i, line in enumerate(fh, start=1):
+                        if pat.search(line):
+                            rel = str(fp.relative_to(root)).replace("\\", "/")
+                            out.append(
+                                {
+                                    "path": rel,
+                                    "line": i,
+                                    "snippet": line.rstrip("\n")[:300],
+                                }
+                            )
+                            if len(out) >= limit:
+                                return out
+            except (OSError, UnicodeDecodeError):
+                continue
+    return out
+
+
+# ── 빌드 / 린트 / 포맷 자동 감지 + 실행 (#56) ────────────────
+# 테스트 러너와 동일 패턴 — 파일 시그니처로 명령을 골라 timeout 안에
+# 실행.  사용자가 임의 명령을 넘기는 게 아니라 *우리가* 안전한 명령을
+# 매핑한다.
+
+def _detect_simple(
+    root: Path, kind: str
+) -> tuple[str, list[str]] | None:
+    """kind = 'build' | 'lint' | 'format'.  파일 시그니처 기반 매핑."""
+    pkg = root / "package.json"
+    if pkg.is_file():
+        try:
+            import json as _json
+
+            data = _json.loads(pkg.read_text(encoding="utf-8"))
+            scripts = (data.get("scripts") or {}) if isinstance(data, dict) else {}
+        except Exception:
+            scripts = {}
+        if kind == "build" and "build" in scripts:
+            return ("npm run build", ["npm", "run", "build", "--silent"])
+        if kind == "lint" and "lint" in scripts:
+            return ("npm run lint", ["npm", "run", "lint", "--silent"])
+        if kind == "format" and "format" in scripts:
+            return ("npm run format", ["npm", "run", "format", "--silent"])
+    py = root / "pyproject.toml"
+    if py.is_file():
+        if kind == "lint" and (root / ".ruff.toml").is_file() or py.is_file():
+            # ruff 가 깔려 있는지 확인은 호출 시 try/except.
+            return ("ruff", ["ruff", "check", "."])
+        if kind == "format":
+            return ("ruff format", ["ruff", "format", "."])
+        if kind == "build":
+            return ("python -m build", ["python3", "-m", "build", "--no-isolation"])
+    if (root / "Cargo.toml").is_file():
+        if kind == "build":
+            return ("cargo build", ["cargo", "build", "--quiet"])
+        if kind == "lint":
+            return ("cargo clippy", ["cargo", "clippy", "--quiet"])
+        if kind == "format":
+            return ("cargo fmt", ["cargo", "fmt"])
+    if (root / "go.mod").is_file():
+        if kind == "build":
+            return ("go build", ["go", "build", "./..."])
+        if kind == "lint":
+            return ("go vet", ["go", "vet", "./..."])
+        if kind == "format":
+            return ("gofmt", ["gofmt", "-w", "."])
+    if kind == "format" and any(root.glob("*.py")):
+        return ("black", ["black", "."])
+    if kind == "lint" and any(root.glob("*.py")):
+        return ("flake8", ["flake8", "."])
+    return None
+
+
+def run_workspace_command(
+    root: Path, kind: str, timeout_sec: int = 120
+) -> dict:
+    """kind = build / lint / format.  자동 감지된 명령 1회 실행."""
+    pick = _detect_simple(root, kind)
+    if pick is None:
+        return {
+            "runner": None,
+            "kind": kind,
+            "ok": False,
+            "skipped": True,
+            "reason": f"{kind} 명령을 자동 감지하지 못했습니다.",
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "duration_ms": 0,
+        }
+    label, argv = pick
+    import time as _time
+
+    started = _time.monotonic()
+    try:
+        proc = subprocess.run(
+            argv,
+            cwd=str(root),
+            timeout=timeout_sec,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                **os.environ,
+                "CI": "1",
+                "NO_COLOR": "1",
+                "PYTHONIOENCODING": "utf-8",
+            },
+        )
+        duration = int((_time.monotonic() - started) * 1000)
+        return {
+            "runner": label,
+            "kind": kind,
+            "ok": proc.returncode == 0,
+            "skipped": False,
+            "exit_code": proc.returncode,
+            "stdout": (proc.stdout or "")[-20_000:],
+            "stderr": (proc.stderr or "")[-20_000:],
+            "duration_ms": duration,
+        }
+    except subprocess.TimeoutExpired:
+        duration = int((_time.monotonic() - started) * 1000)
+        return {
+            "runner": label,
+            "kind": kind,
+            "ok": False,
+            "skipped": False,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": f"{kind} 시간 초과 ({timeout_sec}s)",
+            "duration_ms": duration,
+        }
+    except FileNotFoundError:
+        return {
+            "runner": label,
+            "kind": kind,
+            "ok": False,
+            "skipped": True,
+            "reason": f"실행 도구가 PATH 에 없습니다: {argv[0]}",
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "duration_ms": 0,
+        }
+
+
+# ── AI 코드 리뷰 / 커밋 메시지 (#57, #58) ────────────────────
+# 현재 변경된 diff 를 한국어 시스템 prompt 와 함께 Ollama 한 번에 호출.
+# 둘 다 stream=False — UI 가 모달로 한 번에 받아 표시.
+
+async def ai_review_diff(diff_text: str, model: str, base_url: str) -> str:
+    """diff 를 입력으로 받아 한국어 코드 리뷰 본문 반환."""
+    import httpx
+
+    if not diff_text.strip():
+        return "변경된 내용이 없어요."
+    sys = (
+        "당신은 한국어로 소통하는 노련한 코드 리뷰어입니다. 아래 diff 를"
+        " 보고 (1) 발견된 버그 가능성·악취 (2) 보안·성능 우려 (3) 개선"
+        " 제안 순으로 한국어 마크다운으로 정리해 주세요. 좋은 부분도 한"
+        " 줄 언급하세요. 형식적 칭찬은 금지. 라인 인용은 그대로 코드"
+        " 블록에 넣어 주세요. 모든 답은 한국어, 결과만 출력 (서두/말미"
+        " 인사 금지)."
+    )
+    body = diff_text[:60_000]
+    timeout = httpx.Timeout(120.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": body},
+                ],
+            },
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:200]}")
+    return ((r.json() or {}).get("message") or {}).get("content") or ""
+
+
+async def ai_commit_message(
+    diff_text: str, model: str, base_url: str
+) -> str:
+    """diff 를 입력으로 받아 짧은 한국어 커밋 메시지 한 줄 + 본문."""
+    import httpx
+
+    if not diff_text.strip():
+        return "chore: (변경 없음)"
+    sys = (
+        "당신은 한국어 커밋 메시지를 작성하는 도구입니다. 아래 diff 를"
+        " 읽고, Conventional Commits 스타일 (feat / fix / refactor /"
+        " docs / chore / test / style) 첫 줄 + 빈 줄 + 짧은 본문 1~3"
+        " 문장 형식으로 한국어 메시지를 출력하세요. 첫 줄은 70자 이내."
+        " 다른 어떤 인사·설명도 붙이지 마세요. 메시지만 출력."
+    )
+    body = diff_text[:30_000]
+    timeout = httpx.Timeout(60.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": body},
+                ],
+            },
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:200]}")
+    text = ((r.json() or {}).get("message") or {}).get("content") or ""
+    return text.strip()
+
+
+def read_file_at_rev(root: Path, rel_path: str, rev: str = "HEAD") -> str:
+    """git show <rev>:<path> 로 특정 리비전의 파일 내용 반환.  쉘 인자
+    안전성 확보 위해 subprocess.run + 명시적 list 사용.  바이너리/없는
+    경로는 RuntimeError."""
+    rel = (rel_path or "").strip().lstrip("/\\")
+    if not rel:
+        raise ValueError("path 가 비어 있어요")
+    if ".." in Path(rel).parts:
+        raise ValueError("상대 경로(..)는 사용할 수 없어요")
+    proc = subprocess.run(
+        ["git", "show", f"{rev}:{rel}"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        # 없는 경로 / 새 파일 등 — 빈 문자열 반환해 호출자가 '신규' 로 처리.
+        return ""
+    # 너무 큰 파일은 자름.
+    raw = proc.stdout or b""
+    if len(raw) > 2 * 1024 * 1024:
+        raw = raw[: 2 * 1024 * 1024]
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")

@@ -15,6 +15,8 @@ from ..config import settings
 from pathlib import Path
 
 from ..code.workspace import (
+    ai_commit_message,
+    ai_review_diff,
     apply_file_write,
     clone_repo,
     collect_workspace_files,
@@ -26,11 +28,14 @@ from ..code.workspace import (
     git_status_porcelain,
     is_git_workdir,
     read_file,
+    read_file_at_rev,
     remove_repo,
+    run_workspace_command,
     run_workspace_tests,
     sync_repo,
     validate_local_folder,
     walk_tree,
+    workspace_grep,
     workspace_path_for,
 )
 from ..crypto import decrypt_secret, encrypt_secret
@@ -949,3 +954,168 @@ async def workspace_push(
     except RuntimeError as exc:
         raise HTTPException(500, str(exc))
     return result
+
+
+# ── 워크스페이스 grep (#54) ──────────────────────────────────
+@router.get("/workspaces/{workspace_id}/grep")
+async def workspace_grep_endpoint(
+    workspace_id: str,
+    q: str = Query("", description="검색어"),
+    regex: bool = Query(False),
+    case_sensitive: bool = Query(False),
+    limit: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    try:
+        results = await asyncio.get_running_loop().run_in_executor(
+            None,
+            lambda: workspace_grep(
+                dest, q, regex=regex, case_sensitive=case_sensitive, limit=limit
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"query": q, "count": len(results), "results": results}
+
+
+# ── 빌드 / 린트 / 포맷 (#56) ─────────────────────────────────
+@router.post("/workspaces/{workspace_id}/run-command")
+async def workspace_run_command(
+    workspace_id: str,
+    kind: str = Query("lint", description="build | lint | format"),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    if not settings.workspace_tests_enabled:
+        raise HTTPException(
+            503,
+            "워크스페이스 명령 자동 실행이 꺼져 있습니다 "
+            "(.env: WORKSPACE_TESTS_ENABLED=true)",
+        )
+    if kind not in {"build", "lint", "format"}:
+        raise HTTPException(400, "kind 는 build / lint / format 중 하나")
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        run_workspace_command,
+        dest,
+        kind,
+        settings.workspace_test_timeout_sec,
+    )
+
+
+# ── AI 코드 리뷰 (#57) ───────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/ai-review")
+async def workspace_ai_review(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    if not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        diff_text = await asyncio.get_running_loop().run_in_executor(
+            None, git_diff, dest, None
+        )
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    model = settings.model_auto_code or settings.ollama_model
+    try:
+        text = await ai_review_diff(
+            diff_text, model, settings.ollama_base_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"AI 리뷰 실패: {exc}") from exc
+    return {"review": text, "diff_bytes": len(diff_text), "model": model}
+
+
+# ── AI 커밋 메시지 (#58) ─────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/ai-commit-message")
+async def workspace_ai_commit_message(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    if not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        diff_text = await asyncio.get_running_loop().run_in_executor(
+            None, git_diff, dest, None
+        )
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    model = settings.model_auto_code or settings.ollama_model
+    try:
+        msg = await ai_commit_message(
+            diff_text, model, settings.ollama_base_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"AI 커밋 메시지 실패: {exc}") from exc
+    return {"message": msg, "model": model}
+
+
+# ── 사용자 직접 편집 저장 (#53) ──────────────────────────────
+# apply_file_write 는 이미 있어서 같은 엔드포인트(/apply) 를 재활용하지만,
+# 사용자 의도(편집 저장)는 LLM 마커 적용과 구분되니 별 명도로 노출.
+
+@router.post("/workspaces/{workspace_id}/save-file")
+async def workspace_save_file(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    rel = (payload.get("path") or "").strip()
+    content = payload.get("content") or ""
+    if not rel:
+        raise HTTPException(400, "파일 경로가 비어 있어요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, apply_file_write, dest, rel, content
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ── 특정 리비전 파일 내용 (#55 sidebyside diff 용) ───────────
+@router.get("/workspaces/{workspace_id}/file-at-rev")
+async def workspace_file_at_rev(
+    workspace_id: str,
+    path: str = Query(""),
+    rev: str = Query("HEAD"),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    try:
+        text = await asyncio.get_running_loop().run_in_executor(
+            None, read_file_at_rev, dest, path, rev
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"path": path, "rev": rev, "text": text}

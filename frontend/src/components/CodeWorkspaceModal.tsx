@@ -1,5 +1,11 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { api, type Workspace, type WorkspaceFile } from "../api/client";
+
+// Monaco 는 무거운 의존성이라 lazy + Suspense 로 분리. 평소 트리만 보고
+// 파일 안 여는 경우엔 다운로드도 안 함.
+const MonacoEditor = lazy(() =>
+  import("@monaco-editor/react").then((m) => ({ default: m.default })),
+);
 import { useWorkspaces } from "../state/WorkspacesContext";
 import {
   IconAlertTriangle,
@@ -234,6 +240,11 @@ function WorkspaceView({
 }) {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [file, setFile] = useState<WorkspaceFile | null>(null);
+  // 인앱 편집기 (#53) — Monaco 에서 사용자가 수정하면 originalText 와
+  // 다르면 dirty=true 로 표시, 저장 버튼 활성.
+  const [editText, setEditText] = useState<string>("");
+  const [originalText, setOriginalText] = useState<string>("");
+  const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
@@ -247,7 +258,11 @@ function WorkspaceView({
     api
       .workspaceFile(workspace.id, filePath)
       .then((res) => {
-        if (!cancelled) setFile(res);
+        if (!cancelled) {
+          setFile(res);
+          setOriginalText(res.text || "");
+          setEditText(res.text || "");
+        }
       })
       .catch((e) => {
         if (!cancelled)
@@ -325,7 +340,12 @@ function WorkspaceView({
           {file ? (
             <>
               <div className="cw-file-head">
-                <span className="cw-file-path">{file.path}</span>
+                <span className="cw-file-path">
+                  {file.path}
+                  {editText !== originalText && (
+                    <span className="cw-file-dirty"> ● 수정됨</span>
+                  )}
+                </span>
                 <span className="cw-file-meta">
                   {fmtBytes(file.size)}
                   {file.truncated && " · truncated"}
@@ -337,13 +357,70 @@ function WorkspaceView({
                     file.method === "binary-skipped" ||
                     file.method === "too-large"
                   }
-                  onClick={() => onAttachFile(file.path, file.text)}
+                  onClick={() => onAttachFile(file.path, editText)}
                   title="현재 채팅에 첨부"
                 >
                   <IconPaperclip size={13} /> 채팅에 첨부
                 </button>
+                <button
+                  type="button"
+                  className="cw-attach-btn"
+                  disabled={
+                    saving ||
+                    editText === originalText ||
+                    file.method === "binary-skipped" ||
+                    file.method === "too-large"
+                  }
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      await api.saveWorkspaceFile(
+                        workspace.id,
+                        file.path,
+                        editText,
+                      );
+                      setOriginalText(editText);
+                    } catch (e) {
+                      window.alert(
+                        `저장 실패: ${e instanceof Error ? e.message : String(e)}`,
+                      );
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  title="이 파일을 워크스페이스에 저장"
+                >
+                  💾 {saving ? "저장 중…" : "저장"}
+                </button>
               </div>
-              <pre className="cw-file-body">{file.text}</pre>
+              {file.method === "binary-skipped" || file.method === "too-large" ? (
+                <pre className="cw-file-body">{file.text}</pre>
+              ) : (
+                <Suspense
+                  fallback={
+                    <pre className="cw-file-body">에디터 로딩 중…</pre>
+                  }
+                >
+                  <MonacoEditor
+                    height="60vh"
+                    language={detectLanguage(file.path)}
+                    value={editText}
+                    theme={
+                      document.documentElement.getAttribute("data-theme") === "dark"
+                        ? "vs-dark"
+                        : "light"
+                    }
+                    onChange={(v) => setEditText(v || "")}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      wordWrap: "on",
+                      automaticLayout: true,
+                      scrollBeyondLastLine: false,
+                    }}
+                  />
+                </Suspense>
+              )}
             </>
           ) : (
             <div className="cw-tree-loading">
@@ -684,4 +761,55 @@ function AddWorkspaceForm({
       </div>
     </section>
   );
+}
+
+
+// Monaco 의 language id 로 매핑 — 추론 실패하면 plaintext 폴백.
+function detectLanguage(path: string): string {
+  const ext = (path.split(".").pop() || "").toLowerCase();
+  const map: Record<string, string> = {
+    js: "javascript",
+    jsx: "javascript",
+    mjs: "javascript",
+    cjs: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    py: "python",
+    pyi: "python",
+    go: "go",
+    rs: "rust",
+    java: "java",
+    kt: "kotlin",
+    cs: "csharp",
+    rb: "ruby",
+    php: "php",
+    swift: "swift",
+    sh: "shell",
+    bash: "shell",
+    zsh: "shell",
+    sql: "sql",
+    html: "html",
+    htm: "html",
+    css: "css",
+    scss: "scss",
+    less: "less",
+    json: "json",
+    yaml: "yaml",
+    yml: "yaml",
+    toml: "ini",
+    ini: "ini",
+    md: "markdown",
+    markdown: "markdown",
+    xml: "xml",
+    vue: "html",
+    svelte: "html",
+    dockerfile: "dockerfile",
+    makefile: "makefile",
+    c: "c",
+    h: "c",
+    cpp: "cpp",
+    hpp: "cpp",
+    cc: "cpp",
+  };
+  return map[ext] || "plaintext";
 }
