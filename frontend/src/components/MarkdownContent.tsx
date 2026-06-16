@@ -405,14 +405,54 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
       // 3) 일반 Spring Boot fallback.
       return `src/main/java/com/example/${className}.java`;
     };
-    // MyBatis SQL XML / JSP 도 eGov 컨벤션 우선.
+    // MyBatis SQL XML / JSP / WebSquare / Nexacro 본문을 보고 분기.
     const guessXmlPath = (): string | null => {
-      if (lang !== "xml") return null;
-      if (/<mapper\s+namespace=|<sqlMap\s+namespace=/i.test(body)) {
-        // namespace 에서 feature 추출.
-        const ns = body.match(/namespace=["']([^"']+)["']/);
-        const feature = ns ? ns[1].split(".").pop() || "sample" : "sample";
-        return `src/main/resources/egovframework/sqlmap/sample/${feature}_SQL.xml`;
+      // 1) 넥사크로 — .xfdl 본문은 XML 이지만 fence 가 xml 로 올 수 있음.
+      //    헤더에 <FDL> 또는 Form/Components 시그니처가 있으면 넥사크로.
+      if (/<FDL\s+version=|<Form\s+id=|class_name=["']\w*Form["']/i.test(body)) {
+        // Form id="frm_xxx" 또는 class_name 에서 폼 이름 추출.
+        const m =
+          body.match(/<Form\s+id=["']([^"']+)["']/) ||
+          body.match(/class_name=["']([^"']+)["']/);
+        const name = m ? m[1] : "NewForm";
+        return `Base/Form/sample/${name}.xfdl`;
+      }
+      // 2) 넥사크로 — Application(.xadl) 시그니처.
+      if (/<ADL\s+version=|<Application\s+id=/i.test(body)) {
+        const m = body.match(/<Application\s+id=["']([^"']+)["']/);
+        const name = m ? m[1] : "NewApp";
+        return `Base/Application/${name}.xadl`;
+      }
+      // 3) 웹스퀘어 — w2: 네임스페이스 또는 inswave URL 시그니처.
+      if (
+        /xmlns:w2=["']http:\/\/www\.inswave\.com\/websquare/i.test(body) ||
+        /<w2:engine|<w2:group|<w2:gridView|<w2:input/i.test(body)
+      ) {
+        // <html id="..."> 에서 페이지 이름 추출 시도.
+        const m = body.match(/<html[^>]*\bid=["']([^"']+)["']/);
+        const name = m ? m[1] : "newPage";
+        return `src/main/webapp/ws/sample/${name}.xml`;
+      }
+      // 4) MyBatis SQL XML.
+      if (lang === "xml" || lang === "") {
+        if (/<mapper\s+namespace=|<sqlMap\s+namespace=/i.test(body)) {
+          const ns = body.match(/namespace=["']([^"']+)["']/);
+          const feature = ns ? ns[1].split(".").pop() || "sample" : "sample";
+          return `src/main/resources/egovframework/sqlmap/sample/${feature}_SQL.xml`;
+        }
+      }
+      return null;
+    };
+    // 넥사크로 JS / WebSquare JS 분기 — .xjs / .js 본문 단서.
+    const guessNexacroJsPath = (): string | null => {
+      if (!/^[a-z]*j(s|avascript)$/i.test(lang) && lang !== "xjs") return null;
+      // Nexacro 전용 호출 API 단서.
+      if (/nexacro\.|nexa\.Set|application\.openForm|gfn_/i.test(body)) {
+        return "Base/Js/CommonScript.xjs";
+      }
+      // WebSquare 클라이언트 단서.
+      if (/WebSquare\.|wframe\.|w2_button|w2\.scwin\b/i.test(body)) {
+        return "src/main/webapp/ws/sample/newPage.js";
       }
       return null;
     };
@@ -439,6 +479,17 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
       // 디렉터리(web/service/service.impl)로 분류해 이걸 덮어씀.
       java: "src/main/java/egovframework/sample/sample/web/NewFile.java",
       jsp: "src/main/webapp/WEB-INF/jsp/egovframework/sample/sampleList.jsp",
+      // 넥사크로 (Nexacro / TOBESOFT) — 별도 fence (`xfdl` 등) 일 때 직진.
+      xfdl: "Base/Form/sample/NewForm.xfdl",
+      xadl: "Base/Application/NewApp.xadl",
+      xjs: "Base/Js/CommonScript.xjs",
+      xprj: "NewProject.xprj",
+      xtdl: "Base/TypeDef/typedef.xtdl",
+      xcss: "Base/Theme/default/style.xcss",
+      nexacro: "Base/Form/sample/NewForm.xfdl",
+      // 웹스퀘어 (WebSquare / 인스웨이브) — fence 가 `websquare`/`wsq` 인 경우.
+      websquare: "src/main/webapp/ws/sample/newPage.xml",
+      wsq: "src/main/webapp/ws/sample/newPage.xml",
       kt: "src/main/kotlin/NewFile.kt",
       kotlin: "src/main/kotlin/NewFile.kt",
       go: "cmd/main/main.go",
@@ -492,6 +543,7 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
       guessJavaPath() ||
       guessXmlPath() ||
       guessJspPath() ||
+      guessNexacroJsPath() ||
       LANG_DEFAULTS[lang] ||
       `src/new_file.${lang || "txt"}`;
     const path = window.prompt(
