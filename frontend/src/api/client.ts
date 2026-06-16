@@ -1829,6 +1829,100 @@ export const api = {
         path,
       )}&rev=${encodeURIComponent(rev)}`,
     ),
+  // ── 브랜치 (#59) ─────────────────────────────────────────
+  workspaceBranches: (id: string) =>
+    json<{ current: string; local: string[]; remote: string[] }>(
+      `/code/workspaces/${id}/branches`,
+    ),
+  workspaceSwitchBranch: (id: string, name: string, create = false) =>
+    json<{ current: string; stdout: string }>(
+      `/code/workspaces/${id}/switch-branch`,
+      { method: "POST", body: JSON.stringify({ name, create }) },
+    ),
+  // ── git log (#60) ───────────────────────────────────────
+  workspaceLog: (id: string, limit = 50) =>
+    json<{
+      commits: {
+        sha: string;
+        short_sha: string;
+        author_name: string;
+        author_email: string;
+        when: string;
+        subject: string;
+      }[];
+    }>(`/code/workspaces/${id}/log?limit=${limit}`),
+  workspaceCommitFiles: (id: string, sha: string) =>
+    json<{
+      sha: string;
+      files: { status: string; path: string }[];
+    }>(`/code/workspaces/${id}/commit/${encodeURIComponent(sha)}`),
+  workspaceCommitFileDiff: (id: string, sha: string, path: string) =>
+    json<{ sha: string; path: string; diff: string }>(
+      `/code/workspaces/${id}/commit/${encodeURIComponent(
+        sha,
+      )}?path=${encodeURIComponent(path)}`,
+    ),
+  // ── 파일 CRUD (#61) ─────────────────────────────────────
+  workspaceCreatePath: (
+    id: string,
+    path: string,
+    kind: "file" | "dir" = "file",
+  ) =>
+    json<{ path: string; kind: string }>(
+      `/code/workspaces/${id}/path`,
+      { method: "POST", body: JSON.stringify({ path, kind }) },
+    ),
+  workspaceDeletePath: (id: string, path: string) =>
+    json<{ path: string; deleted: boolean }>(
+      `/code/workspaces/${id}/path?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" },
+    ),
+  workspaceRenamePath: (id: string, src: string, dst: string) =>
+    json<{ src: string; dst: string }>(
+      `/code/workspaces/${id}/path`,
+      { method: "PATCH", body: JSON.stringify({ src, dst }) },
+    ),
+  // ── find & replace (#62) ────────────────────────────────
+  workspaceReplace: (
+    id: string,
+    opts: {
+      query: string;
+      replacement: string;
+      regex?: boolean;
+      caseSensitive?: boolean;
+      dryRun?: boolean;
+    },
+  ) =>
+    json<{
+      dry_run: boolean;
+      total_files: number;
+      total_replacements: number;
+      files: { path: string; count: number }[];
+    }>(`/code/workspaces/${id}/replace`, {
+      method: "POST",
+      body: JSON.stringify({
+        query: opts.query,
+        replacement: opts.replacement,
+        regex: !!opts.regex,
+        case_sensitive: !!opts.caseSensitive,
+        dry_run: opts.dryRun !== false,
+      }),
+    }),
+  // ── TODO / FIXME 인덱스 (#63) ───────────────────────────
+  workspaceTodos: (id: string, limit = 500) =>
+    json<{
+      count: number;
+      items: { path: string; line: number; tag: string; message: string }[];
+    }>(`/code/workspaces/${id}/todos?limit=${limit}`),
+  // ── 워크스페이스 통계 (#64) ─────────────────────────────
+  workspaceStats: (id: string) =>
+    json<{
+      file_count: number;
+      total_loc: number;
+      total_bytes: number;
+      languages: { lang: string; files: number; loc: number; bytes: number }[];
+      biggest_files: { path: string; size: number }[];
+    }>(`/code/workspaces/${id}/stats`),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

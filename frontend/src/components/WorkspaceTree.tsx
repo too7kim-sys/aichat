@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, type WorkspaceTreeEntry } from "../api/client";
 import {
+  BranchPanel,
+  FileCRUDPanel,
+  LogPanel,
+  ReplacePanel,
+  StatsPanel,
+  TodoPanel,
+} from "./WorkspaceTools";
+import {
   IconAlertTriangle,
   IconCheck,
   IconChevronDown,
@@ -119,6 +127,12 @@ export function WorkspaceTree({
     <>
       <WorkspaceGrep workspaceId={workspaceId} onSelect={onSelectFile} />
       <div className="ws-tree-toolbar">
+        <BranchPanel workspaceId={workspaceId} />
+        <LogPanel workspaceId={workspaceId} />
+        <FileCRUDPanel workspaceId={workspaceId} />
+        <ReplacePanel workspaceId={workspaceId} />
+        <TodoPanel workspaceId={workspaceId} onJump={onSelectFile} />
+        <StatsPanel workspaceId={workspaceId} />
         <TestRunnerButton workspaceId={workspaceId} />
         <RunCommandButton
           workspaceId={workspaceId}

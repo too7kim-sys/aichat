@@ -1523,3 +1523,372 @@ def read_file_at_rev(root: Path, rel_path: str, rev: str = "HEAD") -> str:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
         return raw.decode("utf-8", errors="replace")
+
+
+# ── git 브랜치 관리 (#59) ────────────────────────────────────
+def list_branches(root: Path) -> dict:
+    """현재 브랜치 + 로컬/원격 브랜치 목록."""
+    # 현재 브랜치
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    current = (
+        proc.stdout.decode("utf-8", "replace").strip()
+        if proc.returncode == 0
+        else ""
+    )
+    # 모든 브랜치 (refname only).
+    proc2 = subprocess.run(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname:short)\t%(refname)",
+            "refs/heads",
+            "refs/remotes",
+        ],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    local: list[str] = []
+    remote: list[str] = []
+    if proc2.returncode == 0:
+        for line in proc2.stdout.decode("utf-8", "replace").splitlines():
+            short, full = (line.split("\t", 1) + [""])[:2]
+            short = short.strip()
+            if not short or short.endswith("/HEAD"):
+                continue
+            if full.startswith("refs/remotes/"):
+                remote.append(short)
+            else:
+                local.append(short)
+    return {
+        "current": current,
+        "local": sorted(set(local)),
+        "remote": sorted(set(remote)),
+    }
+
+
+def switch_branch(root: Path, name: str, create: bool = False) -> dict:
+    """git switch (또는 git switch -c).  더러운 상태에선 거부 — 사용자가
+    먼저 커밋·스태시 하라고 안내."""
+    if not name or not name.strip():
+        raise ValueError("브랜치 이름이 비어 있어요")
+    safe = name.strip()
+    if not re.match(r"^[A-Za-z0-9._\-/]+$", safe):
+        raise ValueError("브랜치 이름에 허용되지 않는 문자가 있어요")
+    args = ["git", "switch"]
+    if create:
+        args.append("-c")
+    args.append(safe)
+    proc = subprocess.run(
+        args, cwd=str(root), capture_output=True, timeout=30, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {
+        "current": safe,
+        "stdout": proc.stdout.decode("utf-8", "replace").strip(),
+    }
+
+
+# ── git log 뷰어 (#60) ──────────────────────────────────────
+def git_log(root: Path, limit: int = 50) -> list[dict]:
+    """최근 N개 커밋 — 한 줄당 dict.  본문은 첫 줄만 (subject)."""
+    limit = max(1, min(int(limit or 50), 500))
+    fmt = "%H%x09%an%x09%ae%x09%aI%x09%s"
+    proc = subprocess.run(
+        ["git", "log", f"-{limit}", f"--pretty=format:{fmt}"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    out: list[dict] = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split("\t", 4)
+        if len(parts) < 5:
+            continue
+        sha, name, email, when, subject = parts
+        out.append(
+            {
+                "sha": sha,
+                "short_sha": sha[:7],
+                "author_name": name,
+                "author_email": email,
+                "when": when,
+                "subject": subject,
+            }
+        )
+    return out
+
+
+def git_show_files(root: Path, sha: str) -> list[dict]:
+    """git show --name-status — 특정 커밋의 변경 파일 목록."""
+    if not re.match(r"^[A-Fa-f0-9]{4,40}$", sha):
+        raise ValueError("올바른 커밋 SHA 가 아니에요")
+    proc = subprocess.run(
+        ["git", "show", "--name-status", "--pretty=format:", sha],
+        cwd=str(root),
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    out: list[dict] = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t", 2)
+        if len(parts) < 2:
+            continue
+        status = parts[0]
+        path = parts[-1]
+        out.append({"status": status, "path": path})
+    return out
+
+
+def git_show_diff(root: Path, sha: str, path: str | None = None) -> str:
+    """git show <sha> [-- <path>] — 특정 커밋(또는 그 안 파일)의 diff."""
+    if not re.match(r"^[A-Fa-f0-9]{4,40}$", sha):
+        raise ValueError("올바른 커밋 SHA 가 아니에요")
+    args = ["git", "show", "--no-color", sha]
+    if path:
+        rel = path.strip().lstrip("/\\")
+        if ".." in Path(rel).parts:
+            raise ValueError("상대 경로(..) 사용 불가")
+        args.extend(["--", rel])
+    proc = subprocess.run(
+        args, cwd=str(root), capture_output=True, timeout=20, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return proc.stdout.decode("utf-8", "replace")
+
+
+# ── 파일/폴더 CRUD (#61) ────────────────────────────────────
+def create_path(root: Path, rel: str, kind: str = "file") -> dict:
+    """새 파일/폴더 생성.  parent 가 없으면 만들어줌.  이미 있으면 에러."""
+    target = _safe_resolve(root, rel)
+    if target.exists():
+        raise ValueError(f"이미 존재해요: {rel}")
+    if kind == "dir":
+        target.mkdir(parents=True, exist_ok=False)
+        return {"path": str(target.relative_to(root)).replace("\\", "/"), "kind": "dir"}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.touch()
+    return {"path": str(target.relative_to(root)).replace("\\", "/"), "kind": "file"}
+
+
+def delete_path(root: Path, rel: str) -> dict:
+    """파일/폴더 삭제.  폴더면 재귀 (단 사이즈 가드)."""
+    import shutil as _shutil
+
+    target = _safe_resolve(root, rel)
+    if not target.exists():
+        raise ValueError(f"존재하지 않아요: {rel}")
+    if target.is_dir():
+        _shutil.rmtree(target)
+    else:
+        target.unlink()
+    return {"path": rel, "deleted": True}
+
+
+def rename_path(root: Path, src: str, dst: str) -> dict:
+    """파일/폴더 이름 변경 (또는 이동).  대상이 이미 있으면 거부."""
+    s = _safe_resolve(root, src)
+    d = _safe_resolve(root, dst)
+    if not s.exists():
+        raise ValueError(f"원본 없음: {src}")
+    if d.exists():
+        raise ValueError(f"대상이 이미 있어요: {dst}")
+    d.parent.mkdir(parents=True, exist_ok=True)
+    s.rename(d)
+    return {
+        "src": src,
+        "dst": str(d.relative_to(root)).replace("\\", "/"),
+    }
+
+
+# ── 다중 파일 find & replace (#62) ──────────────────────────
+def replace_in_files(
+    root: Path,
+    query: str,
+    replacement: str,
+    *,
+    regex: bool = False,
+    case_sensitive: bool = False,
+    dry_run: bool = True,
+    limit_files: int = 200,
+) -> dict:
+    """매칭 라인을 치환.  dry_run=True 면 file·count 만 미리보기."""
+    import re as _re
+
+    q = (query or "").strip()
+    if not q or len(q) < 2:
+        raise ValueError("query 는 2자 이상이어야 해요")
+    if regex:
+        try:
+            pat = _re.compile(q, 0 if case_sensitive else _re.IGNORECASE)
+        except _re.error as exc:
+            raise ValueError(f"정규식 오류: {exc}")
+    else:
+        pat = _re.compile(
+            _re.escape(q), 0 if case_sensitive else _re.IGNORECASE
+        )
+
+    changes: list[dict] = []
+    total_replacements = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _GREP_SKIP_DIRS]
+        for fn in filenames:
+            if len(changes) >= limit_files:
+                break
+            ext = os.path.splitext(fn)[1].lower()
+            if ext not in _GREP_TEXT_EXTS and fn not in _GREP_TEXT_EXTS:
+                continue
+            fp = Path(dirpath) / fn
+            try:
+                if fp.stat().st_size > 1_000_000:
+                    continue
+                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            new_text, n = pat.subn(replacement, text)
+            if n == 0:
+                continue
+            rel = str(fp.relative_to(root)).replace("\\", "/")
+            changes.append({"path": rel, "count": n})
+            total_replacements += n
+            if not dry_run:
+                try:
+                    with open(fp, "w", encoding="utf-8") as fh:
+                        fh.write(new_text)
+                except OSError as exc:
+                    raise RuntimeError(f"쓰기 실패 {rel}: {exc}")
+    return {
+        "dry_run": dry_run,
+        "total_files": len(changes),
+        "total_replacements": total_replacements,
+        "files": changes,
+    }
+
+
+# ── TODO / FIXME 인덱스 (#63) ───────────────────────────────
+_TODO_PAT = re.compile(
+    r"\b(TODO|FIXME|HACK|XXX|NOTE|BUG)\b[:\s]?\s*(.+)?",
+    re.IGNORECASE,
+)
+
+
+def scan_todos(root: Path, limit: int = 500) -> list[dict]:
+    """전체 트리에서 TODO/FIXME/HACK/NOTE/XXX/BUG 마커 수집."""
+    out: list[dict] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _GREP_SKIP_DIRS]
+        for fn in filenames:
+            if len(out) >= limit:
+                return out
+            ext = os.path.splitext(fn)[1].lower()
+            if ext not in _GREP_TEXT_EXTS and fn not in _GREP_TEXT_EXTS:
+                continue
+            fp = Path(dirpath) / fn
+            try:
+                if fp.stat().st_size > 1_000_000:
+                    continue
+                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    for i, line in enumerate(fh, start=1):
+                        m = _TODO_PAT.search(line)
+                        if m:
+                            tag = m.group(1).upper()
+                            msg = (m.group(2) or "").strip()
+                            rel = str(fp.relative_to(root)).replace("\\", "/")
+                            out.append(
+                                {
+                                    "path": rel,
+                                    "line": i,
+                                    "tag": tag,
+                                    "message": msg[:200],
+                                }
+                            )
+                            if len(out) >= limit:
+                                return out
+            except (OSError, UnicodeDecodeError):
+                continue
+    return out
+
+
+# ── 워크스페이스 통계 (#64) ─────────────────────────────────
+def workspace_stats(root: Path, max_files: int = 5000) -> dict:
+    """LOC + 언어 분포 + 가장 큰 파일 10개.  비-텍스트는 LOC 0."""
+    by_lang: dict[str, dict] = {}
+    biggest: list[tuple[int, str]] = []
+    file_count = 0
+    total_loc = 0
+    total_bytes = 0
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _GREP_SKIP_DIRS]
+        for fn in filenames:
+            if file_count >= max_files:
+                break
+            ext = os.path.splitext(fn)[1].lower() or "_no_ext"
+            lang = ext.lstrip(".") or "?"
+            fp = Path(dirpath) / fn
+            try:
+                size = fp.stat().st_size
+            except OSError:
+                continue
+            file_count += 1
+            total_bytes += size
+            rel = str(fp.relative_to(root)).replace("\\", "/")
+            biggest.append((size, rel))
+            loc = 0
+            if ext in _GREP_TEXT_EXTS or fn in _GREP_TEXT_EXTS:
+                if size <= 2_000_000:
+                    try:
+                        with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                            loc = sum(1 for _ in fh)
+                    except OSError:
+                        loc = 0
+            total_loc += loc
+            slot = by_lang.setdefault(
+                lang, {"files": 0, "loc": 0, "bytes": 0}
+            )
+            slot["files"] += 1
+            slot["loc"] += loc
+            slot["bytes"] += size
+    biggest.sort(reverse=True)
+    by_lang_list = [
+        {"lang": lang, **stats}
+        for lang, stats in sorted(
+            by_lang.items(), key=lambda kv: -kv[1]["loc"]
+        )
+    ]
+    return {
+        "file_count": file_count,
+        "total_loc": total_loc,
+        "total_bytes": total_bytes,
+        "languages": by_lang_list[:30],
+        "biggest_files": [
+            {"path": p, "size": s} for (s, p) in biggest[:10]
+        ],
+    }

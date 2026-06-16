@@ -9886,6 +9886,300 @@ body {
 /* 인앱 편집 파일 헤더 dirty 표시 (#53). */
 .cw-file-dirty { color: var(--accent); font-size: 11px; font-weight: 600; margin-left: 6px; }
 
+/* 워크스페이스 도구 모달 공통 (#59~64). */
+.ws-tree-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.ws-branch-new {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ws-branch-new input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bg-input);
+  color: var(--text);
+}
+.ws-branch-new button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ws-branch-sec {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 12px 0 4px;
+  letter-spacing: 0.04em;
+}
+.ws-branch-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-branch-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: var(--bg-card);
+}
+.ws-branch-list li span { font-family: ui-monospace, monospace; font-size: 12.5px; }
+.ws-branch-list li button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ws-branch-list li button:disabled { opacity: 0.4; }
+
+/* git log 모달 (#60). */
+.ws-log-modal { max-width: 1080px; }
+.ws-log-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  max-height: 60vh;
+}
+.ws-log-left, .ws-log-right { overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
+.ws-log-list, .ws-log-files {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.ws-log-list li {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  grid-template-rows: auto auto;
+  gap: 1px 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ws-log-list li:hover { background: var(--accent-soft); }
+.ws-log-list li.active { background: var(--accent-soft); color: var(--accent); }
+.ws-log-list li code { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--text-muted); }
+.ws-log-subj { color: var(--text); }
+.ws-log-meta { grid-column: 1 / span 2; font-size: 10.5px; color: var(--text-muted); }
+.ws-log-files li {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ws-log-files li:hover { background: var(--accent-soft); }
+.ws-log-status { font-weight: 700; font-size: 10.5px; }
+.ws-log-status.st-M { color: #ca8a04; }
+.ws-log-status.st-A { color: #16a34a; }
+.ws-log-status.st-D { color: #dc2626; }
+.ws-log-diff {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: var(--bg-card);
+}
+.ws-log-diff header {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.ws-log-diff pre {
+  margin: 0;
+  padding: 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* 파일 CRUD / 치환 폼 (#61, #62). */
+.ws-crud-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ws-crud-row input,
+.ws-crud-row select {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+}
+.ws-crud-row input { flex: 1; min-width: 180px; }
+.ws-crud-row button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ws-crud-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+.ws-crud-hint { font-size: 11.5px; color: var(--text-muted); margin: 0; }
+.ws-replace-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.ws-replace-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.ws-replace-list li code { font-family: ui-monospace, monospace; }
+
+/* TODO / FIXME 모달 (#63). */
+.ws-todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.ws-todo-list li button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font: inherit;
+}
+.ws-todo-list li button:hover { background: var(--accent-soft); }
+.ws-todo-list li button code {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ws-todo-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 8px;
+  color: #fff;
+  text-align: center;
+}
+.ws-todo-tag.tag-TODO { background: #2563eb; }
+.ws-todo-tag.tag-FIXME { background: #dc2626; }
+.ws-todo-tag.tag-HACK { background: #b45309; }
+.ws-todo-tag.tag-XXX { background: #6b21a8; }
+.ws-todo-tag.tag-BUG { background: #be123c; }
+.ws-todo-tag.tag-NOTE { background: #14b8a6; }
+.ws-todo-msg {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* 통계 모달 (#64). */
+.ws-stats-top {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ws-stats-top div {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  text-align: center;
+}
+.ws-stats-top b { display: block; font-size: 18px; color: var(--text); }
+.ws-stats-top span { font-size: 11px; color: var(--text-muted); }
+.ws-stats-sec {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 12px 0 4px;
+  letter-spacing: 0.04em;
+}
+.ws-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ws-stats-table th, .ws-stats-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px dashed var(--border);
+}
+.ws-stats-table th { color: var(--text-muted); font-size: 10.5px; text-transform: uppercase; }
+.ws-stats-table code { font-family: ui-monospace, monospace; font-size: 11px; }
+.ws-stats-bar {
+  position: relative;
+  height: 14px;
+  background: var(--bg-card);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ws-stats-bar div {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  opacity: 0.7;
+}
+.ws-stats-bar span {
+  position: relative;
+  z-index: 1;
+  font-size: 10.5px;
+  padding: 0 6px;
+  color: var(--text);
+  line-height: 14px;
+}
+.ws-stats-biggest {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.ws-stats-biggest li {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.ws-stats-biggest li code { font-family: ui-monospace, monospace; }
+
 /* 세션 내 검색 매치 강조 (#46). */
 .bubble-search-mark {
   background: #fff59d;

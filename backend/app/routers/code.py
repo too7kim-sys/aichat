@@ -20,23 +20,34 @@ from ..code.workspace import (
     apply_file_write,
     clone_repo,
     collect_workspace_files,
+    create_path,
+    delete_path,
     detect_test_runner,
     git_commit,
     git_diff,
+    git_log,
     git_push,
     git_revert_file,
+    git_show_diff,
+    git_show_files,
     git_status_porcelain,
     is_git_workdir,
+    list_branches,
     read_file,
     read_file_at_rev,
     remove_repo,
+    rename_path,
+    replace_in_files,
     run_workspace_command,
     run_workspace_tests,
+    scan_todos,
+    switch_branch,
     sync_repo,
     validate_local_folder,
     walk_tree,
     workspace_grep,
     workspace_path_for,
+    workspace_stats,
 )
 from ..crypto import decrypt_secret, encrypt_secret
 from ..database import SessionLocal, get_db
@@ -1119,3 +1130,238 @@ async def workspace_file_at_rev(
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"path": path, "rev": rev, "text": text}
+
+
+# ── git 브랜치 (#59) ────────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/branches")
+async def workspace_branches(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    if not is_git_workdir(dest):
+        return {"current": "", "local": [], "remote": []}
+    return await asyncio.get_running_loop().run_in_executor(
+        None, list_branches, dest
+    )
+
+
+@router.post("/workspaces/{workspace_id}/switch-branch")
+async def workspace_switch_branch(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    name = (payload.get("name") or "").strip()
+    create = bool(payload.get("create"))
+    if not name:
+        raise HTTPException(400, "브랜치 이름이 필요해요")
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    if not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, switch_branch, dest, name, create
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+# ── git log 뷰어 (#60) ──────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/log")
+async def workspace_log(
+    workspace_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    if not is_git_workdir(dest):
+        return {"commits": []}
+    try:
+        commits = await asyncio.get_running_loop().run_in_executor(
+            None, git_log, dest, limit
+        )
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    return {"commits": commits}
+
+
+@router.get("/workspaces/{workspace_id}/commit/{sha}")
+async def workspace_commit_detail(
+    workspace_id: str,
+    sha: str,
+    path: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    if not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        if path:
+            diff = await asyncio.get_running_loop().run_in_executor(
+                None, git_show_diff, dest, sha, path
+            )
+            return {"sha": sha, "path": path, "diff": diff}
+        files = await asyncio.get_running_loop().run_in_executor(
+            None, git_show_files, dest, sha
+        )
+        return {"sha": sha, "files": files}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ── 파일/폴더 CRUD (#61) ────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/path")
+async def workspace_create_path(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    rel = (payload.get("path") or "").strip()
+    kind = payload.get("kind") or "file"
+    if not rel:
+        raise HTTPException(400, "path 가 비어 있어요")
+    if kind not in {"file", "dir"}:
+        raise HTTPException(400, "kind 는 file / dir 중 하나")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, create_path, dest, rel, kind
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.delete("/workspaces/{workspace_id}/path")
+async def workspace_delete_path(
+    workspace_id: str,
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, delete_path, dest, path
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@router.patch("/workspaces/{workspace_id}/path")
+async def workspace_rename_path(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    src = (payload.get("src") or "").strip()
+    dst = (payload.get("dst") or "").strip()
+    if not src or not dst:
+        raise HTTPException(400, "src, dst 둘 다 필요해요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, rename_path, dest, src, dst
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+# ── 다중 파일 find & replace (#62) ──────────────────────────
+@router.post("/workspaces/{workspace_id}/replace")
+async def workspace_replace(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    query = payload.get("query") or ""
+    replacement = payload.get("replacement") or ""
+    regex = bool(payload.get("regex"))
+    case_sensitive = bool(payload.get("case_sensitive"))
+    dry_run = bool(payload.get("dry_run", True))
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None,
+            lambda: replace_in_files(
+                dest,
+                query,
+                replacement,
+                regex=regex,
+                case_sensitive=case_sensitive,
+                dry_run=dry_run,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ── TODO / FIXME 인덱스 (#63) ───────────────────────────────
+@router.get("/workspaces/{workspace_id}/todos")
+async def workspace_todos(
+    workspace_id: str,
+    limit: int = Query(500, ge=1, le=2000),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    items = await asyncio.get_running_loop().run_in_executor(
+        None, scan_todos, dest, limit
+    )
+    return {"count": len(items), "items": items}
+
+
+# ── 워크스페이스 통계 (#64) ─────────────────────────────────
+@router.get("/workspaces/{workspace_id}/stats")
+async def workspace_stats_endpoint(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
+    return await asyncio.get_running_loop().run_in_executor(
+        None, workspace_stats, dest
+    )
