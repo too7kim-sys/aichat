@@ -1114,3 +1114,544 @@ export function TimelinePanel({
     </>
   );
 }
+
+
+// ── #71 코드 스니펫 라이브러리 ─────────────────────────────
+export function SnippetPanel({
+  onInsert,
+  isAdmin,
+}: {
+  onInsert: (text: string) => void;
+  isAdmin: boolean;
+}) {
+  type Snip = Awaited<ReturnType<typeof api.listSnippets>>[number];
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<Snip[]>([]);
+  const [q, setQ] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [body, setBody] = useState("");
+  const [lang, setLang] = useState("");
+  const [scope, setScope] = useState<"personal" | "team">("personal");
+
+  async function refresh() {
+    try {
+      setList(await api.listSnippets());
+    } catch {
+      setList([]);
+    }
+  }
+  useEffect(() => {
+    if (!open) return;
+    void refresh();
+  }, [open]);
+
+  async function save() {
+    if (!name.trim() || !body.trim()) return;
+    try {
+      await api.createSnippet({
+        name: name.trim(),
+        body,
+        language: lang.trim(),
+        scope,
+      });
+      setName("");
+      setBody("");
+      setLang("");
+      setAdding(false);
+      await refresh();
+    } catch (e) {
+      window.alert(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  async function remove(id: string) {
+    if (!window.confirm("이 스니펫을 삭제할까요?")) return;
+    try {
+      await api.deleteSnippet(id);
+      await refresh();
+    } catch (e) {
+      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const filtered = q.trim()
+    ? list.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q.toLowerCase()) ||
+          s.body.toLowerCase().includes(q.toLowerCase()),
+      )
+    : list;
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="코드 스니펫 라이브러리">
+        ✂ 스니펫
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>✂ 코드 스니펫</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                <input
+                  className="ws-grep-input"
+                  placeholder="검색"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+                <button type="button" onClick={() => setAdding((v) => !v)}>
+                  {adding ? "취소" : "+ 추가"}
+                </button>
+              </div>
+              {adding && (
+                <div className="ws-snippet-form">
+                  <input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+                  <input placeholder="언어 (python, typescript…)" value={lang} onChange={(e) => setLang(e.target.value)} maxLength={40} />
+                  <select value={scope} onChange={(e) => setScope(e.target.value as "personal" | "team")} disabled={!isAdmin}>
+                    <option value="personal">개인</option>
+                    {isAdmin && <option value="team">팀 공유</option>}
+                  </select>
+                  <textarea
+                    placeholder="스니펫 본문 (코드)"
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    rows={6}
+                  />
+                  <button type="button" className="primary" onClick={save} disabled={!name.trim() || !body.trim()}>
+                    저장
+                  </button>
+                </div>
+              )}
+              {filtered.length === 0 ? (
+                <div className="patch-preview-empty">스니펫이 없어요.</div>
+              ) : (
+                <ul className="ws-snippet-list">
+                  {filtered.map((s) => (
+                    <li key={s.id}>
+                      <div className="ws-snippet-head">
+                        <span>
+                          <b>{s.name}</b>
+                          <span className={`ws-todo-tag tag-${s.scope === "team" ? "TODO" : "NOTE"}`} style={{ marginLeft: 8 }}>
+                            {s.scope === "team" ? "팀" : "개인"}
+                          </span>
+                          {s.language && <em style={{ marginLeft: 8, color: "var(--text-muted)" }}>{s.language}</em>}
+                        </span>
+                        <span>
+                          <button type="button" onClick={() => { onInsert(s.body); setOpen(false); }}>
+                            삽입
+                          </button>
+                          {(s.owned || (s.scope === "team" && isAdmin)) && (
+                            <button type="button" onClick={() => remove(s.id)} style={{ marginLeft: 4 }}>
+                              ×
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                      <pre className="ws-snippet-body">{s.body.slice(0, 320)}{s.body.length > 320 ? "…" : ""}</pre>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #72 AI 문서화 — AIToolsPanel 옵션 확장 대신 별 버튼 ─────
+export function AIDocPanel({
+  workspaceId,
+  filePath,
+}: {
+  workspaceId: string;
+  filePath: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState("");
+
+  async function run() {
+    if (!filePath) {
+      window.alert("먼저 트리에서 파일을 선택하세요.");
+      return;
+    }
+    setOpen(true);
+    setBusy(true);
+    setText("(생성 중…)");
+    try {
+      const r = await api.workspaceAiDocument(workspaceId, filePath);
+      setText(r.documented);
+    } catch (e) {
+      setText(`실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={run} disabled={busy || !filePath} title="선택 파일에 한국어 docstring 추가">
+        📖 문서화
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>📖 AI 문서화</h3>
+              {filePath && <code className="patch-preview-path">{filePath}</code>}
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <pre className="wsc-review-body">{text}</pre>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #74 AI 보안 점검 ──────────────────────────────────────
+export function SecurityPanel({
+  workspaceId,
+  onJump,
+}: {
+  workspaceId: string;
+  onJump: (path: string) => void;
+}) {
+  type Data = Awaited<ReturnType<typeof api.workspaceSecurityScan>>;
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Data | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    setOpen(true);
+    setBusy(true);
+    setData(null);
+    try {
+      setData(await api.workspaceSecurityScan(workspaceId));
+    } catch (e) {
+      window.alert(`보안 점검 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={run} title="정적 패턴 + LLM 보안 점검" disabled={busy}>
+        🛡 {busy ? "점검…" : "보안"}
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>🛡 AI 보안 점검</h3>
+              {data && <code className="patch-preview-path">{data.count}건 검출</code>}
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              {!data ? (
+                <div className="patch-preview-empty">점검 중…</div>
+              ) : (
+                <>
+                  <div className="ws-stats-sec">LLM 요약</div>
+                  <pre className="wsc-review-body">{data.summary}</pre>
+                  <div className="ws-stats-sec">검출 항목 ({data.findings.length})</div>
+                  {data.findings.length === 0 ? (
+                    <div className="patch-preview-empty">✓ 패턴 검출 없음</div>
+                  ) : (
+                    <ul className="ws-todo-list">
+                      {data.findings.map((f, i) => (
+                        <li key={`${f.path}:${f.line}:${i}`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onJump(f.path);
+                              setOpen(false);
+                            }}
+                          >
+                            <span className="ws-todo-tag tag-FIXME">SEC</span>
+                            <code>{f.path}:{f.line}</code>
+                            <span className="ws-todo-msg">
+                              <b>{f.label}</b>  · {f.snippet}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #75 git tag 관리 ──────────────────────────────────────
+export function TagPanel({ workspaceId }: { workspaceId: string }) {
+  type Data = Awaited<ReturnType<typeof api.workspaceTags>>;
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Data | null>(null);
+  const [name, setName] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try {
+      setData(await api.workspaceTags(workspaceId));
+    } catch {
+      setData(null);
+    }
+  }
+  useEffect(() => {
+    if (!open) return;
+    void refresh();
+  }, [open]);
+
+  async function create() {
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await api.workspaceTagCreate(workspaceId, name.trim(), msg);
+      setName("");
+      setMsg("");
+      await refresh();
+    } catch (e) {
+      window.alert(`태그 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function push(n: string) {
+    setBusy(true);
+    try {
+      await api.workspaceTagPush(workspaceId, n);
+      window.alert(`pushed: ${n}`);
+    } catch (e) {
+      window.alert(`push 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function del(n: string) {
+    if (!window.confirm(`${n} 태그를 삭제할까요?`)) return;
+    setBusy(true);
+    try {
+      await api.workspaceTagDelete(workspaceId, n);
+      await refresh();
+    } catch (e) {
+      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="git tag 관리">
+        🏷 태그
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>🏷 git 태그 / 릴리즈</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                <input placeholder="새 태그 이름 (예: v1.2.0)" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
+                <input placeholder="메시지 (선택, annotated 태그)" value={msg} onChange={(e) => setMsg(e.target.value)} disabled={busy} />
+                <button type="button" disabled={busy || !name.trim()} onClick={create}>
+                  + 생성
+                </button>
+              </div>
+              {!data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : data.tags.length === 0 ? (
+                <div className="patch-preview-empty">태그가 없어요.</div>
+              ) : (
+                <ul className="ws-branch-list">
+                  {data.tags.map((t) => (
+                    <li key={t.name}>
+                      <span>
+                        <b>{t.name}</b>
+                        <code style={{ marginLeft: 8 }}>{t.sha}</code>
+                        <em style={{ marginLeft: 8, color: "var(--text-muted)" }}>{t.subject}</em>
+                      </span>
+                      <span style={{ display: "inline-flex", gap: 4 }}>
+                        <button type="button" disabled={busy} onClick={() => push(t.name)}>push</button>
+                        <button type="button" disabled={busy} onClick={() => del(t.name)}>×</button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #76 의존성 dashboard ──────────────────────────────────
+export function DependenciesPanel({ workspaceId }: { workspaceId: string }) {
+  type Data = Awaited<ReturnType<typeof api.workspaceDependencies>>;
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Data | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    api.workspaceDependencies(workspaceId).then(setData).catch(() => setData(null));
+  }, [open, workspaceId]);
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="의존성 manifest 파싱">
+        📦 의존성
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>📦 의존성 dashboard</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              {!data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : Object.keys(data.managers).length === 0 ? (
+                <div className="patch-preview-empty">manifest 파일이 없어요 (package.json / requirements.txt / pyproject.toml / Cargo.toml / go.mod).</div>
+              ) : (
+                Object.entries(data.managers).map(([mgr, deps]) => (
+                  <div key={mgr}>
+                    <div className="ws-stats-sec">
+                      {mgr} <em style={{ color: "var(--text-muted)" }}>· {deps.length}개</em>
+                    </div>
+                    <table className="ws-stats-table">
+                      <thead>
+                        <tr>
+                          <th>패키지</th>
+                          <th>버전</th>
+                          <th>구분</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deps.map((d, i) => (
+                          <tr key={`${mgr}-${d.name}-${i}`}>
+                            <td><code>{d.name}</code></td>
+                            <td>{d.version || "—"}</td>
+                            <td>{d.type}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #73 최근 본 파일 / 즐겨찾기 — localStorage 기반 클라이언트 사이드 ──
+const RECENT_KEY = (wid: string) => `ws:${wid}:recent`;
+const PIN_KEY = (wid: string) => `ws:${wid}:pinned`;
+
+function readArr(k: string): string[] {
+  try {
+    const raw = localStorage.getItem(k);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function writeArr(k: string, arr: string[]) {
+  try {
+    localStorage.setItem(k, JSON.stringify(arr.slice(0, 50)));
+  } catch {
+    /* full / private */
+  }
+}
+
+/** 트리 상단 작은 박스 — 즐겨찾기 + 최근 본 파일.  WorkspaceTree 가
+ *  파일을 열 때 record() 를 호출해 LS 에 push, 컴포넌트가 그걸 다시
+ *  읽어 보여준다.  ★ 클릭 = 핀 토글. */
+export function RecentFilesPanel({
+  workspaceId,
+  onSelect,
+  bumpKey,
+}: {
+  workspaceId: string;
+  onSelect: (path: string) => void;
+  /** 부모가 파일을 열 때마다 증가시키면 리스트 다시 읽음. */
+  bumpKey: number;
+}) {
+  const [recent, setRecent] = useState<string[]>([]);
+  const [pinned, setPinned] = useState<string[]>([]);
+  useEffect(() => {
+    setRecent(readArr(RECENT_KEY(workspaceId)));
+    setPinned(readArr(PIN_KEY(workspaceId)));
+  }, [workspaceId, bumpKey]);
+
+  function togglePin(p: string) {
+    const next = pinned.includes(p)
+      ? pinned.filter((x) => x !== p)
+      : [p, ...pinned];
+    setPinned(next);
+    writeArr(PIN_KEY(workspaceId), next);
+  }
+  function clear() {
+    if (!window.confirm("최근 본 파일 기록을 모두 지울까요?")) return;
+    setRecent([]);
+    writeArr(RECENT_KEY(workspaceId), []);
+  }
+
+  const shown = [
+    ...pinned.map((p) => ({ p, pin: true })),
+    ...recent.filter((p) => !pinned.includes(p)).slice(0, 8).map((p) => ({ p, pin: false })),
+  ];
+  if (shown.length === 0) return null;
+
+  return (
+    <div className="ws-recent">
+      <div className="ws-recent-head">
+        <span>⭐ 즐겨찾기 / 최근</span>
+        <button type="button" onClick={clear}>지우기</button>
+      </div>
+      <ul>
+        {shown.map(({ p, pin }) => (
+          <li key={p}>
+            <button type="button" onClick={() => togglePin(p)} title={pin ? "고정 해제" : "고정"}>
+              {pin ? "★" : "☆"}
+            </button>
+            <button type="button" onClick={() => onSelect(p)}>
+              <code>{p}</code>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** 외부에서 파일을 열었을 때 호출 — 최근 목록에 push. */
+export function recordRecentFile(workspaceId: string, path: string) {
+  if (!path) return;
+  const cur = readArr(RECENT_KEY(workspaceId));
+  const next = [path, ...cur.filter((x) => x !== path)];
+  writeArr(RECENT_KEY(workspaceId), next);
+}

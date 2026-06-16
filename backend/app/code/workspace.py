@@ -2240,3 +2240,375 @@ def file_git_log(root: Path, rel: str, limit: int = 50) -> list[dict]:
             }
         )
     return out
+
+
+# ── git tag 관리 (#75) ──────────────────────────────────────
+def tag_list(root: Path) -> list[dict]:
+    """모든 태그 + 가리키는 커밋의 짧은 해시·subject."""
+    proc = subprocess.run(
+        [
+            "git",
+            "for-each-ref",
+            "--sort=-creatordate",
+            "--format=%(refname:short)\t%(objectname:short)\t%(contents:subject)",
+            "refs/tags",
+        ],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    out: list[dict] = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) < 2:
+            continue
+        out.append(
+            {
+                "name": parts[0],
+                "sha": parts[1],
+                "subject": parts[2] if len(parts) > 2 else "",
+            }
+        )
+    return out
+
+
+def tag_create(root: Path, name: str, message: str = "", ref: str = "HEAD") -> dict:
+    """경량 태그(메시지 없음) 또는 annotated 태그.  이름 검증."""
+    if not re.match(r"^[A-Za-z0-9._\-/]+$", name or ""):
+        raise ValueError("태그 이름에 허용되지 않는 문자가 있어요")
+    if not re.match(r"^[A-Za-z0-9._\-/]+$", ref or "HEAD"):
+        raise ValueError("ref 가 이상해요")
+    args = ["git", "tag"]
+    if message.strip():
+        args.extend(["-a", name, "-m", message.strip()[:500]])
+    else:
+        args.append(name)
+    args.append(ref)
+    proc = subprocess.run(
+        args, cwd=str(root), capture_output=True, timeout=10, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {"name": name, "ref": ref}
+
+
+def tag_delete(root: Path, name: str) -> dict:
+    if not re.match(r"^[A-Za-z0-9._\-/]+$", name or ""):
+        raise ValueError("태그 이름이 이상해요")
+    proc = subprocess.run(
+        ["git", "tag", "-d", name],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {"deleted": name}
+
+
+def tag_push(
+    root: Path,
+    name: str,
+    push_url: str | None = None,
+) -> dict:
+    """origin 또는 명시 URL 로 태그 push.  push_url 이 주어지면 git push
+    에 명시적으로 그 URL — auth helper 외부 호출 가능."""
+    if not re.match(r"^[A-Za-z0-9._\-/]+$", name or ""):
+        raise ValueError("태그 이름이 이상해요")
+    args = ["git", "push", push_url or "origin", name]
+    proc = subprocess.run(
+        args, cwd=str(root), capture_output=True, timeout=60, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {"pushed": name}
+
+
+# ── AI 문서화 (#72) ────────────────────────────────────────
+async def ai_document_file(
+    file_text: str, path: str, model: str, base_url: str
+) -> str:
+    """파일에 한국어 docstring / 주석을 추가한 *수정된 전체 파일* 반환.
+    LLM 이 # file: 마커를 붙여 출력하도록 시스템 prompt 에서 강제."""
+    import httpx
+
+    if not file_text.strip():
+        return "(빈 파일)"
+    sys = (
+        "당신은 한국어로 docstring 을 다는 시니어 엔지니어입니다.  아래"
+        " 파일에 (1) 모듈 헤더 한국어 1~3문장 (2) 각 공개 함수/클래스"
+        " 마다 한국어 docstring (3) 필요시 한 줄 인라인 주석을 추가하고"
+        " *수정된 전체 파일* 을 단일 코드 블록으로 출력하세요.  코드"
+        " 블록 첫 줄에 `# file: <path>` (또는 언어별 마커) 를 반드시"
+        " 포함.  로직은 절대 바꾸지 말고 주석/문서만.  서두·말미 잡담"
+        " 금지, 코드 블록 외에 다른 텍스트 금지."
+    )
+    body = f"# {path}\n\n```\n{file_text[:60_000]}\n```"
+    timeout = httpx.Timeout(180.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": body},
+                ],
+            },
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:200]}")
+    return ((r.json() or {}).get("message") or {}).get("content") or ""
+
+
+# ── AI 보안 점검 (#74) ──────────────────────────────────────
+# 1차 정적 패턴 매칭 (시크릿·취약 패턴) → 결과를 LLM 에 보내 우선순위
+# 분류 + 위험도 + 권장 조치 정리.
+
+_SECURITY_PATTERNS = [
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS Access Key 후보"),
+    (re.compile(r"aws_secret_access_key\s*=\s*['\"][A-Za-z0-9/+=]{40}['\"]", re.I), "AWS Secret 후보"),
+    (re.compile(r"-----BEGIN\s+(RSA|OPENSSH|DSA|EC|PGP)\s+PRIVATE\s+KEY-----"), "개인키 노출"),
+    (re.compile(r"ghp_[A-Za-z0-9]{36}"), "GitHub PAT 후보"),
+    (re.compile(r"sk-[A-Za-z0-9]{20,}"), "OpenAI/Claude 키 후보"),
+    (re.compile(r"\bpassword\s*=\s*['\"][^'\"\n]{4,}['\"]", re.I), "하드코딩 비밀번호 후보"),
+    (re.compile(r"\beval\s*\(", re.I), "eval() 사용 — 입력 검증 필수"),
+    (re.compile(r"\bexec\s*\(", re.I), "exec() 사용 — 입력 검증 필수"),
+    (re.compile(r"shell=True"), "subprocess shell=True — 인젝션 위험"),
+    (re.compile(r"\bos\.system\s*\("), "os.system 사용 — subprocess.run 권장"),
+    (re.compile(r"pickle\.loads?\s*\("), "pickle.load 사용 — RCE 위험"),
+    (re.compile(r"document\.write\s*\("), "document.write — XSS 위험"),
+    (re.compile(r"innerHTML\s*="), "innerHTML 직접 할당 — XSS 위험"),
+    (re.compile(r"dangerouslySetInnerHTML"), "React dangerouslySetInnerHTML"),
+    (re.compile(r"SELECT\s+.*\bFROM\s+.*\+\s*\w+", re.I), "SQL 문자열 합성 — Injection"),
+    (re.compile(r"\bMD5\b|\bSHA1\b", re.I), "약한 해시 (MD5/SHA1)"),
+    (re.compile(r"http://", re.I), "비암호화 HTTP 사용"),
+    (re.compile(r"\bverify\s*=\s*False"), "SSL 검증 비활성"),
+]
+
+
+def scan_security(root: Path, limit: int = 300) -> list[dict]:
+    """정적 패턴 검출 — 라인 단위.  결과 dict 리스트."""
+    out: list[dict] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _GREP_SKIP_DIRS]
+        for fn in filenames:
+            if len(out) >= limit:
+                return out
+            ext = os.path.splitext(fn)[1].lower()
+            if ext not in _GREP_TEXT_EXTS and fn not in _GREP_TEXT_EXTS:
+                continue
+            fp = Path(dirpath) / fn
+            try:
+                if fp.stat().st_size > 1_000_000:
+                    continue
+                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    for i, line in enumerate(fh, start=1):
+                        # 라인이 너무 길면 패스 — minified 같은 거.
+                        if len(line) > 4000:
+                            continue
+                        for pat, label in _SECURITY_PATTERNS:
+                            if pat.search(line):
+                                rel = str(fp.relative_to(root)).replace("\\", "/")
+                                out.append(
+                                    {
+                                        "path": rel,
+                                        "line": i,
+                                        "label": label,
+                                        "snippet": line.strip()[:240],
+                                    }
+                                )
+                                if len(out) >= limit:
+                                    return out
+                                break  # 한 라인에 패턴 여러 개여도 첫 것만.
+            except (OSError, UnicodeDecodeError):
+                continue
+    return out
+
+
+async def ai_security_summarize(
+    findings: list[dict], model: str, base_url: str
+) -> str:
+    """패턴 결과 → LLM 에 보내 한국어 보안 요약/우선순위."""
+    import httpx
+    import json as _json
+
+    if not findings:
+        return "✓ 자동 패턴 검출 결과 위험 항목이 발견되지 않았어요. (LLM 추가 분석 생략)"
+    sys = (
+        "당신은 한국어로 소통하는 시니어 보안 엔지니어입니다.  아래"
+        " 코드 정적 패턴 검출 결과를 보고 (1) 가장 시급한 항목 TOP 5"
+        " (2) 각 항목의 위험도·실제 위험 여부·권장 조치 (3) 패턴 검출"
+        " 한계 + 추가로 확인할 영역 순으로 한국어 마크다운 정리.  결과만."
+    )
+    body = "검출된 항목 (path:line — label):\n" + "\n".join(
+        f"- {f['path']}:{f['line']} — {f['label']}  · `{f['snippet'][:120]}`"
+        for f in findings[:80]
+    )
+    timeout = httpx.Timeout(120.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": body},
+                ],
+            },
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:200]}")
+    return ((r.json() or {}).get("message") or {}).get("content") or ""
+
+
+# ── 의존성 dashboard (#76) ──────────────────────────────────
+def parse_dependencies(root: Path) -> dict:
+    """저장소 루트의 매니페스트 파일들을 파싱 — 패키지 + 버전 표시.
+    closed network 이므로 외부 버전 조회는 안 함."""
+    import json as _json
+
+    result: dict[str, list[dict]] = {}
+
+    pkg = root / "package.json"
+    if pkg.is_file():
+        try:
+            data = _json.loads(pkg.read_text(encoding="utf-8"))
+            deps = data.get("dependencies") or {}
+            dev = data.get("devDependencies") or {}
+            result["npm"] = [
+                {"name": n, "version": v, "type": "runtime"}
+                for n, v in deps.items()
+            ] + [
+                {"name": n, "version": v, "type": "dev"}
+                for n, v in dev.items()
+            ]
+        except Exception:
+            pass
+
+    req = root / "requirements.txt"
+    if req.is_file():
+        try:
+            lines = req.read_text(encoding="utf-8").splitlines()
+            out: list[dict] = []
+            for ln in lines:
+                ln = ln.strip()
+                if not ln or ln.startswith("#"):
+                    continue
+                # name==version, name>=version, name 등.
+                m = re.match(r"([A-Za-z0-9_.\-]+)\s*([<>=!~]+)?\s*([^\s;]+)?", ln)
+                if m:
+                    out.append(
+                        {
+                            "name": m.group(1),
+                            "version": (m.group(2) or "") + (m.group(3) or ""),
+                            "type": "runtime",
+                        }
+                    )
+            result["pip"] = out
+        except Exception:
+            pass
+
+    pyproj = root / "pyproject.toml"
+    if pyproj.is_file():
+        try:
+            text = pyproj.read_text(encoding="utf-8")
+            # 간단한 패턴 — dependencies = [...] 안의 항목.
+            matches = re.findall(
+                r"^dependencies\s*=\s*\[(.*?)\]",
+                text,
+                re.MULTILINE | re.DOTALL,
+            )
+            out: list[dict] = []
+            for block in matches:
+                for item in re.findall(r"['\"]([^'\"]+)['\"]", block):
+                    m = re.match(
+                        r"([A-Za-z0-9_.\-]+)\s*([<>=!~][^;]+)?", item.strip()
+                    )
+                    if m:
+                        out.append(
+                            {
+                                "name": m.group(1),
+                                "version": (m.group(2) or "").strip(),
+                                "type": "runtime",
+                            }
+                        )
+            if out:
+                result["pip"] = (result.get("pip") or []) + out
+        except Exception:
+            pass
+
+    cargo = root / "Cargo.toml"
+    if cargo.is_file():
+        try:
+            text = cargo.read_text(encoding="utf-8")
+            # [dependencies] / [dev-dependencies] 섹션의 name = "version" 또는
+            # name = { version = "...", ... }.
+            out: list[dict] = []
+            section = None
+            for line in text.splitlines():
+                s = line.strip()
+                if s.startswith("[") and s.endswith("]"):
+                    sec = s[1:-1].strip()
+                    section = sec
+                    continue
+                if section in ("dependencies", "dev-dependencies"):
+                    m = re.match(r"([A-Za-z0-9_\-]+)\s*=\s*(.+)$", s)
+                    if not m:
+                        continue
+                    name, raw = m.group(1), m.group(2).strip()
+                    ver_m = re.search(r"['\"]([^'\"]+)['\"]", raw)
+                    out.append(
+                        {
+                            "name": name,
+                            "version": ver_m.group(1) if ver_m else raw,
+                            "type": "dev" if section == "dev-dependencies" else "runtime",
+                        }
+                    )
+            result["cargo"] = out
+        except Exception:
+            pass
+
+    gomod = root / "go.mod"
+    if gomod.is_file():
+        try:
+            text = gomod.read_text(encoding="utf-8")
+            out: list[dict] = []
+            in_require = False
+            for line in text.splitlines():
+                s = line.strip()
+                if s.startswith("require ("):
+                    in_require = True
+                    continue
+                if in_require and s == ")":
+                    in_require = False
+                    continue
+                # require name v1.2.3 (단일 라인) 또는 require ( 내부.
+                target = s
+                if s.startswith("require "):
+                    target = s[len("require "):].strip()
+                m = re.match(r"(\S+)\s+(\S+)", target)
+                if m and (in_require or s.startswith("require ")):
+                    out.append(
+                        {
+                            "name": m.group(1),
+                            "version": m.group(2),
+                            "type": "runtime",
+                        }
+                    )
+            result["go"] = out
+        except Exception:
+            pass
+    return result

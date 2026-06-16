@@ -2012,6 +2012,84 @@ export const api = {
         path,
       )}&limit=${limit}`,
     ),
+  // ── 코드 스니펫 (#71) ────────────────────────────────────
+  listSnippets: () =>
+    json<
+      {
+        id: string;
+        scope: "personal" | "team";
+        name: string;
+        body: string;
+        language: string;
+        description: string;
+        owned: boolean;
+      }[]
+    >("/snippets"),
+  createSnippet: (payload: {
+    name: string;
+    body: string;
+    language?: string;
+    description?: string;
+    scope?: "personal" | "team";
+  }) =>
+    json<{
+      id: string;
+      scope: "personal" | "team";
+      name: string;
+      body: string;
+      language: string;
+      description: string;
+      owned: boolean;
+    }>("/snippets", { method: "POST", body: JSON.stringify(payload) }),
+  deleteSnippet: (id: string) =>
+    json<void>(`/snippets/${id}`, { method: "DELETE" }),
+  // ── AI 문서화 (#72) ──────────────────────────────────────
+  workspaceAiDocument: (id: string, path: string) =>
+    json<{ path: string; documented: string; model: string }>(
+      `/code/workspaces/${id}/ai-document`,
+      { method: "POST", body: JSON.stringify({ path }) },
+    ),
+  // ── AI 보안 점검 (#74) ───────────────────────────────────
+  workspaceSecurityScan: (id: string) =>
+    json<{
+      count: number;
+      findings: { path: string; line: number; label: string; snippet: string }[];
+      summary: string;
+      model: string;
+    }>(`/code/workspaces/${id}/security-scan`, { method: "POST" }),
+  // ── git 태그 (#75) ───────────────────────────────────────
+  workspaceTags: (id: string) =>
+    json<{ tags: { name: string; sha: string; subject: string }[] }>(
+      `/code/workspaces/${id}/tags`,
+    ),
+  workspaceTagCreate: (
+    id: string,
+    name: string,
+    message = "",
+    ref = "HEAD",
+  ) =>
+    json<{ name: string; ref: string }>(`/code/workspaces/${id}/tag`, {
+      method: "POST",
+      body: JSON.stringify({ name, message, ref }),
+    }),
+  workspaceTagDelete: (id: string, name: string) =>
+    json<{ deleted: string }>(
+      `/code/workspaces/${id}/tag?name=${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
+  workspaceTagPush: (id: string, name: string) =>
+    json<{ pushed: string }>(`/code/workspaces/${id}/tag/push`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  // ── 의존성 dashboard (#76) ───────────────────────────────
+  workspaceDependencies: (id: string) =>
+    json<{
+      managers: Record<
+        string,
+        { name: string; version: string; type: string }[]
+      >;
+    }>(`/code/workspaces/${id}/dependencies`),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

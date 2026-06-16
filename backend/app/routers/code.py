@@ -16,9 +16,11 @@ from pathlib import Path
 
 from ..code.workspace import (
     ai_commit_message,
+    ai_document_file,
     ai_generate_tests,
     ai_refactor_file,
     ai_review_diff,
+    ai_security_summarize,
     apply_file_write,
     clone_repo,
     collect_workspace_files,
@@ -40,6 +42,7 @@ from ..code.workspace import (
     list_branches,
     load_custom_tasks,
     mark_conflict_resolved,
+    parse_dependencies,
     read_file,
     read_file_at_rev,
     remove_repo,
@@ -48,6 +51,7 @@ from ..code.workspace import (
     run_custom_task,
     run_workspace_command,
     run_workspace_tests,
+    scan_security,
     scan_todos,
     stash_apply,
     stash_drop,
@@ -55,6 +59,10 @@ from ..code.workspace import (
     stash_save,
     switch_branch,
     sync_repo,
+    tag_create,
+    tag_delete,
+    tag_list,
+    tag_push,
     validate_local_folder,
     walk_tree,
     workspace_grep,
@@ -1694,3 +1702,182 @@ async def workspace_file_timeline(
                 }
             )
     return {"path": path, "commits": git_items, "chats": chat_items}
+
+
+# ── git 태그 (#75) ─────────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/tags")
+async def workspace_tags(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        return {"tags": []}
+    items = await asyncio.get_running_loop().run_in_executor(
+        None, tag_list, dest
+    )
+    return {"tags": items}
+
+
+@router.post("/workspaces/{workspace_id}/tag")
+async def workspace_tag_create(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    name = (payload.get("name") or "").strip()
+    message = payload.get("message") or ""
+    ref = (payload.get("ref") or "HEAD").strip()
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, tag_create, dest, name, message, ref
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.delete("/workspaces/{workspace_id}/tag")
+async def workspace_tag_delete(
+    workspace_id: str,
+    name: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, tag_delete, dest, name
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.post("/workspaces/{workspace_id}/tag/push")
+async def workspace_tag_push(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    if not ws.git_url:
+        raise HTTPException(400, "원격이 없는 워크스페이스에는 push 할 수 없어요")
+    # auth 가 필요한 git_url 이면 기존 commit/push 흐름과 같이 토큰 합성.
+    push_url = ws.git_url
+    if ws.auth_username and ws.auth_token_encrypted:
+        try:
+            token = decrypt_secret(ws.auth_token_encrypted)
+        except Exception:
+            token = None
+        if token:
+            # https://user:token@host/...
+            from urllib.parse import urlparse, quote
+            u = urlparse(ws.git_url)
+            if u.scheme.startswith("http"):
+                push_url = (
+                    f"{u.scheme}://{quote(ws.auth_username)}:{quote(token)}"
+                    f"@{u.netloc}{u.path}"
+                )
+    name = (payload.get("name") or "").strip()
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, tag_push, dest, name, push_url
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+# ── AI 문서화 (#72) ────────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/ai-document")
+async def workspace_ai_document(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    path = (payload.get("path") or "").strip()
+    if not path:
+        raise HTTPException(400, "path 가 필요해요")
+    try:
+        info = await asyncio.get_running_loop().run_in_executor(
+            None, read_file, dest, path
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc))
+    model = settings.model_auto_code or settings.ollama_model
+    try:
+        text = await ai_document_file(
+            info.get("text") or "", path, model, settings.ollama_base_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"문서화 실패: {exc}") from exc
+    return {"path": path, "documented": text, "model": model}
+
+
+# ── AI 보안 점검 (#74) ─────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/security-scan")
+async def workspace_security_scan(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    findings = await asyncio.get_running_loop().run_in_executor(
+        None, scan_security, dest
+    )
+    model = settings.model_auto_code or settings.ollama_model
+    try:
+        summary = await ai_security_summarize(
+            findings, model, settings.ollama_base_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        summary = f"(LLM 분석 실패: {exc})"
+    return {
+        "count": len(findings),
+        "findings": findings,
+        "summary": summary,
+        "model": model,
+    }
+
+
+# ── 의존성 dashboard (#76) ─────────────────────────────────
+@router.get("/workspaces/{workspace_id}/dependencies")
+async def workspace_dependencies(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    result = await asyncio.get_running_loop().run_in_executor(
+        None, parse_dependencies, dest
+    )
+    return {"managers": result}

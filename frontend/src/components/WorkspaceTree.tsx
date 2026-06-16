@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
 import { api, type WorkspaceTreeEntry } from "../api/client";
 import {
+  AIDocPanel,
   AIToolsPanel,
   BranchPanel,
   ConflictPanel,
   CustomTasksPanel,
+  DependenciesPanel,
   FileCRUDPanel,
   LogPanel,
+  RecentFilesPanel,
   ReplacePanel,
+  SecurityPanel,
+  SnippetPanel,
   StashPanel,
   StatsPanel,
+  TagPanel,
   TimelinePanel,
   TodoPanel,
+  recordRecentFile,
 } from "./WorkspaceTools";
+import { useAuth } from "../auth/AuthContext";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -99,9 +107,20 @@ export function WorkspaceTree({
   // AI 리팩터 / 테스트 / 타임라인 패널이 '현재 어떤 파일에 대해' 작동할
   // 지를 알아야 하므로 트리 안에서 클릭된 마지막 경로를 추적.
   const [lastFile, setLastFile] = useState<string | null>(null);
+  const [recentBump, setRecentBump] = useState(0);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "moderator";
   function handleSelectFile(p: string) {
     setLastFile(p);
+    recordRecentFile(workspaceId, p);
+    setRecentBump((b) => b + 1);
     void onSelectFile(p);
+  }
+  function insertSnippet(text: string) {
+    // 채팅으로 보내기: chat:quote-pick 이벤트는 composer 에 prefill.
+    window.dispatchEvent(
+      new CustomEvent("chat:quote-pick", { detail: { text } }),
+    );
   }
 
   useEffect(() => {
@@ -138,6 +157,11 @@ export function WorkspaceTree({
   return (
     <>
       <WorkspaceGrep workspaceId={workspaceId} onSelect={handleSelectFile} />
+      <RecentFilesPanel
+        workspaceId={workspaceId}
+        onSelect={handleSelectFile}
+        bumpKey={recentBump}
+      />
       <div className="ws-tree-toolbar">
         <BranchPanel workspaceId={workspaceId} />
         <LogPanel workspaceId={workspaceId} />
@@ -148,7 +172,12 @@ export function WorkspaceTree({
         <ConflictPanel workspaceId={workspaceId} />
         <CustomTasksPanel workspaceId={workspaceId} />
         <AIToolsPanel workspaceId={workspaceId} filePath={lastFile} />
+        <AIDocPanel workspaceId={workspaceId} filePath={lastFile} />
         <TimelinePanel workspaceId={workspaceId} filePath={lastFile} />
+        <TagPanel workspaceId={workspaceId} />
+        <SecurityPanel workspaceId={workspaceId} onJump={handleSelectFile} />
+        <DependenciesPanel workspaceId={workspaceId} />
+        <SnippetPanel onInsert={insertSnippet} isAdmin={!!isAdmin} />
         <StatsPanel workspaceId={workspaceId} />
         <TestRunnerButton workspaceId={workspaceId} />
         <RunCommandButton

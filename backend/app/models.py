@@ -834,3 +834,30 @@ class SystemMacro(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class CodeSnippet(Base):
+    """코드 스니펫 (#71).  사용자가 자주 쓰는 코드 패턴을 저장.  scope
+    = 'personal' 은 본인만, 'team' 은 모두 (관리자가 만든다)."""
+
+    __tablename__ = "code_snippets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    scope: Mapped[str] = mapped_column(String(16), default="personal", index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    body: Mapped[str] = mapped_column(Text)
+    # 언어 태그 — Monaco 에서 syntax 강조에 사용 (선택).
+    language: Mapped[str] = mapped_column(String(40), default="")
+    description: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

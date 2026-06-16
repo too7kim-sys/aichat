@@ -10180,6 +10180,144 @@ body {
 }
 .ws-stats-biggest li code { font-family: ui-monospace, monospace; }
 
+/* 최근 본 파일 / 즐겨찾기 (#73). */
+.ws-recent {
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ws-recent-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.ws-recent-head button {
+  background: transparent;
+  border: none;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.ws-recent-head button:hover { color: var(--accent); }
+.ws-recent ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ws-recent li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ws-recent li button:first-child {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.ws-recent li button:first-child:hover { color: #d4a014; }
+.ws-recent li button:last-child {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-recent li button:last-child:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ws-recent li code {
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+}
+
+/* 스니펫 라이브러리 (#71). */
+.ws-snippet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.ws-snippet-form input,
+.ws-snippet-form select,
+.ws-snippet-form textarea {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text);
+}
+.ws-snippet-form .primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.ws-snippet-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ws-snippet-list > li {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.ws-snippet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+}
+.ws-snippet-head button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ws-snippet-body {
+  margin: 6px 0 0;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-muted);
+  max-height: 120px;
+  overflow: hidden;
+}
+
 /* Conflict 해결 모달 (#66). */
 .ws-conflict-grid {
   display: grid;
