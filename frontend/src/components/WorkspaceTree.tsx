@@ -235,68 +235,89 @@ export function WorkspaceTree({
         <div className="ws-drop-overlay">⬆ 여기에 놓으면 워크스페이스에 업로드</div>
       )}
       <div className="ws-tree-toolbar">
+        {/* 항상 노출되는 빈도 높은 액션 — 새로고침 / 파일 생성 / 도구 */}
         <button
           type="button"
           className="ws-tree-btn"
           onClick={bumpTree}
-          title="트리 다시 가져오기 — 외부에서 파일이 추가/변경됐을 때"
+          title="트리 다시 가져오기"
         >
-          🔄 새로고침
+          🔄
         </button>
-        <BranchPanel workspaceId={workspaceId} />
-        <LogPanel workspaceId={workspaceId} />
         <FileCRUDPanel workspaceId={workspaceId} />
-        <ReplacePanel workspaceId={workspaceId} />
-        <TodoPanel workspaceId={workspaceId} onJump={handleSelectFile} />
-        <StashPanel workspaceId={workspaceId} />
-        <ConflictPanel workspaceId={workspaceId} />
-        <CustomTasksPanel workspaceId={workspaceId} />
-        <AIToolsPanel workspaceId={workspaceId} filePath={lastFile} />
-        <AIDocPanel workspaceId={workspaceId} filePath={lastFile} />
-        <TimelinePanel workspaceId={workspaceId} filePath={lastFile} />
-        <TagPanel workspaceId={workspaceId} />
-        <SecurityPanel workspaceId={workspaceId} onJump={handleSelectFile} />
-        <DependenciesPanel workspaceId={workspaceId} />
-        <SnippetPanel onInsert={insertSnippet} isAdmin={!!isAdmin} />
-        <CherryResetPanel workspaceId={workspaceId} />
-        <ComparePanel workspaceId={workspaceId} />
-        <OutlinePanel workspaceId={workspaceId} filePath={lastFile} />
-        <ContributorsPanel workspaceId={workspaceId} />
-        <ActivityPanel workspaceId={workspaceId} />
-        <SymbolSearchPanel
-          workspaceId={workspaceId}
-          onJump={(p) => handleSelectFile(p)}
-        />
-        <ChangelogPanel workspaceId={workspaceId} />
-        <ImportZipPanel workspaceId={workspaceId} onChanged={bumpTree} />
-        <StatsPanel workspaceId={workspaceId} />
-        <TestRunnerButton workspaceId={workspaceId} />
-        <RunCommandButton
-          workspaceId={workspaceId}
-          kind="lint"
-          label="린트"
-          emoji="🩺"
-        />
-        <RunCommandButton
-          workspaceId={workspaceId}
-          kind="format"
-          label="포맷"
-          emoji="🪄"
-        />
-        <RunCommandButton
-          workspaceId={workspaceId}
-          kind="build"
-          label="빌드"
-          emoji="📦"
-        />
-        <button
-          type="button"
-          className="ws-tree-btn"
-          onClick={() => api.downloadWorkspaceZip(workspaceId)}
-          title="워크스페이스를 zip 으로 다운로드 (.git / node_modules 등 제외)"
-        >
-          ⬇ zip
-        </button>
+        <details className="ws-toolbox">
+          <summary>🧰 도구 ▾</summary>
+          <div className="ws-toolbox-panel">
+            <div className="ws-toolbox-group">
+              <div className="ws-toolbox-label">Git</div>
+              <BranchPanel workspaceId={workspaceId} />
+              <LogPanel workspaceId={workspaceId} />
+              <ComparePanel workspaceId={workspaceId} />
+              <StashPanel workspaceId={workspaceId} />
+              <ConflictPanel workspaceId={workspaceId} />
+              <CherryResetPanel workspaceId={workspaceId} />
+              <TagPanel workspaceId={workspaceId} />
+              <ChangelogPanel workspaceId={workspaceId} />
+            </div>
+            <div className="ws-toolbox-group">
+              <div className="ws-toolbox-label">파일</div>
+              <ReplacePanel workspaceId={workspaceId} />
+              <SnippetPanel onInsert={insertSnippet} isAdmin={!!isAdmin} />
+              <ImportZipPanel workspaceId={workspaceId} onChanged={bumpTree} />
+              <button
+                type="button"
+                className="ws-tree-btn"
+                onClick={() => api.downloadWorkspaceZip(workspaceId)}
+                title="zip 다운로드"
+              >
+                ⬇ zip
+              </button>
+            </div>
+            <div className="ws-toolbox-group">
+              <div className="ws-toolbox-label">AI</div>
+              <AIToolsPanel workspaceId={workspaceId} filePath={lastFile} />
+              <AIDocPanel workspaceId={workspaceId} filePath={lastFile} />
+              <SecurityPanel workspaceId={workspaceId} onJump={handleSelectFile} />
+            </div>
+            <div className="ws-toolbox-group">
+              <div className="ws-toolbox-label">분석</div>
+              <TodoPanel workspaceId={workspaceId} onJump={handleSelectFile} />
+              <OutlinePanel workspaceId={workspaceId} filePath={lastFile} />
+              <SymbolSearchPanel
+                workspaceId={workspaceId}
+                onJump={(p) => handleSelectFile(p)}
+              />
+              <TimelinePanel workspaceId={workspaceId} filePath={lastFile} />
+              <StatsPanel workspaceId={workspaceId} />
+              <DependenciesPanel workspaceId={workspaceId} />
+              <ContributorsPanel workspaceId={workspaceId} />
+              <ActivityPanel workspaceId={workspaceId} />
+            </div>
+            <div className="ws-toolbox-group">
+              <div className="ws-toolbox-label">실행</div>
+              <TestRunnerButton workspaceId={workspaceId} />
+              <RunCommandButton
+                workspaceId={workspaceId}
+                kind="lint"
+                label="린트"
+                emoji="🩺"
+              />
+              <RunCommandButton
+                workspaceId={workspaceId}
+                kind="format"
+                label="포맷"
+                emoji="🪄"
+              />
+              <RunCommandButton
+                workspaceId={workspaceId}
+                kind="build"
+                label="빌드"
+                emoji="📦"
+              />
+              <CustomTasksPanel workspaceId={workspaceId} />
+            </div>
+          </div>
+        </details>
       </div>
       {bundle && (
         <BundleStatusBanner bundle={bundle} />

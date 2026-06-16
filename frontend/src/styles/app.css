@@ -3436,15 +3436,71 @@ body {
 
 .ws-tree-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
   align-items: center;
   gap: 4px 6px;
-  padding: 6px 8px 8px;
-  max-height: 30vh;
-  overflow-y: auto;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-sidebar);
+}
+
+/* 도구 모음 — 기본 접힘, 클릭하면 카테고리화된 popover */
+.ws-toolbox {
+  position: relative;
+  margin-left: auto;
+}
+.ws-toolbox > summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--bg);
+  display: inline-block;
+}
+.ws-toolbox > summary::-webkit-details-marker { display: none; }
+.ws-toolbox > summary:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ws-toolbox[open] > summary {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ws-toolbox-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  padding: 8px;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ws-toolbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+}
+.ws-toolbox-label {
+  width: 100%;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
 }
 .ws-tree-btn {
   background: transparent;
