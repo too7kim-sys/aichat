@@ -363,20 +363,72 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
 
   async function save() {
     if (!workspaceId) return;
-    const defaultName =
-      language === "python"
-        ? "src/new_file.py"
-        : language === "typescript"
-          ? "src/new_file.ts"
-          : language === "javascript"
-            ? "src/new_file.js"
-            : language === "java"
-              ? "src/main/java/NewFile.java"
-              : language === "go"
-                ? "cmd/main/main.go"
-                : language === "rust"
-                  ? "src/main.rs"
-                  : "src/new_file.txt";
+    // 언어 별칭 → 확장자 + 기본 경로 매핑.  LLM 은 보통 `py`, `ts`,
+    // `js`, `sh` 같은 짧은 alias 를 쓰는데 풀네임만 매칭하면 전부
+    // .txt 로 떨어져 사용성이 망가짐.  소문자로 정규화 후 단일 표.
+    const lang = (language || "").toLowerCase().trim();
+    const LANG_DEFAULTS: Record<string, string> = {
+      py: "src/new_file.py",
+      python: "src/new_file.py",
+      ts: "src/new_file.ts",
+      tsx: "src/new_file.tsx",
+      typescript: "src/new_file.ts",
+      js: "src/new_file.js",
+      jsx: "src/new_file.jsx",
+      mjs: "src/new_file.mjs",
+      cjs: "src/new_file.cjs",
+      javascript: "src/new_file.js",
+      java: "src/main/java/NewFile.java",
+      kt: "src/main/kotlin/NewFile.kt",
+      kotlin: "src/main/kotlin/NewFile.kt",
+      go: "cmd/main/main.go",
+      golang: "cmd/main/main.go",
+      rs: "src/main.rs",
+      rust: "src/main.rs",
+      c: "src/new_file.c",
+      h: "src/new_file.h",
+      cpp: "src/new_file.cpp",
+      "c++": "src/new_file.cpp",
+      cxx: "src/new_file.cpp",
+      cc: "src/new_file.cpp",
+      hpp: "src/new_file.hpp",
+      cs: "src/NewFile.cs",
+      csharp: "src/NewFile.cs",
+      rb: "lib/new_file.rb",
+      ruby: "lib/new_file.rb",
+      php: "src/new_file.php",
+      swift: "Sources/NewFile.swift",
+      scala: "src/main/scala/NewFile.scala",
+      sh: "scripts/new_file.sh",
+      bash: "scripts/new_file.sh",
+      shell: "scripts/new_file.sh",
+      zsh: "scripts/new_file.sh",
+      sql: "sql/new_file.sql",
+      html: "public/new_file.html",
+      htm: "public/new_file.html",
+      css: "src/styles/new_file.css",
+      scss: "src/styles/new_file.scss",
+      sass: "src/styles/new_file.sass",
+      less: "src/styles/new_file.less",
+      json: "config/new_file.json",
+      yaml: "config/new_file.yaml",
+      yml: "config/new_file.yml",
+      toml: "config/new_file.toml",
+      ini: "config/new_file.ini",
+      env: ".env.new",
+      md: "docs/new_file.md",
+      markdown: "docs/new_file.md",
+      rst: "docs/new_file.rst",
+      xml: "config/new_file.xml",
+      vue: "src/components/NewComponent.vue",
+      svelte: "src/components/NewComponent.svelte",
+      dockerfile: "Dockerfile.new",
+      makefile: "Makefile.new",
+      tf: "infra/new_file.tf",
+      terraform: "infra/new_file.tf",
+      hcl: "infra/new_file.hcl",
+    };
+    const defaultName = LANG_DEFAULTS[lang] || `src/new_file.${lang || "txt"}`;
     const path = window.prompt(
       "어느 경로에 저장할까요?  (워크스페이스 상대 경로)",
       defaultName,
