@@ -3436,9 +3436,15 @@ body {
 
 .ws-tree-toolbar {
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 4px 8px 0;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 6px 8px 8px;
+  max-height: 30vh;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
 }
 .ws-tree-btn {
   background: transparent;
@@ -3449,6 +3455,8 @@ body {
   padding: 3px 8px;
   border-radius: 4px;
   cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 .ws-tree-btn:hover {
   color: var(--accent);
