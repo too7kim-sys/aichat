@@ -2155,6 +2155,70 @@ export const api = {
       weekday_hour: { weekday: number; hour: number; count: number }[];
       by_day: { date: string; count: number }[];
     }>(`/code/workspaces/${id}/activity?days=${days}`),
+  // ── 심볼 전역 검색 (#83) ─────────────────────────────────
+  workspaceSymbols: (id: string, q: string, limit = 200) => {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    return json<{
+      query: string;
+      count: number;
+      items: { path: string; line: number; kind: string; name: string }[];
+    }>(`/code/workspaces/${id}/symbols?${params.toString()}`);
+  },
+  // ── AI changelog (#84) ───────────────────────────────────
+  workspaceAiChangelog: (id: string, days = 7) =>
+    json<{
+      days: number;
+      commits: number;
+      changelog: string;
+      model: string;
+    }>(`/code/workspaces/${id}/ai-changelog?days=${days}`, {
+      method: "POST",
+    }),
+  // ── drag-drop 파일 업로드 (#85) ──────────────────────────
+  workspaceUploadFile: async (id: string, path: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("path", path);
+    const res = await fetch(`/api/code/workspaces/${id}/upload-file`, {
+      method: "POST",
+      body: fd,
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`${res.status} ${t}`);
+    }
+    return (await res.json()) as { path: string; size: number };
+  },
+  // ── zip import (#86) ─────────────────────────────────────
+  workspaceImportZip: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/code/workspaces/${id}/import-zip`, {
+      method: "POST",
+      body: fd,
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`${res.status} ${t}`);
+    }
+    return (await res.json()) as {
+      extracted: number;
+      total_bytes: number;
+      skipped_count: number;
+      skipped_sample: string[];
+    };
+  },
+  // ── 다중 일괄 삭제 (#87) ─────────────────────────────────
+  workspaceBulkDelete: (id: string, paths: string[]) =>
+    json<{
+      deleted: string[];
+      failed: { path: string; error: string }[];
+    }>(`/code/workspaces/${id}/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ paths }),
+    }),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

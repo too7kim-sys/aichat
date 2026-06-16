@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ..code.workspace import (
     activity_heatmap,
+    ai_changelog,
     ai_commit_message,
     ai_document_file,
     ai_generate_tests,
@@ -23,6 +24,7 @@ from ..code.workspace import (
     ai_review_diff,
     ai_security_summarize,
     apply_file_write,
+    bulk_delete,
     clone_repo,
     collect_workspace_files,
     compare_refs,
@@ -33,6 +35,7 @@ from ..code.workspace import (
     detect_conflicts,
     detect_test_runner,
     extract_outline,
+    extract_zip_into,
     file_diff_between,
     file_git_log,
     git_cherry_pick,
@@ -60,6 +63,7 @@ from ..code.workspace import (
     run_workspace_tests,
     scan_security,
     scan_todos,
+    search_symbols,
     stash_apply,
     stash_drop,
     stash_list,
@@ -75,6 +79,7 @@ from ..code.workspace import (
     workspace_grep,
     workspace_path_for,
     workspace_stats,
+    write_uploaded_file,
 )
 from ..crypto import decrypt_secret, encrypt_secret
 from ..database import SessionLocal, get_db
@@ -2036,4 +2041,129 @@ async def workspace_activity(
         return {"days": days, "weekday_hour": [], "by_day": []}
     return await asyncio.get_running_loop().run_in_executor(
         None, activity_heatmap, dest, days
+    )
+
+
+# ── 심볼 전역 검색 (#83) ────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/symbols")
+async def workspace_symbols(
+    workspace_id: str,
+    q: str = Query(""),
+    limit: int = Query(200, ge=1, le=2000),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    items = await asyncio.get_running_loop().run_in_executor(
+        None, search_symbols, dest, q, limit
+    )
+    return {"query": q, "count": len(items), "items": items}
+
+
+# ── AI changelog (#84) ────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/ai-changelog")
+async def workspace_ai_changelog(
+    workspace_id: str,
+    days: int = Query(7, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    model = settings.model_auto_code or settings.ollama_model
+    try:
+        return await ai_changelog(dest, days, model, settings.ollama_base_url)
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+
+
+# ── drag-drop 파일 업로드 (#85) ─────────────────────────────
+from fastapi import File, Form, UploadFile
+
+
+@router.post("/workspaces/{workspace_id}/upload-file")
+async def workspace_upload_file(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    path: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    rel = (path or "").strip()
+    if not rel:
+        raise HTTPException(400, "path 가 필요해요")
+    # 한 파일 25MB 가드 — nginx 와 동일.
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(413, "파일이 너무 커요 (>25 MB)")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, write_uploaded_file, dest, rel, raw
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+# ── zip import (#86) ────────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/import-zip")
+async def workspace_import_zip(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    raw = await file.read()
+    if len(raw) > 200 * 1024 * 1024:
+        raise HTTPException(413, "zip 이 너무 커요 (>200 MB)")
+    try:
+        result = await asyncio.get_running_loop().run_in_executor(
+            None, extract_zip_into, dest, raw
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    # 파일 카운트 갱신.
+    try:
+        _t, fc, sz = await asyncio.get_running_loop().run_in_executor(
+            None, walk_tree, dest
+        )
+        ws.file_count = fc
+        ws.size_bytes = sz
+        ws.last_synced_at = datetime.now(timezone.utc)
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        pass
+    return result
+
+
+# ── 다중 일괄 삭제 (#87) ────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/bulk-delete")
+async def workspace_bulk_delete(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    paths = payload.get("paths") or []
+    if not isinstance(paths, list) or len(paths) == 0:
+        raise HTTPException(400, "paths 가 비어 있어요")
+    paths = [str(p) for p in paths[:200]]
+    return await asyncio.get_running_loop().run_in_executor(
+        None, bulk_delete, dest, paths
     )

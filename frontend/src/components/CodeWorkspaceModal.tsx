@@ -239,6 +239,31 @@ function WorkspaceView({
   onAttachFile: (filename: string, text: string) => void;
 }) {
   const [filePath, setFilePath] = useState<string | null>(null);
+  // goto-line 보류 — outline/grep/symbol 패널이 디스패치한 라인을 받아
+  // Monaco onMount 직후 reveal 한다 (#88).
+  const [pendingLine, setPendingLine] = useState<number | null>(null);
+  // Monaco editor instance — onMount 콜백에서 채워짐.
+  const editorRef = (window as unknown as { _wsEditor?: unknown }) as {
+    _wsEditor?: { revealLineInCenter: (n: number) => void; setPosition: (p: { lineNumber: number; column: number }) => void };
+  };
+  // ws:goto-line 이벤트 listener — 파일 전환 + 라인 점프.
+  useEffect(() => {
+    function onGoto(e: Event) {
+      const ev = e as CustomEvent<{ path: string; line: number }>;
+      const p = ev.detail?.path;
+      const ln = ev.detail?.line;
+      if (!p || !ln) return;
+      if (p !== filePath) setFilePath(p);
+      setPendingLine(ln);
+      // 같은 파일이면 즉시 reveal.
+      if (p === filePath && editorRef._wsEditor) {
+        editorRef._wsEditor.revealLineInCenter(ln);
+        editorRef._wsEditor.setPosition({ lineNumber: ln, column: 1 });
+      }
+    }
+    window.addEventListener("ws:goto-line", onGoto);
+    return () => window.removeEventListener("ws:goto-line", onGoto);
+  }, [filePath]);
   const [file, setFile] = useState<WorkspaceFile | null>(null);
   // 인앱 편집기 (#53) — Monaco 에서 사용자가 수정하면 originalText 와
   // 다르면 dirty=true 로 표시, 저장 버튼 활성.
@@ -427,6 +452,16 @@ function WorkspaceView({
                         : "light"
                     }
                     onChange={(v) => setEditText(v || "")}
+                    onMount={(editor) => {
+                      // 윈도우에 보관 — useEffect 가 evt 처리 시 참조.
+                      // ws:goto-line 이벤트 dispatch 가 발생하면 reveal.
+                      (window as unknown as { _wsEditor?: typeof editor })._wsEditor = editor;
+                      if (pendingLine) {
+                        editor.revealLineInCenter(pendingLine);
+                        editor.setPosition({ lineNumber: pendingLine, column: 1 });
+                        setPendingLine(null);
+                      }
+                    }}
                     options={{
                       minimap: { enabled: false },
                       fontSize: 13,

@@ -5,6 +5,8 @@ import {
   AIDocPanel,
   AIToolsPanel,
   BranchPanel,
+  BulkSelectPanel,
+  ChangelogPanel,
   CherryResetPanel,
   ComparePanel,
   ConflictPanel,
@@ -12,6 +14,7 @@ import {
   CustomTasksPanel,
   DependenciesPanel,
   FileCRUDPanel,
+  ImportZipPanel,
   LogPanel,
   OutlinePanel,
   RecentFilesPanel,
@@ -20,6 +23,7 @@ import {
   SnippetPanel,
   StashPanel,
   StatsPanel,
+  SymbolSearchPanel,
   TagPanel,
   TimelinePanel,
   TodoPanel,
@@ -113,6 +117,15 @@ export function WorkspaceTree({
   // 지를 알아야 하므로 트리 안에서 클릭된 마지막 경로를 추적.
   const [lastFile, setLastFile] = useState<string | null>(null);
   const [recentBump, setRecentBump] = useState(0);
+  // 다중 선택 (#87) — 트리에서 ☑ 클릭 시 누적.
+  const [selected, setSelected] = useState<string[]>([]);
+  // drag-drop 호버 표시 (#85).
+  const [dragOver, setDragOver] = useState(false);
+  // 트리 강제 새로고침 트리거 — bulk-delete / zip import / upload 후.
+  const [treeReloadKey, setTreeReloadKey] = useState(0);
+  function bumpTree() {
+    setTreeReloadKey((k) => k + 1);
+  }
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "moderator";
   function handleSelectFile(p: string) {
@@ -120,6 +133,35 @@ export function WorkspaceTree({
     recordRecentFile(workspaceId, p);
     setRecentBump((b) => b + 1);
     void onSelectFile(p);
+  }
+  function toggleSelect(p: string) {
+    setSelected((cur) =>
+      cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p],
+    );
+  }
+  // drag-drop 핸들러 — 트리 전체 영역에서 동작.  파일을 끌어오면
+  // 워크스페이스 루트로 업로드 (사용자가 폴더 안에 넣으려면 트리에서
+  // 옮긴 뒤 rename 으로 처리).  multi-file 지원.
+  async function onDropFiles(ev: React.DragEvent) {
+    ev.preventDefault();
+    setDragOver(false);
+    const files = Array.from(ev.dataTransfer.files || []);
+    if (files.length === 0) return;
+    for (const f of files) {
+      try {
+        await api.workspaceUploadFile(workspaceId, f.name, f);
+      } catch (e) {
+        window.alert(`${f.name} 업로드 실패: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    bumpTree();
+  }
+  function onDragOver(ev: React.DragEvent) {
+    ev.preventDefault();
+    setDragOver(true);
+  }
+  function onDragLeave() {
+    setDragOver(false);
   }
   function insertSnippet(text: string) {
     // 채팅으로 보내기: chat:quote-pick 이벤트는 composer 에 prefill.
@@ -157,16 +199,30 @@ export function WorkspaceTree({
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, refreshKey]);
+  }, [workspaceId, refreshKey, treeReloadKey]);
 
   return (
-    <>
+    <div
+      className={`ws-tree-wrap${dragOver ? " drag-over" : ""}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDropFiles}
+    >
       <WorkspaceGrep workspaceId={workspaceId} onSelect={handleSelectFile} />
       <RecentFilesPanel
         workspaceId={workspaceId}
         onSelect={handleSelectFile}
         bumpKey={recentBump}
       />
+      <BulkSelectPanel
+        workspaceId={workspaceId}
+        selected={selected}
+        onClear={() => setSelected([])}
+        onChanged={bumpTree}
+      />
+      {dragOver && (
+        <div className="ws-drop-overlay">⬆ 여기에 놓으면 워크스페이스에 업로드</div>
+      )}
       <div className="ws-tree-toolbar">
         <BranchPanel workspaceId={workspaceId} />
         <LogPanel workspaceId={workspaceId} />
@@ -188,6 +244,12 @@ export function WorkspaceTree({
         <OutlinePanel workspaceId={workspaceId} filePath={lastFile} />
         <ContributorsPanel workspaceId={workspaceId} />
         <ActivityPanel workspaceId={workspaceId} />
+        <SymbolSearchPanel
+          workspaceId={workspaceId}
+          onJump={(p) => handleSelectFile(p)}
+        />
+        <ChangelogPanel workspaceId={workspaceId} />
+        <ImportZipPanel workspaceId={workspaceId} onChanged={bumpTree} />
         <StatsPanel workspaceId={workspaceId} />
         <TestRunnerButton workspaceId={workspaceId} />
         <RunCommandButton
@@ -230,10 +292,12 @@ export function WorkspaceTree({
           depth={0}
           activePath={activePath}
           onSelect={handleSelectFile}
+          onToggleSelect={toggleSelect}
+          selectedSet={new Set(selected)}
           fileStatus={bundle?.file_status ?? {}}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -319,6 +383,8 @@ function TreeList({
   depth,
   activePath,
   onSelect,
+  onToggleSelect,
+  selectedSet,
   fileStatus,
   parentPath = "",
 }: {
@@ -326,6 +392,8 @@ function TreeList({
   depth: number;
   activePath: string | null;
   onSelect: (path: string) => void | Promise<void>;
+  onToggleSelect?: (path: string) => void;
+  selectedSet: Set<string>;
   fileStatus: Record<string, string>;
   parentPath?: string;
 }) {
@@ -338,6 +406,8 @@ function TreeList({
           depth={depth}
           activePath={activePath}
           onSelect={onSelect}
+          onToggleSelect={onToggleSelect}
+          selectedSet={selectedSet}
           fileStatus={fileStatus}
           parentPath={parentPath}
         />
@@ -351,6 +421,8 @@ function TreeNode({
   depth,
   activePath,
   onSelect,
+  onToggleSelect,
+  selectedSet,
   fileStatus,
   parentPath,
 }: {
@@ -358,6 +430,9 @@ function TreeNode({
   depth: number;
   activePath: string | null;
   onSelect: (path: string) => void | Promise<void>;
+  /** Ctrl/Cmd+클릭 시 호출 — 일괄 작업용 다중 선택 (#87). */
+  onToggleSelect?: (path: string) => void;
+  selectedSet: Set<string>;
   fileStatus: Record<string, string>;
   parentPath: string;
 }) {
@@ -372,7 +447,14 @@ function TreeNode({
           type="button"
           className="ws-tn-row"
           style={pad}
-          onClick={() => setOpen((v) => !v)}
+          onClick={(e) => {
+            if ((e.ctrlKey || e.metaKey) && onToggleSelect) {
+              e.preventDefault();
+              onToggleSelect(sub);
+              return;
+            }
+            setOpen((v) => !v);
+          }}
         >
           {open ? (
             <IconChevronDown size={11} />
@@ -380,7 +462,10 @@ function TreeNode({
             <IconChevronRight size={11} />
           )}
           <IconFolder size={13} />
-          <span className="ws-tn-name">{entry.name}</span>
+          <span className="ws-tn-name">
+            {selectedSet.has(sub) && <span className="ws-tn-sel">☑</span>}
+            {entry.name}
+          </span>
         </button>
         {open && (
           <TreeList
@@ -388,6 +473,8 @@ function TreeNode({
             depth={depth + 1}
             activePath={activePath}
             onSelect={onSelect}
+            onToggleSelect={onToggleSelect}
+            selectedSet={selectedSet}
             fileStatus={fileStatus}
             parentPath={sub}
           />
@@ -401,16 +488,26 @@ function TreeNode({
     <li className="ws-tn file">
       <button
         type="button"
-        className={`ws-tn-row${activePath === entry.path ? " active" : ""}`}
+        className={`ws-tn-row${activePath === entry.path ? " active" : ""}${selectedSet.has(entry.path) ? " selected" : ""}`}
         style={pad}
-        onClick={() => onSelect(entry.path)}
-        title={`${entry.path}\n${mark.title}`}
+        onClick={(e) => {
+          if ((e.ctrlKey || e.metaKey) && onToggleSelect) {
+            e.preventDefault();
+            onToggleSelect(entry.path);
+            return;
+          }
+          onSelect(entry.path);
+        }}
+        title={`${entry.path}\n${mark.title}\nCtrl/⌘+클릭 = 다중 선택`}
       >
         <span className={`ws-tn-mark ${mark.cls}`} aria-hidden>
           {mark.glyph}
         </span>
         <IconFileText size={13} />
-        <span className="ws-tn-name">{entry.name}</span>
+        <span className="ws-tn-name">
+          {selectedSet.has(entry.path) && <span className="ws-tn-sel">☑</span>}
+          {entry.name}
+        </span>
       </button>
     </li>
   );

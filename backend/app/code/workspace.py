@@ -2905,3 +2905,198 @@ def activity_heatmap(root: Path, days: int = 365) -> dict:
         ],
         "by_day": by_day_list,
     }
+
+
+# ── 심볼 전역 검색 (#83) ────────────────────────────────────
+def search_symbols(root: Path, query: str, limit: int = 200) -> list[dict]:
+    """워크스페이스 전체에서 함수/클래스/heading 이름이 query 와 매치되는
+    심볼 수집.  outline 추출을 파일별로 돌려 매칭만 모음."""
+    q = (query or "").strip().lower()
+    if not q or len(q) < 2:
+        return []
+    out: list[dict] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _GREP_SKIP_DIRS]
+        for fn in filenames:
+            if len(out) >= limit:
+                return out
+            ext = os.path.splitext(fn)[1].lower().lstrip(".")
+            if ext not in _OUTLINE_PATTERNS:
+                continue
+            fp = Path(dirpath) / fn
+            try:
+                if fp.stat().st_size > 1_000_000:
+                    continue
+                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            items = extract_outline(text, ext)
+            for it in items:
+                if q in it["name"].lower():
+                    rel = str(fp.relative_to(root)).replace("\\", "/")
+                    out.append(
+                        {
+                            "path": rel,
+                            "line": it["line"],
+                            "kind": it["kind"],
+                            "name": it["name"],
+                        }
+                    )
+                    if len(out) >= limit:
+                        return out
+    return out
+
+
+# ── AI 변경 요약 / changelog (#84) ──────────────────────────
+async def ai_changelog(
+    root: Path,
+    days: int,
+    model: str,
+    base_url: str,
+) -> dict:
+    """최근 N일 git log + diff 통계를 LLM 에 보내 한국어 changelog 생성.
+    diff 본문 전체는 토큰 폭증을 막기 위해 통계 + subject 위주."""
+    import httpx
+    from datetime import datetime as _dt, timedelta as _td
+
+    days = max(1, min(int(days or 7), 90))
+    since = (_dt.utcnow() - _td(days=days)).isoformat()
+    # 커밋 헤더 + 변경 파일 통계.
+    fmt = "COMMIT%x09%H%x09%aI%x09%an%x09%s"
+    log = subprocess.run(
+        ["git", "log", "--all", "--since", since,
+         f"--pretty=format:{fmt}", "--shortstat"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if log.returncode != 0:
+        raise RuntimeError(
+            (log.stderr or log.stdout).decode("utf-8", "replace")[:300]
+        )
+    body = log.stdout.decode("utf-8", "replace")
+    if not body.strip():
+        return {
+            "days": days,
+            "commits": 0,
+            "changelog": "(해당 기간에 커밋이 없어요)",
+            "model": model,
+        }
+    commit_count = body.count("\nCOMMIT\t") + (1 if body.startswith("COMMIT\t") else 0)
+    body = body[:60_000]
+    sys = (
+        f"당신은 한국어 changelog 작성기.  아래는 최근 {days}일 git log "
+        "와 파일 변경 통계입니다.  내용을 (1) 'feat / fix / refactor / "
+        "docs / chore / test' 분류로 그룹핑 (2) 사용자가 보기 좋은 한국어 "
+        "마크다운 changelog 로 정리 (3) 마지막에 핵심 요약 3~5줄.  결과만, "
+        "서두·말미 인사 금지."
+    )
+    timeout = httpx.Timeout(180.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": body},
+                ],
+            },
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:200]}")
+    text = ((r.json() or {}).get("message") or {}).get("content") or ""
+    return {
+        "days": days,
+        "commits": commit_count,
+        "changelog": text.strip(),
+        "model": model,
+    }
+
+
+# ── zip 업로드 import (#86) ─────────────────────────────────
+def extract_zip_into(root: Path, zip_bytes: bytes, *, max_files: int = 5000,
+                    max_bytes: int = 200_000_000) -> dict:
+    """zip 바이트를 워크스페이스에 풀기.  보안 가드: zip slip(상위 디렉터리
+    탈출) 방지, 파일 수·총 크기 한도."""
+    import io
+    import zipfile
+
+    if len(zip_bytes) > max_bytes:
+        raise ValueError(f"zip 이 너무 커요 (>{max_bytes // (1024*1024)} MB)")
+    extracted = 0
+    total = 0
+    skipped: list[str] = []
+    root_resolved = root.resolve()
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            for info in zf.infolist():
+                if extracted >= max_files:
+                    break
+                name = info.filename
+                if not name or name.endswith("/"):
+                    continue
+                # zip-slip 방어 — name 이 '..' 포함하거나 root 밖이면 skip.
+                target = (root_resolved / name).resolve()
+                try:
+                    target.relative_to(root_resolved)
+                except ValueError:
+                    skipped.append(name)
+                    continue
+                # 디렉터리 보장.
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # 큰 파일 차단.
+                if info.file_size > 20 * 1024 * 1024:
+                    skipped.append(name)
+                    continue
+                if total + info.file_size > max_bytes:
+                    break
+                with zf.open(info) as src, open(target, "wb") as dst:
+                    chunk = src.read()
+                    dst.write(chunk)
+                total += info.file_size
+                extracted += 1
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"잘못된 zip: {exc}")
+    return {
+        "extracted": extracted,
+        "total_bytes": total,
+        "skipped_count": len(skipped),
+        "skipped_sample": skipped[:10],
+    }
+
+
+# ── 파일 업로드 (drag-drop, #85) ────────────────────────────
+def write_uploaded_file(
+    root: Path, rel: str, blob: bytes, *, max_bytes: int = 25 * 1024 * 1024
+) -> dict:
+    """업로드된 파일 한 개를 워크스페이스에 저장.  바이너리 그대로 쓰기."""
+    if len(blob) > max_bytes:
+        raise ValueError(
+            f"파일이 너무 커요 ({len(blob) // (1024*1024)} MB > "
+            f"{max_bytes // (1024*1024)} MB)"
+        )
+    target = _safe_resolve(root, rel)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(blob)
+    return {
+        "path": str(target.relative_to(root)).replace("\\", "/"),
+        "size": len(blob),
+    }
+
+
+# ── 다중 일괄 삭제 (#87) ────────────────────────────────────
+def bulk_delete(root: Path, paths: list[str]) -> dict:
+    """여러 파일/폴더를 한 번에 삭제.  성공·실패 분리 반환."""
+    ok: list[str] = []
+    fail: list[dict] = []
+    for p in paths:
+        try:
+            delete_path(root, p)
+            ok.append(p)
+        except (ValueError, OSError) as exc:
+            fail.append({"path": p, "error": str(exc)})
+    return {"deleted": ok, "failed": fail}

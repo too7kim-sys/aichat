@@ -2110,3 +2110,286 @@ export function ActivityPanel({ workspaceId }: { workspaceId: string }) {
     </>
   );
 }
+
+
+// ── #83 심볼 전역 검색 ───────────────────────────────────
+export function SymbolSearchPanel({
+  workspaceId,
+  onJump,
+}: {
+  workspaceId: string;
+  onJump: (path: string, line: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<
+    { path: string; line: number; kind: string; name: string }[]
+  >([]);
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    if (q.trim().length < 2) return;
+    setBusy(true);
+    try {
+      const r = await api.workspaceSymbols(workspaceId, q.trim());
+      setResults(r.items);
+    } catch (e) {
+      window.alert(`검색 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="함수·클래스·heading 전역 검색">
+        🔭 심볼
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>🔭 심볼 전역 검색</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                <input
+                  className="ws-grep-input"
+                  placeholder="함수·클래스·heading 이름 (2자 이상)"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") run();
+                  }}
+                  autoFocus
+                />
+                <button type="button" className="primary" onClick={run} disabled={busy || q.trim().length < 2}>
+                  {busy ? "…" : "검색"}
+                </button>
+              </div>
+              {results.length === 0 ? (
+                <div className="patch-preview-empty">{busy ? "검색 중…" : q ? "결과 없음" : "검색어를 입력하세요"}</div>
+              ) : (
+                <ul className="ws-todo-list">
+                  {results.map((r, i) => (
+                    <li key={`${r.path}:${r.line}:${i}`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onJump(r.path, r.line);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className={`ws-todo-tag tag-${r.kind === "class" ? "TODO" : r.kind === "func" ? "NOTE" : "HACK"}`}>
+                          {r.kind}
+                        </span>
+                        <code>{r.path}:{r.line}</code>
+                        <span className="ws-todo-msg">{r.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #84 AI changelog ────────────────────────────────────
+export function ChangelogPanel({ workspaceId }: { workspaceId: string }) {
+  const [open, setOpen] = useState(false);
+  const [days, setDays] = useState(7);
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [meta, setMeta] = useState<{ commits: number; model: string } | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setText(null);
+    setMeta(null);
+    try {
+      const r = await api.workspaceAiChangelog(workspaceId, days);
+      setText(r.changelog);
+      setMeta({ commits: r.commits, model: r.model });
+    } catch (e) {
+      setText(`실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="최근 N일 변경 요약">
+        📜 changelog
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>📜 AI 변경 요약</h3>
+              {meta && (
+                <code className="patch-preview-path">
+                  {meta.commits}개 커밋 · {meta.model}
+                </code>
+              )}
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                {[1, 3, 7, 14, 30].map((d) => (
+                  <button key={d} type="button" className={`ws-tree-btn${days === d ? " primary" : ""}`} onClick={() => setDays(d)}>
+                    {d}일
+                  </button>
+                ))}
+                <button type="button" className="primary" onClick={run} disabled={busy}>
+                  {busy ? "생성 중…" : "▶ 생성"}
+                </button>
+              </div>
+              {text && <pre className="wsc-review-body">{text}</pre>}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #86 zip import ─────────────────────────────────────
+export function ImportZipPanel({
+  workspaceId,
+  onChanged,
+}: {
+  workspaceId: string;
+  onChanged?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{
+    extracted: number;
+    total_bytes: number;
+    skipped_count: number;
+    skipped_sample: string[];
+  } | null>(null);
+
+  async function upload(file: File) {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.workspaceImportZip(workspaceId, file);
+      setResult(r);
+      onChanged?.();
+    } catch (e) {
+      window.alert(`zip 임포트 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="기존 zip 을 워크스페이스에 풀기">
+        📦 zip 가져오기
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>📦 zip 가져오기</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <p className="ws-crud-hint">
+                zip 안의 파일을 워크스페이스에 풀어 넣어요.  zip slip(..)
+                경로는 자동 차단, 20MB 초과 파일·총 200MB 초과는 스킵.
+              </p>
+              <div className="ws-crud-row">
+                <input
+                  type="file"
+                  accept=".zip"
+                  disabled={busy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void upload(f);
+                  }}
+                />
+              </div>
+              {result && (
+                <>
+                  <div className="ws-stats-sec">결과</div>
+                  <ul className="ws-branch-list">
+                    <li><span>추출</span><span>{result.extracted}개</span></li>
+                    <li><span>총 크기</span><span>{(result.total_bytes / 1024 / 1024).toFixed(1)} MB</span></li>
+                    <li><span>건너뜀</span><span>{result.skipped_count}개</span></li>
+                  </ul>
+                  {result.skipped_sample.length > 0 && (
+                    <pre className="wsc-review-body">
+{`건너뛴 파일 (최대 10):\n${result.skipped_sample.join("\n")}`}
+                    </pre>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #87 다중 선택 + 일괄 삭제 ────────────────────────────
+export function BulkSelectPanel({
+  workspaceId,
+  selected,
+  onClear,
+  onChanged,
+}: {
+  workspaceId: string;
+  selected: string[];
+  onClear: () => void;
+  onChanged?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (selected.length === 0) return null;
+
+  async function bulkDelete() {
+    if (
+      !window.confirm(
+        `선택한 ${selected.length}개를 삭제할까요? (폴더는 재귀)\n되돌릴 수 없어요.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const r = await api.workspaceBulkDelete(workspaceId, selected);
+      const okN = r.deleted.length;
+      const failN = r.failed.length;
+      window.alert(
+        `삭제 완료 — ok ${okN}건, 실패 ${failN}건` +
+          (failN > 0 ? `:\n${r.failed.map((f) => `${f.path}: ${f.error}`).join("\n")}` : ""),
+      );
+      onChanged?.();
+      onClear();
+    } catch (e) {
+      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ws-bulk-bar">
+      <span>{selected.length}개 선택됨</span>
+      <button type="button" disabled={busy} onClick={bulkDelete}>
+        🗑 일괄 삭제
+      </button>
+      <button type="button" onClick={onClear}>
+        선택 해제
+      </button>
+    </div>
+  );
+}
