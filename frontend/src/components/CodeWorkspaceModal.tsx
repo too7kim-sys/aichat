@@ -407,6 +407,9 @@ function WorkspaceView({
                         editText,
                       );
                       setOriginalText(editText);
+                      // 새 파일이 생겼거나 dirty 상태가 바뀌었으므로 트리 +
+                      // 변경 패널이 다시 가져오도록 알림.
+                      window.dispatchEvent(new CustomEvent("ws:tree-refresh"));
                     } catch (e) {
                       window.alert(
                         `저장 실패: ${e instanceof Error ? e.message : String(e)}`,

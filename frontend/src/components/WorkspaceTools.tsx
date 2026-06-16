@@ -1,6 +1,12 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { api } from "../api/client";
 
+/** 파일·git 상태가 바뀌면 트리·status 패널이 다시 가져오도록 한 번
+ *  쏴 주는 헬퍼.  ws:tree-refresh 를 WorkspaceTree 가 listen. */
+function notifyTreeChanged() {
+  window.dispatchEvent(new CustomEvent("ws:tree-refresh"));
+}
+
 /** 워크스페이스 도구 모음 (#59~64) — 트리 툴바에 6개 버튼 + 각각의
  *  모달.  컴포넌트를 한 파일에 둬 import 줄을 늘리지 않는다. */
 
@@ -34,6 +40,7 @@ export function BranchPanel({
     setBusy(true);
     try {
       await api.workspaceSwitchBranch(workspaceId, name, create);
+      notifyTreeChanged();
       onChanged?.();
       await refresh();
     } catch (e) {
@@ -256,6 +263,7 @@ export function FileCRUDPanel({
     setBusy(true);
     try {
       await api.workspaceCreatePath(workspaceId, path.trim(), kind);
+      notifyTreeChanged();
       onChanged?.();
       setPath("");
       setOpen(false);
@@ -343,6 +351,7 @@ export function ReplacePanel({ workspaceId }: { workspaceId: string }) {
         dryRun,
       });
       setPreview(res);
+      if (!dryRun) notifyTreeChanged();
     } catch (e) {
       window.alert(`치환 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -603,6 +612,7 @@ export function StashPanel({
     try {
       await api.workspaceStashSave(workspaceId, msg);
       setMsg("");
+      notifyTreeChanged();
       onChanged?.();
       await refresh();
     } catch (e) {
@@ -615,6 +625,7 @@ export function StashPanel({
     setBusy(true);
     try {
       await api.workspaceStashApply(workspaceId, ref, pop);
+      notifyTreeChanged();
       onChanged?.();
       await refresh();
     } catch (e) {
@@ -744,6 +755,7 @@ export function ConflictPanel({
     setBusy(true);
     try {
       await api.workspaceConflictResolve(workspaceId, sel, edit);
+      notifyTreeChanged();
       onChanged?.();
       // refresh.
       const r = await api.workspaceConflicts(workspaceId);
@@ -1422,6 +1434,7 @@ export function TagPanel({ workspaceId }: { workspaceId: string }) {
       await api.workspaceTagCreate(workspaceId, name.trim(), msg);
       setName("");
       setMsg("");
+      notifyTreeChanged();
       await refresh();
     } catch (e) {
       window.alert(`태그 실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -1445,6 +1458,7 @@ export function TagPanel({ workspaceId }: { workspaceId: string }) {
     setBusy(true);
     try {
       await api.workspaceTagDelete(workspaceId, n);
+      notifyTreeChanged();
       await refresh();
     } catch (e) {
       window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -1679,6 +1693,7 @@ export function CherryResetPanel({
     try {
       const r = await api.workspaceCherryPick(workspaceId, sha.trim());
       setOut(r.stdout || "(완료)");
+      notifyTreeChanged();
       onChanged?.();
     } catch (e) {
       setOut(`실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -1697,6 +1712,7 @@ export function CherryResetPanel({
     try {
       const r = await api.workspaceReset(workspaceId, sha.trim(), mode);
       setOut(r.stdout || "(완료)");
+      notifyTreeChanged();
       onChanged?.();
     } catch (e) {
       setOut(`실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -2282,6 +2298,7 @@ export function ImportZipPanel({
     try {
       const r = await api.workspaceImportZip(workspaceId, file);
       setResult(r);
+      notifyTreeChanged();
       onChanged?.();
     } catch (e) {
       window.alert(`zip 임포트 실패: ${e instanceof Error ? e.message : String(e)}`);
@@ -2366,6 +2383,7 @@ export function BulkSelectPanel({
     setBusy(true);
     try {
       const r = await api.workspaceBulkDelete(workspaceId, selected);
+      notifyTreeChanged();
       const okN = r.deleted.length;
       const failN = r.failed.length;
       window.alert(

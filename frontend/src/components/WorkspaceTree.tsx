@@ -126,6 +126,17 @@ export function WorkspaceTree({
   function bumpTree() {
     setTreeReloadKey((k) => k + 1);
   }
+  // 다른 컴포넌트(FileCRUD, save-file, conflict resolve, branch switch
+  // 등)가 파일·git 상태를 바꾼 직후 'ws:tree-refresh' 를 디스패치하면
+  // 트리가 자동으로 다시 fetch.  모든 패널에 onChanged 를 thread 하는
+  // 대신 한 이벤트로 통일.
+  useEffect(() => {
+    function onRefresh() {
+      bumpTree();
+    }
+    window.addEventListener("ws:tree-refresh", onRefresh);
+    return () => window.removeEventListener("ws:tree-refresh", onRefresh);
+  }, []);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "moderator";
   function handleSelectFile(p: string) {
@@ -224,6 +235,14 @@ export function WorkspaceTree({
         <div className="ws-drop-overlay">⬆ 여기에 놓으면 워크스페이스에 업로드</div>
       )}
       <div className="ws-tree-toolbar">
+        <button
+          type="button"
+          className="ws-tree-btn"
+          onClick={bumpTree}
+          title="트리 다시 가져오기 — 외부에서 파일이 추가/변경됐을 때"
+        >
+          🔄 새로고침
+        </button>
         <BranchPanel workspaceId={workspaceId} />
         <LogPanel workspaceId={workspaceId} />
         <FileCRUDPanel workspaceId={workspaceId} />
