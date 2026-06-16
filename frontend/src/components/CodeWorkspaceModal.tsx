@@ -245,6 +245,8 @@ function WorkspaceView({
   const [editText, setEditText] = useState<string>("");
   const [originalText, setOriginalText] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  // 마크다운 미리보기 토글 (#79). .md 파일에만 의미 있어 평소엔 false.
+  const [mdPreview, setMdPreview] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
@@ -392,9 +394,23 @@ function WorkspaceView({
                 >
                   💾 {saving ? "저장 중…" : "저장"}
                 </button>
+                {/\.(md|markdown)$/i.test(file.path) && (
+                  <button
+                    type="button"
+                    className="cw-attach-btn"
+                    onClick={() => setMdPreview((v) => !v)}
+                    title="raw ↔ 마크다운 렌더링"
+                  >
+                    {mdPreview ? "📝 원문" : "📖 미리보기"}
+                  </button>
+                )}
               </div>
               {file.method === "binary-skipped" || file.method === "too-large" ? (
                 <pre className="cw-file-body">{file.text}</pre>
+              ) : mdPreview && /\.(md|markdown)$/i.test(file.path) ? (
+                <Suspense fallback={<pre className="cw-file-body">렌더 중…</pre>}>
+                  <MarkdownPreview text={editText} />
+                </Suspense>
               ) : (
                 <Suspense
                   fallback={
@@ -812,4 +828,20 @@ function detectLanguage(path: string): string {
     cc: "cpp",
   };
   return map[ext] || "plaintext";
+}
+
+
+// 마크다운 미리보기 (#79) — 기존 MarkdownContent 재활용.  Suspense
+// 안에서 호출되므로 일반 import 도 OK 지만, ChatPanel 외부 사용을
+// 분명히 하기 위해 lazy.
+const MarkdownContent = lazy(() =>
+  import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
+);
+
+function MarkdownPreview({ text }: { text: string }) {
+  return (
+    <div className="cw-md-preview">
+      <MarkdownContent content={text} />
+    </div>
+  );
 }

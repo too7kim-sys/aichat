@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
 import { api, type WorkspaceTreeEntry } from "../api/client";
 import {
+  ActivityPanel,
   AIDocPanel,
   AIToolsPanel,
   BranchPanel,
+  CherryResetPanel,
+  ComparePanel,
   ConflictPanel,
+  ContributorsPanel,
   CustomTasksPanel,
   DependenciesPanel,
   FileCRUDPanel,
   LogPanel,
+  OutlinePanel,
   RecentFilesPanel,
   ReplacePanel,
   SecurityPanel,
@@ -178,6 +183,11 @@ export function WorkspaceTree({
         <SecurityPanel workspaceId={workspaceId} onJump={handleSelectFile} />
         <DependenciesPanel workspaceId={workspaceId} />
         <SnippetPanel onInsert={insertSnippet} isAdmin={!!isAdmin} />
+        <CherryResetPanel workspaceId={workspaceId} />
+        <ComparePanel workspaceId={workspaceId} />
+        <OutlinePanel workspaceId={workspaceId} filePath={lastFile} />
+        <ContributorsPanel workspaceId={workspaceId} />
+        <ActivityPanel workspaceId={workspaceId} />
         <StatsPanel workspaceId={workspaceId} />
         <TestRunnerButton workspaceId={workspaceId} />
         <RunCommandButton

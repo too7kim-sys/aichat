@@ -15,6 +15,7 @@ from ..config import settings
 from pathlib import Path
 
 from ..code.workspace import (
+    activity_heatmap,
     ai_commit_message,
     ai_document_file,
     ai_generate_tests,
@@ -24,16 +25,22 @@ from ..code.workspace import (
     apply_file_write,
     clone_repo,
     collect_workspace_files,
+    compare_refs,
     conflict_versions,
+    contributor_stats,
     create_path,
     delete_path,
     detect_conflicts,
     detect_test_runner,
+    extract_outline,
+    file_diff_between,
     file_git_log,
+    git_cherry_pick,
     git_commit,
     git_diff,
     git_log,
     git_push,
+    git_reset,
     git_revert_file,
     git_show_diff,
     git_show_files,
@@ -1881,3 +1888,152 @@ async def workspace_dependencies(
         None, parse_dependencies, dest
     )
     return {"managers": result}
+
+
+# ── 체리픽 / 리셋 (#77) ────────────────────────────────────
+@router.post("/workspaces/{workspace_id}/cherry-pick")
+async def workspace_cherry_pick(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    sha = (payload.get("sha") or "").strip()
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, git_cherry_pick, dest, sha
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.post("/workspaces/{workspace_id}/reset")
+async def workspace_reset(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    sha = (payload.get("sha") or "HEAD~1").strip()
+    mode = (payload.get("mode") or "soft").strip()
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, git_reset, dest, sha, mode
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+# ── 브랜치 비교 (#78) ──────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/compare")
+async def workspace_compare(
+    workspace_id: str,
+    base: str = Query(...),
+    head: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        files = await asyncio.get_running_loop().run_in_executor(
+            None, compare_refs, dest, base, head
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc))
+    return {"base": base, "head": head, "files": files}
+
+
+@router.get("/workspaces/{workspace_id}/compare/file")
+async def workspace_compare_file(
+    workspace_id: str,
+    base: str = Query(...),
+    head: str = Query(...),
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, file_diff_between, dest, base, head, path
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+# ── 파일 outline (#80) ─────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/outline")
+async def workspace_outline(
+    workspace_id: str,
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    try:
+        info = await asyncio.get_running_loop().run_in_executor(
+            None, read_file, dest, path
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc))
+    ext = path.split(".")[-1] if "." in path else ""
+    items = extract_outline(info.get("text") or "", ext)
+    return {"path": path, "items": items}
+
+
+# ── 컨트리뷰터 통계 (#81) ──────────────────────────────────
+@router.get("/workspaces/{workspace_id}/contributors")
+async def workspace_contributors(
+    workspace_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        return {"contributors": []}
+    items = await asyncio.get_running_loop().run_in_executor(
+        None, contributor_stats, dest, limit
+    )
+    return {"contributors": items}
+
+
+# ── 활동 히트맵 (#82) ──────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/activity")
+async def workspace_activity(
+    workspace_id: str,
+    days: int = Query(365, ge=7, le=1095),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        return {"days": days, "weekday_hour": [], "by_day": []}
+    return await asyncio.get_running_loop().run_in_executor(
+        None, activity_heatmap, dest, days
+    )

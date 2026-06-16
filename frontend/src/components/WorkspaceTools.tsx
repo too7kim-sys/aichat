@@ -1655,3 +1655,458 @@ export function recordRecentFile(workspaceId: string, path: string) {
   const next = [path, ...cur.filter((x) => x !== path)];
   writeArr(RECENT_KEY(workspaceId), next);
 }
+
+
+// ── #77 체리픽 + 리셋 ─────────────────────────────────────
+export function CherryResetPanel({
+  workspaceId,
+  onChanged,
+}: {
+  workspaceId: string;
+  onChanged?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"cherry" | "reset">("cherry");
+  const [sha, setSha] = useState("");
+  const [mode, setMode] = useState<"soft" | "mixed" | "hard">("soft");
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState<string | null>(null);
+
+  async function doCherryPick() {
+    if (!sha.trim()) return;
+    setBusy(true);
+    setOut(null);
+    try {
+      const r = await api.workspaceCherryPick(workspaceId, sha.trim());
+      setOut(r.stdout || "(완료)");
+      onChanged?.();
+    } catch (e) {
+      setOut(`실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function doReset() {
+    if (!sha.trim()) return;
+    if (mode === "hard") {
+      if (!window.confirm("hard reset 은 working tree 변경 사항도 모두 날립니다.  계속할까요?"))
+        return;
+    }
+    setBusy(true);
+    setOut(null);
+    try {
+      const r = await api.workspaceReset(workspaceId, sha.trim(), mode);
+      setOut(r.stdout || "(완료)");
+      onChanged?.();
+    } catch (e) {
+      setOut(`실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="cherry-pick / reset">
+        🍒 픽/리셋
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>🍒 cherry-pick / reset</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                <button type="button" className={`ws-tree-btn${tab === "cherry" ? " primary" : ""}`} onClick={() => setTab("cherry")}>
+                  cherry-pick
+                </button>
+                <button type="button" className={`ws-tree-btn${tab === "reset" ? " primary" : ""}`} onClick={() => setTab("reset")}>
+                  reset
+                </button>
+              </div>
+              {tab === "cherry" ? (
+                <>
+                  <p className="ws-crud-hint">다른 브랜치/커밋의 SHA 를 현재 브랜치 위로 가져옵니다.</p>
+                  <div className="ws-crud-row">
+                    <input placeholder="가져올 커밋 SHA" value={sha} onChange={(e) => setSha(e.target.value)} disabled={busy} />
+                    <button type="button" className="primary" disabled={busy || !sha.trim()} onClick={doCherryPick}>
+                      ▶ 적용
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="ws-crud-hint">
+                    <b>soft</b>: HEAD 만 이동 (변경은 staged).
+                    <br /><b>mixed</b>: 기본. staged 도 해제, working tree 는 유지.
+                    <br /><b>hard</b>: working tree 까지 그 SHA 로 되돌림 — 복구 불가.
+                  </p>
+                  <div className="ws-crud-row">
+                    <input placeholder="대상 SHA / HEAD~N" value={sha} onChange={(e) => setSha(e.target.value)} disabled={busy} />
+                    <select value={mode} onChange={(e) => setMode(e.target.value as "soft" | "mixed" | "hard")} disabled={busy}>
+                      <option value="soft">soft</option>
+                      <option value="mixed">mixed</option>
+                      <option value="hard">hard</option>
+                    </select>
+                    <button type="button" className="primary" disabled={busy || !sha.trim()} onClick={doReset}>
+                      ▶ reset
+                    </button>
+                  </div>
+                </>
+              )}
+              {out && <pre className="wsc-review-body">{out}</pre>}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #78 브랜치 비교 ──────────────────────────────────────
+const CompareDiffEditor = lazy(() =>
+  import("@monaco-editor/react").then((m) => ({ default: m.DiffEditor })),
+);
+
+export function ComparePanel({ workspaceId }: { workspaceId: string }) {
+  const [open, setOpen] = useState(false);
+  const [base, setBase] = useState("main");
+  const [head, setHead] = useState("HEAD");
+  const [branches, setBranches] = useState<string[]>([]);
+  const [files, setFiles] = useState<{ status: string; path: string }[] | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const [fileDiff, setFileDiff] = useState<{ base: string; head: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api.workspaceBranches(workspaceId).then((b) => {
+      setBranches([...b.local, ...b.remote]);
+      if (b.current) setHead(b.current);
+    }).catch(() => {});
+  }, [open, workspaceId]);
+
+  async function run() {
+    setBusy(true);
+    setFiles(null);
+    setSel(null);
+    setFileDiff(null);
+    try {
+      const r = await api.workspaceCompare(workspaceId, base, head);
+      setFiles(r.files);
+    } catch (e) {
+      window.alert(`비교 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function openFile(path: string) {
+    setSel(path);
+    setFileDiff(null);
+    try {
+      const r = await api.workspaceCompareFile(workspaceId, base, head, path);
+      setFileDiff({ base: r.base, head: r.head });
+    } catch (e) {
+      setFileDiff({ base: "", head: `(로드 실패: ${e})` });
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="두 브랜치/커밋 비교">
+        ↔ 비교
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal ws-log-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>↔ 브랜치 비교</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                <input placeholder="base (예: main)" value={base} onChange={(e) => setBase(e.target.value)} list="ws-cmp-branches" />
+                <span>..</span>
+                <input placeholder="head (예: feature/x)" value={head} onChange={(e) => setHead(e.target.value)} list="ws-cmp-branches" />
+                <datalist id="ws-cmp-branches">
+                  {branches.map((b) => <option key={b} value={b} />)}
+                </datalist>
+                <button type="button" className="primary" disabled={busy} onClick={run}>
+                  {busy ? "…" : "▶ 비교"}
+                </button>
+              </div>
+              {files && (
+                <div className="ws-log-body">
+                  <div className="ws-log-left">
+                    {files.length === 0 ? (
+                      <div className="patch-preview-empty">변경 없음</div>
+                    ) : (
+                      <ul className="ws-log-files">
+                        {files.map((f) => (
+                          <li key={f.path} onClick={() => openFile(f.path)} className={sel === f.path ? "active" : ""}>
+                            <span className={`ws-log-status st-${f.status}`}>{f.status}</span>
+                            <span>{f.path}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="ws-log-right">
+                    {sel && fileDiff ? (
+                      <Suspense fallback={<div className="patch-preview-empty">…</div>}>
+                        <div className="wsc-diff-monaco">
+                          <CompareDiffEditor
+                            height="50vh"
+                            original={fileDiff.base}
+                            modified={fileDiff.head}
+                            theme={
+                              document.documentElement.getAttribute("data-theme") === "dark"
+                                ? "vs-dark"
+                                : "light"
+                            }
+                            options={{
+                              readOnly: true,
+                              renderSideBySide: true,
+                              minimap: { enabled: false },
+                              automaticLayout: true,
+                            }}
+                          />
+                        </div>
+                      </Suspense>
+                    ) : (
+                      <div className="patch-preview-empty">파일을 클릭하세요.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #80 파일 outline ─────────────────────────────────────
+export function OutlinePanel({
+  workspaceId,
+  filePath,
+}: {
+  workspaceId: string;
+  filePath: string | null;
+}) {
+  type Item = {
+    kind: string;
+    name: string;
+    line: number;
+    level?: number;
+  };
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<Item[]>([]);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    if (!open || !filePath) return;
+    api.workspaceOutline(workspaceId, filePath).then((r) => setItems(r.items)).catch(() => setItems([]));
+  }, [open, workspaceId, filePath]);
+
+  const filtered = q.trim()
+    ? items.filter((it) => it.name.toLowerCase().includes(q.toLowerCase()))
+    : items;
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} disabled={!filePath} title="파일 안 함수/클래스/heading 점프">
+        🧭 outline
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>🧭 파일 outline</h3>
+              {filePath && <code className="patch-preview-path">{filePath}</code>}
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              {!filePath ? (
+                <div className="patch-preview-empty">먼저 트리에서 파일을 선택하세요.</div>
+              ) : (
+                <>
+                  <input
+                    className="ws-grep-input"
+                    placeholder="이름으로 필터"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    autoFocus
+                  />
+                  {filtered.length === 0 ? (
+                    <div className="patch-preview-empty">
+                      {items.length === 0 ? "해당 확장자는 outline 지원 안 함" : "일치 없음"}
+                    </div>
+                  ) : (
+                    <ul className="ws-todo-list">
+                      {filtered.map((it, i) => (
+                        <li key={`${it.line}-${i}`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              window.dispatchEvent(
+                                new CustomEvent("ws:goto-line", {
+                                  detail: { path: filePath, line: it.line },
+                                }),
+                              );
+                              setOpen(false);
+                            }}
+                          >
+                            <span className={`ws-todo-tag tag-${it.kind === "class" ? "TODO" : it.kind === "func" ? "NOTE" : "HACK"}`}>
+                              {it.kind}{it.level ? ` H${it.level}` : ""}
+                            </span>
+                            <code>{it.name}</code>
+                            <span className="ws-todo-msg">L{it.line}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #81 컨트리뷰터 통계 ──────────────────────────────────
+export function ContributorsPanel({ workspaceId }: { workspaceId: string }) {
+  type Data = Awaited<ReturnType<typeof api.workspaceContributors>>;
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Data | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    api.workspaceContributors(workspaceId).then(setData).catch(() => setData(null));
+  }, [open, workspaceId]);
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="작성자별 커밋 통계">
+        👥 사람
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>👥 컨트리뷰터</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              {!data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : data.contributors.length === 0 ? (
+                <div className="patch-preview-empty">기록 없음</div>
+              ) : (
+                <table className="ws-stats-table">
+                  <thead>
+                    <tr><th>이름</th><th>이메일</th><th>커밋</th><th>최근</th></tr>
+                  </thead>
+                  <tbody>
+                    {data.contributors.map((c, i) => (
+                      <tr key={`${c.email}-${i}`}>
+                        <td>{c.name}</td>
+                        <td><code>{c.email}</code></td>
+                        <td>{c.commits.toLocaleString()}</td>
+                        <td>{c.last_at ? new Date(c.last_at).toLocaleDateString() : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #82 활동 히트맵 ──────────────────────────────────────
+export function ActivityPanel({ workspaceId }: { workspaceId: string }) {
+  type Data = Awaited<ReturnType<typeof api.workspaceActivity>>;
+  const [open, setOpen] = useState(false);
+  const [days, setDays] = useState(365);
+  const [data, setData] = useState<Data | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    api.workspaceActivity(workspaceId, days).then(setData).catch(() => setData(null));
+  }, [open, workspaceId, days]);
+
+  // weekday_hour → grid[7][24].
+  const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+  let maxV = 0;
+  if (data) {
+    for (const w of data.weekday_hour) {
+      grid[w.weekday][w.hour] = w.count;
+      if (w.count > maxV) maxV = w.count;
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="요일·시간대별 커밋 빈도">
+        🔥 활동
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>🔥 활동 히트맵</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                {[30, 90, 180, 365, 730].map((d) => (
+                  <button key={d} type="button" className={`ws-tree-btn${days === d ? " primary" : ""}`} onClick={() => setDays(d)}>
+                    {d}일
+                  </button>
+                ))}
+              </div>
+              {!data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : (
+                <div className="ws-heatmap">
+                  <div className="ws-heatmap-row">
+                    <span className="ws-heatmap-corner" />
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <span key={h} className="ws-heatmap-hr">{h}</span>
+                    ))}
+                  </div>
+                  {["월", "화", "수", "목", "금", "토", "일"].map((label, di) => (
+                    <div key={label} className="ws-heatmap-row">
+                      <span className="ws-heatmap-dow">{label}</span>
+                      {grid[di].map((v, hi) => {
+                        const alpha = maxV ? Math.min(1, v / maxV) : 0;
+                        return (
+                          <span
+                            key={hi}
+                            className="ws-heatmap-cell"
+                            style={{ background: `rgba(204, 120, 92, ${alpha})` }}
+                            title={`${label} ${hi}시 — ${v}건`}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

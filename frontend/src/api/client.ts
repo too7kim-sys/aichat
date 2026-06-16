@@ -2090,6 +2090,71 @@ export const api = {
         { name: string; version: string; type: string }[]
       >;
     }>(`/code/workspaces/${id}/dependencies`),
+  // ── 체리픽 / 리셋 (#77) ──────────────────────────────────
+  workspaceCherryPick: (id: string, sha: string) =>
+    json<{ sha: string; stdout: string }>(
+      `/code/workspaces/${id}/cherry-pick`,
+      { method: "POST", body: JSON.stringify({ sha }) },
+    ),
+  workspaceReset: (
+    id: string,
+    sha: string,
+    mode: "soft" | "mixed" | "hard",
+  ) =>
+    json<{ sha: string; mode: string; stdout: string }>(
+      `/code/workspaces/${id}/reset`,
+      { method: "POST", body: JSON.stringify({ sha, mode }) },
+    ),
+  // ── 브랜치 비교 (#78) ────────────────────────────────────
+  workspaceCompare: (id: string, base: string, head: string) =>
+    json<{
+      base: string;
+      head: string;
+      files: { status: string; path: string }[];
+    }>(
+      `/code/workspaces/${id}/compare?base=${encodeURIComponent(
+        base,
+      )}&head=${encodeURIComponent(head)}`,
+    ),
+  workspaceCompareFile: (
+    id: string,
+    base: string,
+    head: string,
+    path: string,
+  ) =>
+    json<{
+      path: string;
+      base: string;
+      head: string;
+      diff: string;
+    }>(
+      `/code/workspaces/${id}/compare/file?base=${encodeURIComponent(
+        base,
+      )}&head=${encodeURIComponent(head)}&path=${encodeURIComponent(path)}`,
+    ),
+  // ── 파일 outline (#80) ───────────────────────────────────
+  workspaceOutline: (id: string, path: string) =>
+    json<{
+      path: string;
+      items: { kind: string; name: string; line: number; level?: number }[];
+    }>(`/code/workspaces/${id}/outline?path=${encodeURIComponent(path)}`),
+  // ── 컨트리뷰터 (#81) ─────────────────────────────────────
+  workspaceContributors: (id: string, limit = 50) =>
+    json<{
+      contributors: {
+        commits: number;
+        name: string;
+        email: string;
+        last_at: string | null;
+      }[];
+    }>(`/code/workspaces/${id}/contributors?limit=${limit}`),
+  // ── 활동 히트맵 (#82) ────────────────────────────────────
+  workspaceActivity: (id: string, days = 365) =>
+    json<{
+      days: number;
+      weekday_hour: { weekday: number; hour: number; count: number }[];
+      by_day: { date: string; count: number }[];
+    }>(`/code/workspaces/${id}/activity?days=${days}`),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

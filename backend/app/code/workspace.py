@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
@@ -2612,3 +2613,295 @@ def parse_dependencies(root: Path) -> dict:
         except Exception:
             pass
     return result
+
+
+# ── 체리픽 / 리셋 (#77) ────────────────────────────────────
+def git_cherry_pick(root: Path, sha: str) -> dict:
+    if not re.match(r"^[A-Fa-f0-9]{4,40}$", sha or ""):
+        raise ValueError("올바른 커밋 SHA 가 아니에요")
+    proc = subprocess.run(
+        ["git", "cherry-pick", sha],
+        cwd=str(root),
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:400]
+        )
+    return {
+        "sha": sha,
+        "stdout": proc.stdout.decode("utf-8", "replace").strip(),
+    }
+
+
+def git_reset(root: Path, sha: str, mode: str = "soft") -> dict:
+    """git reset --soft / --mixed / --hard <sha>. hard 는 working tree
+    까지 날아가니 사용자가 confirm 한 뒤 호출하도록."""
+    if mode not in ("soft", "mixed", "hard"):
+        raise ValueError("mode 는 soft / mixed / hard")
+    if not re.match(r"^[A-Fa-f0-9]{4,40}$|^HEAD~?\d*$", sha or ""):
+        raise ValueError("올바른 ref 가 아니에요")
+    proc = subprocess.run(
+        ["git", "reset", f"--{mode}", sha],
+        cwd=str(root),
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {
+        "sha": sha,
+        "mode": mode,
+        "stdout": proc.stdout.decode("utf-8", "replace").strip(),
+    }
+
+
+# ── 브랜치 비교 (#78) ──────────────────────────────────────
+def compare_refs(root: Path, base: str, head: str) -> list[dict]:
+    """base..head 차이 — 변경된 파일 + status."""
+    safe = r"^[A-Za-z0-9._\-/]+$"
+    if not re.match(safe, base) or not re.match(safe, head):
+        raise ValueError("브랜치/ref 이름이 이상해요")
+    proc = subprocess.run(
+        ["git", "diff", "--name-status", f"{base}..{head}"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    out: list[dict] = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t", 2)
+        if len(parts) < 2:
+            continue
+        out.append({"status": parts[0], "path": parts[-1]})
+    return out
+
+
+def file_diff_between(
+    root: Path, base: str, head: str, path: str
+) -> dict:
+    """단일 파일에 대한 base / head 의 텍스트 + unified diff."""
+    safe = r"^[A-Za-z0-9._\-/]+$"
+    if not re.match(safe, base) or not re.match(safe, head):
+        raise ValueError("브랜치/ref 이름이 이상해요")
+    rel = (path or "").strip().lstrip("/\\")
+    if ".." in Path(rel).parts:
+        raise ValueError("상대 경로(..) 사용 불가")
+
+    def _show(ref: str) -> str:
+        p = subprocess.run(
+            ["git", "show", f"{ref}:{rel}"],
+            cwd=str(root),
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        if p.returncode != 0:
+            return ""
+        return p.stdout.decode("utf-8", "replace")
+
+    diff_proc = subprocess.run(
+        ["git", "diff", f"{base}..{head}", "--", rel],
+        cwd=str(root),
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    return {
+        "path": rel,
+        "base": _show(base),
+        "head": _show(head),
+        "diff": diff_proc.stdout.decode("utf-8", "replace")
+        if diff_proc.returncode == 0
+        else "",
+    }
+
+
+# ── 파일 outline (#80) ─────────────────────────────────────
+# 언어별 정규식으로 함수/클래스/메서드/heading 위치 추출.  AST/LSP
+# 없이도 80% 의 빠른 점프 needs 는 커버.
+
+_OUTLINE_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
+    "py": [
+        (re.compile(r"^\s*class\s+(\w+)", re.M), "class"),
+        (re.compile(r"^\s*(?:async\s+)?def\s+(\w+)", re.M), "func"),
+    ],
+    "js": [
+        (re.compile(r"^\s*(?:export\s+)?(?:default\s+)?class\s+(\w+)", re.M), "class"),
+        (re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)", re.M), "func"),
+        (re.compile(r"^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?\(", re.M), "func"),
+    ],
+    "go": [
+        (re.compile(r"^\s*func\s+(?:\([^\)]+\)\s+)?(\w+)", re.M), "func"),
+        (re.compile(r"^\s*type\s+(\w+)\s+(?:struct|interface)", re.M), "type"),
+    ],
+    "rs": [
+        (re.compile(r"^\s*(?:pub\s+)?fn\s+(\w+)", re.M), "func"),
+        (re.compile(r"^\s*(?:pub\s+)?struct\s+(\w+)", re.M), "struct"),
+        (re.compile(r"^\s*(?:pub\s+)?enum\s+(\w+)", re.M), "enum"),
+        (re.compile(r"^\s*(?:pub\s+)?trait\s+(\w+)", re.M), "trait"),
+    ],
+    "java": [
+        (re.compile(r"^\s*(?:public|private|protected)?\s*(?:static\s+)?class\s+(\w+)", re.M), "class"),
+        (re.compile(r"^\s*(?:public|private|protected)\s+(?:static\s+)?[\w<>\[\],\s]+\s+(\w+)\s*\(", re.M), "method"),
+    ],
+    "rb": [
+        (re.compile(r"^\s*class\s+(\w+)", re.M), "class"),
+        (re.compile(r"^\s*def\s+([\w?!]+)", re.M), "func"),
+        (re.compile(r"^\s*module\s+(\w+)", re.M), "module"),
+    ],
+    "md": [
+        (re.compile(r"^(#{1,6})\s+(.+)$", re.M), "heading"),
+    ],
+}
+_OUTLINE_PATTERNS["jsx"] = _OUTLINE_PATTERNS["js"]
+_OUTLINE_PATTERNS["ts"] = _OUTLINE_PATTERNS["js"]
+_OUTLINE_PATTERNS["tsx"] = _OUTLINE_PATTERNS["js"]
+_OUTLINE_PATTERNS["mjs"] = _OUTLINE_PATTERNS["js"]
+_OUTLINE_PATTERNS["cjs"] = _OUTLINE_PATTERNS["js"]
+_OUTLINE_PATTERNS["markdown"] = _OUTLINE_PATTERNS["md"]
+
+
+def extract_outline(text: str, ext: str) -> list[dict]:
+    ext = (ext or "").lower().lstrip(".")
+    patterns = _OUTLINE_PATTERNS.get(ext)
+    if not patterns:
+        return []
+    if not text:
+        return []
+    # line offsets 미리 계산.
+    line_no = [0]  # line_no[i] = offset
+    for line in text.splitlines(keepends=True):
+        line_no.append(line_no[-1] + len(line))
+
+    def offset_to_line(off: int) -> int:
+        # 이진 탐색.
+        lo, hi = 0, len(line_no) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if line_no[mid] <= off:
+                lo = mid
+            else:
+                hi = mid - 1
+        return lo + 1
+
+    out: list[dict] = []
+    seen: set[tuple[int, str]] = set()
+    for pat, kind in patterns:
+        for m in pat.finditer(text):
+            line = offset_to_line(m.start())
+            if kind == "heading" and m.lastindex == 2:
+                level = len(m.group(1))
+                name = m.group(2).strip()
+                key = (line, f"H{level}:{name}")
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({"kind": kind, "level": level, "name": name, "line": line})
+            else:
+                name = m.group(1)
+                key = (line, f"{kind}:{name}")
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({"kind": kind, "name": name, "line": line})
+    out.sort(key=lambda r: r["line"])
+    return out
+
+
+# ── 컨트리뷰터 통계 (#81) ──────────────────────────────────
+def contributor_stats(root: Path, limit: int = 100) -> list[dict]:
+    """git shortlog -sne — 작성자별 커밋 수.  최근 활동 시각도 함께."""
+    # 커밋 수.
+    proc = subprocess.run(
+        ["git", "shortlog", "-sne", "--all"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=30,
+        check=False,
+        env={**os.environ, "LC_ALL": "C.UTF-8"},
+    )
+    if proc.returncode != 0:
+        return []
+    counts: list[dict] = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        m = re.match(r"\s*(\d+)\s+(.+?)\s*<(.+?)>\s*$", line)
+        if not m:
+            continue
+        counts.append(
+            {
+                "commits": int(m.group(1)),
+                "name": m.group(2).strip(),
+                "email": m.group(3).strip(),
+                "last_at": None,
+            }
+        )
+    # 최근 활동 — git log --author 로 각 항목별 마지막 커밋.
+    for c in counts[:limit]:
+        p = subprocess.run(
+            ["git", "log", "--all", "-1", f"--author={c['email']}", "--format=%aI"],
+            cwd=str(root),
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        if p.returncode == 0:
+            c["last_at"] = p.stdout.decode("utf-8", "replace").strip() or None
+    counts.sort(key=lambda r: -r["commits"])
+    return counts[:limit]
+
+
+# ── 활동 히트맵 (#82) ──────────────────────────────────────
+def activity_heatmap(root: Path, days: int = 365) -> dict:
+    """요일(0=Mon) × 시간대(0..23) 24x7 그리드 + 일별 카운트.
+    git log --format=%aI --since=N.days 결과를 파이썬에서 버킷팅."""
+    days = max(7, min(int(days or 365), 1095))
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    proc = subprocess.run(
+        ["git", "log", "--all", "--format=%aI", "--since", since],
+        cwd=str(root),
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return {"days": days, "weekday_hour": [], "by_day": []}
+    grid = [[0] * 24 for _ in range(7)]
+    by_day: dict[str, int] = {}
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        dow = dt.weekday()
+        hr = dt.hour
+        grid[dow][hr] += 1
+        key = dt.date().isoformat()
+        by_day[key] = by_day.get(key, 0) + 1
+    by_day_list = [{"date": d, "count": n} for d, n in sorted(by_day.items())]
+    return {
+        "days": days,
+        "weekday_hour": [
+            {"weekday": d, "hour": h, "count": c}
+            for d, row in enumerate(grid)
+            for h, c in enumerate(row)
+            if c > 0
+        ],
+        "by_day": by_day_list,
+    }

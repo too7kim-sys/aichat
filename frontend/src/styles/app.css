@@ -10318,6 +10318,55 @@ body {
   overflow: hidden;
 }
 
+/* 활동 히트맵 (#82). */
+.ws-heatmap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  background: var(--bg-card);
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.ws-heatmap-row {
+  display: flex;
+  gap: 1px;
+  align-items: center;
+}
+.ws-heatmap-corner,
+.ws-heatmap-dow,
+.ws-heatmap-hr {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+  width: 18px;
+  text-align: center;
+}
+.ws-heatmap-dow { font-size: 11px; }
+.ws-heatmap-cell {
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border);
+}
+:root[data-theme="dark"] .ws-heatmap-cell { background: rgba(255, 255, 255, 0.04); }
+
+/* 마크다운 미리보기 (#79). */
+.cw-md-preview {
+  height: 60vh;
+  overflow-y: auto;
+  padding: 16px 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.cw-md-preview pre,
+.cw-md-preview code { background: var(--bg-subtle); }
+
 /* Conflict 해결 모달 (#66). */
 .ws-conflict-grid {
   display: grid;
