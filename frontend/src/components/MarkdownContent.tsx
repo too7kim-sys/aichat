@@ -367,6 +367,62 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
     // `js`, `sh` 같은 짧은 alias 를 쓰는데 풀네임만 매칭하면 전부
     // .txt 로 떨어져 사용성이 망가짐.  소문자로 정규화 후 단일 표.
     const lang = (language || "").toLowerCase().trim();
+    // Java 는 전자정부프레임웍(eGovFramework) 패턴이 압도적이라 본문을
+    // 보고 정확한 디렉터리를 추론.  단서가 없으면 일반 Spring fallback.
+    const guessJavaPath = (): string | null => {
+      if (lang !== "java") return null;
+      // 1) package 선언 우선 — 가장 정확.
+      const pkg = body.match(/^\s*package\s+([\w.]+)\s*;/m);
+      const cls = body.match(/(?:class|interface|enum)\s+(\w+)/);
+      const className = cls ? cls[1] : "NewFile";
+      if (pkg) {
+        const rel = pkg[1].replace(/\./g, "/");
+        return `src/main/java/${rel}/${className}.java`;
+      }
+      // 2) eGovFramework 구조 단서 — 베이스 클래스/어노테이션 시그너처.
+      const lc = body.toLowerCase();
+      const isController = /@controller\b|@restcontroller\b/i.test(body);
+      const isService =
+        /extends\s+EgovAbstractServiceImpl|@service\b/.test(body);
+      const isServiceIface = /interface\s+\w+Service\b/.test(body);
+      const isMapper =
+        /extends\s+EgovAbstractMapper|@mapper\b|interface\s+\w+Mapper\b/.test(body);
+      const isVO = /\bclass\s+\w+VO\b|\bclass\s+\w+DTO\b/.test(body);
+      const isEgov = lc.includes("egovframework");
+      // feature 추정: 클래스명에서 Controller/ServiceImpl/Service/Mapper/VO 제거.
+      const feature = className
+        .replace(/(Controller|ServiceImpl|Service|Mapper|VO|DTO)$/, "")
+        .toLowerCase() || "sample";
+      if (isEgov || isController || isService || isMapper || isVO) {
+        const base = `src/main/java/egovframework/sample/${feature}`;
+        if (isController) return `${base}/web/${className}.java`;
+        if (isService && !isServiceIface) return `${base}/service/impl/${className}.java`;
+        if (isServiceIface) return `${base}/service/${className}.java`;
+        if (isMapper) return `${base}/service/impl/${className}.java`;
+        if (isVO) return `${base}/service/${className}.java`;
+        return `${base}/${className}.java`;
+      }
+      // 3) 일반 Spring Boot fallback.
+      return `src/main/java/com/example/${className}.java`;
+    };
+    // MyBatis SQL XML / JSP 도 eGov 컨벤션 우선.
+    const guessXmlPath = (): string | null => {
+      if (lang !== "xml") return null;
+      if (/<mapper\s+namespace=|<sqlMap\s+namespace=/i.test(body)) {
+        // namespace 에서 feature 추출.
+        const ns = body.match(/namespace=["']([^"']+)["']/);
+        const feature = ns ? ns[1].split(".").pop() || "sample" : "sample";
+        return `src/main/resources/egovframework/sqlmap/sample/${feature}_SQL.xml`;
+      }
+      return null;
+    };
+    const guessJspPath = (): string | null => {
+      if (lang !== "jsp" && lang !== "html") return null;
+      if (/<%@\s*page|<c:|<form:/i.test(body)) {
+        return `src/main/webapp/WEB-INF/jsp/egovframework/sample/sampleList.jsp`;
+      }
+      return null;
+    };
     const LANG_DEFAULTS: Record<string, string> = {
       py: "src/new_file.py",
       python: "src/new_file.py",
@@ -378,7 +434,11 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
       mjs: "src/new_file.mjs",
       cjs: "src/new_file.cjs",
       javascript: "src/new_file.js",
-      java: "src/main/java/NewFile.java",
+      // Java 기본 = 전자정부프레임웍 (eGovFramework) 표준.  실제로는
+      // guessJavaPath() 가 package 선언이나 어노테이션을 보고 정확한
+      // 디렉터리(web/service/service.impl)로 분류해 이걸 덮어씀.
+      java: "src/main/java/egovframework/sample/sample/web/NewFile.java",
+      jsp: "src/main/webapp/WEB-INF/jsp/egovframework/sample/sampleList.jsp",
       kt: "src/main/kotlin/NewFile.kt",
       kotlin: "src/main/kotlin/NewFile.kt",
       go: "cmd/main/main.go",
@@ -428,7 +488,12 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
       terraform: "infra/new_file.tf",
       hcl: "infra/new_file.hcl",
     };
-    const defaultName = LANG_DEFAULTS[lang] || `src/new_file.${lang || "txt"}`;
+    const defaultName =
+      guessJavaPath() ||
+      guessXmlPath() ||
+      guessJspPath() ||
+      LANG_DEFAULTS[lang] ||
+      `src/new_file.${lang || "txt"}`;
     const path = window.prompt(
       "어느 경로에 저장할까요?  (워크스페이스 상대 경로)",
       defaultName,
