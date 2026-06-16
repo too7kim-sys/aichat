@@ -352,6 +352,67 @@ function UnifiedDiffView({ diff }: { diff: string }) {
   );
 }
 
+/** AI 가 `# file:` 마커를 빼먹은 코드 블록도 저장할 수 있게 — 사용자가
+ *  경로를 입력하면 그 자리에 저장.  code_focused 가 아닌 평범한 채팅의
+ *  스니펫에도 노출되지만, 워크스페이스가 없으면 null. */
+function FileSaveAsPrompt({ body, language }: { body: string; language: string }) {
+  const { workspaceId, onPatchApplied } = useChatWorkspace();
+  const [busy, setBusy] = useState(false);
+  if (!workspaceId) return null;
+  if (!body || body.length < 10) return null;
+
+  async function save() {
+    if (!workspaceId) return;
+    const defaultName =
+      language === "python"
+        ? "src/new_file.py"
+        : language === "typescript"
+          ? "src/new_file.ts"
+          : language === "javascript"
+            ? "src/new_file.js"
+            : language === "java"
+              ? "src/main/java/NewFile.java"
+              : language === "go"
+                ? "cmd/main/main.go"
+                : language === "rust"
+                  ? "src/main.rs"
+                  : "src/new_file.txt";
+    const path = window.prompt(
+      "어느 경로에 저장할까요?  (워크스페이스 상대 경로)",
+      defaultName,
+    );
+    if (!path || !path.trim()) return;
+    setBusy(true);
+    try {
+      await api.applyWorkspaceFile(workspaceId, path.trim(), body);
+      onPatchApplied?.();
+      window.dispatchEvent(new CustomEvent("ws:tree-refresh"));
+      window.dispatchEvent(
+        new CustomEvent("chat:toast", {
+          detail: { text: `📂 ${path.trim()} 저장됨` },
+        }),
+      );
+    } catch (e) {
+      window.alert(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="code-apply"
+      onClick={save}
+      disabled={busy}
+      title="이 코드 블록을 워크스페이스에 저장 (경로 직접 지정)"
+    >
+      {busy ? "⏳ 저장…" : "📂 저장…"}
+    </button>
+  );
+}
+
+
 /** Push the LLM's `# file: <path>` code block straight into the
  * workspace clone on the server. Only rendered inside chats that are
  * actually bound to a workspace (otherwise there's nowhere to apply
@@ -517,6 +578,7 @@ function CollapsibleCode({
         <div className="code-header-actions">
           {file && <FileApply path={file.path} body={file.body} />}
           {file && <FileFinalize path={file.path} body={file.body} />}
+          {!file && <FileSaveAsPrompt body={text} language={lang} />}
           {file && <FileDownload path={file.path} body={file.body} />}
           <button
             type="button"
