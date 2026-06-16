@@ -796,26 +796,6 @@ export const api = {
     }),
   getSharedSession: (token: string) =>
     json<SessionDetail>(`/sessions/_share/${token}`),
-  /** 모델 비교 (#47) — 같은 prompt 를 여러 모델에 동시 전송. */
-  compareModels: (sessionId: string, prompt: string, models: string[]) =>
-    json<{
-      prompt: string;
-      results: {
-        model: string;
-        content?: string;
-        error?: string;
-        latency_ms?: number;
-      }[];
-    }>(`/sessions/${sessionId}/compare`, {
-      method: "POST",
-      body: JSON.stringify({ prompt, models }),
-    }),
-  /** 자동 제목 (#50). */
-  autoTitle: (sessionId: string, force = false) =>
-    json<Session>(`/sessions/${sessionId}/auto-title`, {
-      method: "POST",
-      body: JSON.stringify({ force }),
-    }),
   /** 세션 비밀번호 잠금 (#52). */
   lockSession: (id: string, passphrase: string | null) =>
     json<Session>(`/sessions/${id}/lock`, {
