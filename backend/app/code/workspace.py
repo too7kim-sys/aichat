@@ -1892,3 +1892,351 @@ def workspace_stats(root: Path, max_files: int = 5000) -> dict:
             {"path": p, "size": s} for (s, p) in biggest[:10]
         ],
     }
+
+
+# ── 스태시 관리 (#65) ───────────────────────────────────────
+def stash_list(root: Path) -> list[dict]:
+    """git stash list — index / message / when."""
+    proc = subprocess.run(
+        ["git", "stash", "list", "--pretty=format:%gd%x09%gs%x09%cI"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    out: list[dict] = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) < 3:
+            continue
+        idx, msg, when = parts
+        out.append({"index": idx, "message": msg, "when": when})
+    return out
+
+
+def stash_save(root: Path, message: str = "") -> dict:
+    """git stash push (현재 변경 사항을 옆으로)."""
+    args = ["git", "stash", "push"]
+    if message.strip():
+        args.extend(["-m", message.strip()[:200]])
+    proc = subprocess.run(
+        args, cwd=str(root), capture_output=True, timeout=30, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {"stdout": proc.stdout.decode("utf-8", "replace").strip()}
+
+
+def stash_apply(root: Path, ref: str, pop: bool = True) -> dict:
+    """기본 pop=True — apply 후 drop.  pop=False 면 stash 는 남김."""
+    if not re.match(r"^stash@\{\d+\}$", ref or ""):
+        raise ValueError("올바른 stash 참조가 아니에요 (예: stash@{0})")
+    args = ["git", "stash", "pop" if pop else "apply", ref]
+    proc = subprocess.run(
+        args, cwd=str(root), capture_output=True, timeout=30, check=False
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {"stdout": proc.stdout.decode("utf-8", "replace").strip()}
+
+
+def stash_drop(root: Path, ref: str) -> dict:
+    if not re.match(r"^stash@\{\d+\}$", ref or ""):
+        raise ValueError("올바른 stash 참조가 아니에요 (예: stash@{0})")
+    proc = subprocess.run(
+        ["git", "stash", "drop", ref],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {"dropped": ref}
+
+
+# ── 머지 conflict 감지 + 3-way 내용 (#66) ────────────────────
+def detect_conflicts(root: Path) -> list[str]:
+    """git ls-files -u 가 비어 있지 않은 파일들 = conflict 상태."""
+    proc = subprocess.run(
+        ["git", "ls-files", "-u"],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    paths: set[str] = set()
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        # 100644 <sha> <stage>\t<path>
+        parts = line.split("\t", 1)
+        if len(parts) == 2:
+            paths.add(parts[1].strip())
+    return sorted(paths)
+
+
+def conflict_versions(root: Path, rel: str) -> dict:
+    """conflict 파일의 base / ours / theirs / merged 4 버전 반환.
+    stage 1 = base, 2 = ours, 3 = theirs.  merged = 현재 working tree."""
+
+    if not rel:
+        raise ValueError("path 가 비어 있어요")
+    safe = rel.strip().lstrip("/\\")
+    if ".." in Path(safe).parts:
+        raise ValueError("상대 경로(..) 사용 불가")
+
+    def _stage(n: int) -> str:
+        proc = subprocess.run(
+            ["git", "show", f":{n}:{safe}"],
+            cwd=str(root),
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return ""
+        return proc.stdout.decode("utf-8", "replace")
+
+    target = _safe_resolve(root, safe)
+    merged = ""
+    try:
+        merged = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        merged = ""
+    return {
+        "path": safe,
+        "base": _stage(1),
+        "ours": _stage(2),
+        "theirs": _stage(3),
+        "merged": merged,
+    }
+
+
+def mark_conflict_resolved(root: Path, rel: str, content: str) -> dict:
+    """사용자가 해결한 결과를 파일에 쓰고 git add 까지 한 번에."""
+    safe = rel.strip().lstrip("/\\")
+    target = _safe_resolve(root, safe)
+    target.write_text(content, encoding="utf-8")
+    proc = subprocess.run(
+        ["git", "add", "--", safe],
+        cwd=str(root),
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout).decode("utf-8", "replace").strip()[:300]
+        )
+    return {"path": safe, "resolved": True}
+
+
+# ── 사용자 정의 task runner (#67) ───────────────────────────
+# 워크스페이스 루트의 .aichat-tasks.json 을 읽음.  형식:
+# {"tasks": [{"name": "전체 빌드", "argv": ["npm", "run", "build"], "timeout": 120}, ...]}
+# argv 는 *반드시* 명시적 list — 쉘 인터프리테이션 차단.
+def load_custom_tasks(root: Path) -> list[dict]:
+    import json as _json
+
+    p = root / ".aichat-tasks.json"
+    if not p.is_file():
+        return []
+    try:
+        data = _json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    tasks = data.get("tasks") if isinstance(data, dict) else None
+    if not isinstance(tasks, list):
+        return []
+    out: list[dict] = []
+    for i, t in enumerate(tasks):
+        if not isinstance(t, dict):
+            continue
+        name = str(t.get("name") or f"task-{i}")[:80]
+        argv = t.get("argv")
+        if not isinstance(argv, list) or not argv:
+            continue
+        # 모든 원소가 문자열이어야 — 동적 객체 주입 차단.
+        if not all(isinstance(a, str) for a in argv):
+            continue
+        # 쉘 메타문자 가드 — 단순 안전망.
+        if any(any(c in a for c in "|;&`$<>") for a in argv):
+            continue
+        timeout = int(t.get("timeout") or 60)
+        timeout = max(5, min(timeout, 600))
+        out.append(
+            {
+                "id": str(i),
+                "name": name,
+                "argv": argv,
+                "timeout": timeout,
+                "description": str(t.get("description") or "")[:200],
+            }
+        )
+    return out
+
+
+def run_custom_task(root: Path, task_id: str) -> dict:
+    """task_id 로 매칭된 사전 등록 명령 실행."""
+    tasks = load_custom_tasks(root)
+    pick = next((t for t in tasks if t["id"] == task_id), None)
+    if pick is None:
+        raise ValueError(f"등록된 task 가 아니에요: {task_id}")
+    import time as _time
+
+    started = _time.monotonic()
+    try:
+        proc = subprocess.run(
+            pick["argv"],
+            cwd=str(root),
+            timeout=pick["timeout"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                **os.environ,
+                "CI": "1",
+                "NO_COLOR": "1",
+                "PYTHONIOENCODING": "utf-8",
+            },
+        )
+        duration = int((_time.monotonic() - started) * 1000)
+        return {
+            "name": pick["name"],
+            "ok": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": (proc.stdout or "")[-20_000:],
+            "stderr": (proc.stderr or "")[-20_000:],
+            "duration_ms": duration,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "name": pick["name"],
+            "ok": False,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": f"시간 초과 ({pick['timeout']}s)",
+            "duration_ms": int((_time.monotonic() - started) * 1000),
+        }
+    except FileNotFoundError:
+        return {
+            "name": pick["name"],
+            "ok": False,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": f"실행 도구가 PATH 에 없어요: {pick['argv'][0]}",
+            "duration_ms": 0,
+        }
+
+
+# ── AI 리팩터 / 테스트 생성 (#68) ───────────────────────────
+async def ai_refactor_file(
+    file_text: str, path: str, model: str, base_url: str
+) -> str:
+    """파일 본문을 LLM 에 보내 리팩터 제안 받기."""
+    import httpx
+
+    if not file_text.strip():
+        return "(빈 파일)"
+    sys = (
+        "당신은 한국어로 소통하는 시니어 엔지니어입니다.  아래 파일을"
+        " 보고 (1) 즉시 적용 가능한 리팩터 제안 3~5개 (2) 각 항목마다"
+        " 변경 전/후 코드 예시 (3) 잠재적 위험·테스트 포인트 순으로"
+        " 한국어 마크다운으로 정리해 주세요.  결과만, 인사·서두 금지."
+    )
+    body = f"# {path}\n\n```\n{file_text[:60_000]}\n```"
+    timeout = httpx.Timeout(120.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": body},
+                ],
+            },
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:200]}")
+    return ((r.json() or {}).get("message") or {}).get("content") or ""
+
+
+async def ai_generate_tests(
+    file_text: str, path: str, model: str, base_url: str
+) -> str:
+    """파일을 보고 단위 테스트 코드 생성."""
+    import httpx
+
+    if not file_text.strip():
+        return "(빈 파일)"
+    sys = (
+        "당신은 단위테스트를 잘 짜는 엔지니어입니다.  아래 파일에 대한"
+        " 단위 테스트 코드를 생성해 주세요.  파일 확장자에 맞는 테스트"
+        " 프레임워크(Python=pytest, JS/TS=vitest 또는 jest, Go=testing"
+        " 등)를 자동으로 선택.  각 테스트마다 무엇을 검증하는지 한국어"
+        " 주석.  결과는 마크다운 코드 블록 하나로만, 첫 줄에 `# file:"
+        " <테스트 파일 권장 경로>` 마커 포함.  서두/말미 잡담 금지."
+    )
+    body = f"# {path}\n\n```\n{file_text[:60_000]}\n```"
+    timeout = httpx.Timeout(180.0, connect=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": body},
+                ],
+            },
+        )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama {r.status_code}: {r.text[:200]}")
+    return ((r.json() or {}).get("message") or {}).get("content") or ""
+
+
+# ── 파일 활동 타임라인 (#70) ────────────────────────────────
+def file_git_log(root: Path, rel: str, limit: int = 50) -> list[dict]:
+    """선택 파일의 git log."""
+    safe = rel.strip().lstrip("/\\")
+    if ".." in Path(safe).parts:
+        raise ValueError("상대 경로(..) 사용 불가")
+    fmt = "%H%x09%an%x09%aI%x09%s"
+    proc = subprocess.run(
+        ["git", "log", f"-{max(1, min(limit, 200))}",
+         f"--pretty=format:{fmt}", "--", safe],
+        cwd=str(root),
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    out: list[dict] = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split("\t", 3)
+        if len(parts) < 4:
+            continue
+        sha, name, when, subject = parts
+        out.append(
+            {
+                "sha": sha,
+                "short_sha": sha[:7],
+                "author_name": name,
+                "when": when,
+                "subject": subject,
+            }
+        )
+    return out

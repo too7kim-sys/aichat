@@ -10180,6 +10180,27 @@ body {
 }
 .ws-stats-biggest li code { font-family: ui-monospace, monospace; }
 
+/* Conflict 해결 모달 (#66). */
+.ws-conflict-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ws-conflict-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 4px 0;
+  letter-spacing: 0.04em;
+}
+.ws-conflict-merge {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
 /* 세션 내 검색 매치 강조 (#46). */
 .bubble-search-mark {
   background: #fff59d;

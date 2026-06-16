@@ -1923,6 +1923,95 @@ export const api = {
       languages: { lang: string; files: number; loc: number; bytes: number }[];
       biggest_files: { path: string; size: number }[];
     }>(`/code/workspaces/${id}/stats`),
+  // ── 스태시 관리 (#65) ────────────────────────────────────
+  workspaceStashes: (id: string) =>
+    json<{ stashes: { index: string; message: string; when: string }[] }>(
+      `/code/workspaces/${id}/stashes`,
+    ),
+  workspaceStashSave: (id: string, message = "") =>
+    json<{ stdout: string }>(`/code/workspaces/${id}/stash`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
+  workspaceStashApply: (id: string, ref: string, pop = true) =>
+    json<{ stdout: string }>(`/code/workspaces/${id}/stash/apply`, {
+      method: "POST",
+      body: JSON.stringify({ ref, pop }),
+    }),
+  workspaceStashDrop: (id: string, ref: string) =>
+    json<{ dropped: string }>(
+      `/code/workspaces/${id}/stash?ref=${encodeURIComponent(ref)}`,
+      { method: "DELETE" },
+    ),
+  // ── 머지 conflict (#66) ──────────────────────────────────
+  workspaceConflicts: (id: string) =>
+    json<{ paths: string[] }>(`/code/workspaces/${id}/conflicts`),
+  workspaceConflictVersions: (id: string, path: string) =>
+    json<{
+      path: string;
+      base: string;
+      ours: string;
+      theirs: string;
+      merged: string;
+    }>(
+      `/code/workspaces/${id}/conflict?path=${encodeURIComponent(path)}`,
+    ),
+  workspaceConflictResolve: (id: string, path: string, content: string) =>
+    json<{ path: string; resolved: boolean }>(
+      `/code/workspaces/${id}/conflict/resolve`,
+      { method: "POST", body: JSON.stringify({ path, content }) },
+    ),
+  // ── 사용자 정의 task (#67) ───────────────────────────────
+  workspaceCustomTasks: (id: string) =>
+    json<{
+      tasks: { id: string; name: string; description: string; timeout: number }[];
+    }>(`/code/workspaces/${id}/custom-tasks`),
+  workspaceCustomTaskRun: (id: string, taskId: string) =>
+    json<{
+      name: string;
+      ok: boolean;
+      exit_code: number | null;
+      stdout: string;
+      stderr: string;
+      duration_ms: number;
+    }>(`/code/workspaces/${id}/custom-tasks/run`, {
+      method: "POST",
+      body: JSON.stringify({ task_id: taskId }),
+    }),
+  // ── AI 리팩터 / 테스트 생성 (#68) ─────────────────────────
+  workspaceAiRefactor: (id: string, path: string) =>
+    json<{ path: string; review: string; model: string }>(
+      `/code/workspaces/${id}/ai-refactor`,
+      { method: "POST", body: JSON.stringify({ path }) },
+    ),
+  workspaceAiTests: (id: string, path: string) =>
+    json<{ path: string; tests: string; model: string }>(
+      `/code/workspaces/${id}/ai-tests`,
+      { method: "POST", body: JSON.stringify({ path }) },
+    ),
+  // ── 파일 타임라인 (#70) ──────────────────────────────────
+  workspaceFileTimeline: (id: string, path: string, limit = 50) =>
+    json<{
+      path: string;
+      commits: {
+        sha: string;
+        short_sha: string;
+        author_name: string;
+        when: string;
+        subject: string;
+      }[];
+      chats: {
+        message_id: string;
+        session_id: string;
+        role: string;
+        snippet: string;
+        when: string | null;
+      }[];
+    }>(
+      `/code/workspaces/${id}/file-timeline?path=${encodeURIComponent(
+        path,
+      )}&limit=${limit}`,
+    ),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

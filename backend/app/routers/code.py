@@ -16,13 +16,18 @@ from pathlib import Path
 
 from ..code.workspace import (
     ai_commit_message,
+    ai_generate_tests,
+    ai_refactor_file,
     ai_review_diff,
     apply_file_write,
     clone_repo,
     collect_workspace_files,
+    conflict_versions,
     create_path,
     delete_path,
+    detect_conflicts,
     detect_test_runner,
+    file_git_log,
     git_commit,
     git_diff,
     git_log,
@@ -33,14 +38,21 @@ from ..code.workspace import (
     git_status_porcelain,
     is_git_workdir,
     list_branches,
+    load_custom_tasks,
+    mark_conflict_resolved,
     read_file,
     read_file_at_rev,
     remove_repo,
     rename_path,
     replace_in_files,
+    run_custom_task,
     run_workspace_command,
     run_workspace_tests,
     scan_todos,
+    stash_apply,
+    stash_drop,
+    stash_list,
+    stash_save,
     switch_branch,
     sync_repo,
     validate_local_folder,
@@ -1365,3 +1377,320 @@ async def workspace_stats_endpoint(
     return await asyncio.get_running_loop().run_in_executor(
         None, workspace_stats, dest
     )
+
+
+# ── 스태시 (#65) ────────────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/stashes")
+async def workspace_stashes(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        return {"stashes": []}
+    items = await asyncio.get_running_loop().run_in_executor(
+        None, stash_list, dest
+    )
+    return {"stashes": items}
+
+
+@router.post("/workspaces/{workspace_id}/stash")
+async def workspace_stash_save(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, stash_save, dest, payload.get("message") or ""
+        )
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.post("/workspaces/{workspace_id}/stash/apply")
+async def workspace_stash_apply(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    ref = (payload.get("ref") or "").strip()
+    pop = bool(payload.get("pop", True))
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, stash_apply, dest, ref, pop
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.delete("/workspaces/{workspace_id}/stash")
+async def workspace_stash_drop(
+    workspace_id: str,
+    ref: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, stash_drop, dest, ref
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+# ── 머지 conflict (#66) ─────────────────────────────────────
+@router.get("/workspaces/{workspace_id}/conflicts")
+async def workspace_conflicts(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        return {"paths": []}
+    paths = await asyncio.get_running_loop().run_in_executor(
+        None, detect_conflicts, dest
+    )
+    return {"paths": paths}
+
+
+@router.get("/workspaces/{workspace_id}/conflict")
+async def workspace_conflict_versions(
+    workspace_id: str,
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, conflict_versions, dest, path
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/workspaces/{workspace_id}/conflict/resolve")
+async def workspace_conflict_resolve(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir() or not is_git_workdir(dest):
+        raise HTTPException(400, "git 워크스페이스가 아니에요")
+    path = (payload.get("path") or "").strip()
+    content = payload.get("content") or ""
+    if not path:
+        raise HTTPException(400, "path 가 필요해요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, mark_conflict_resolved, dest, path, content
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+# ── 사용자 정의 task (#67) ──────────────────────────────────
+@router.get("/workspaces/{workspace_id}/custom-tasks")
+async def workspace_custom_tasks(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        return {"tasks": []}
+    tasks = await asyncio.get_running_loop().run_in_executor(
+        None, load_custom_tasks, dest
+    )
+    # 노출 시 argv 자체는 가리고 name·description·timeout 만 보냄 — 보안상.
+    safe = [
+        {"id": t["id"], "name": t["name"], "description": t["description"], "timeout": t["timeout"]}
+        for t in tasks
+    ]
+    return {"tasks": safe}
+
+
+@router.post("/workspaces/{workspace_id}/custom-tasks/run")
+async def workspace_custom_task_run(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    if not settings.workspace_tests_enabled:
+        raise HTTPException(
+            503,
+            "워크스페이스 명령 자동 실행이 꺼져 있어요 (.env: WORKSPACE_TESTS_ENABLED=true)",
+        )
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    task_id = (payload.get("task_id") or "").strip()
+    if not task_id:
+        raise HTTPException(400, "task_id 가 필요해요")
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, run_custom_task, dest, task_id
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+
+
+# ── AI 리팩터 / 테스트 생성 (#68) ───────────────────────────
+@router.post("/workspaces/{workspace_id}/ai-refactor")
+async def workspace_ai_refactor(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    path = (payload.get("path") or "").strip()
+    if not path:
+        raise HTTPException(400, "path 가 필요해요")
+    try:
+        info = await asyncio.get_running_loop().run_in_executor(
+            None, read_file, dest, path
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc))
+    model = settings.model_auto_code or settings.ollama_model
+    try:
+        text = await ai_refactor_file(
+            info.get("text") or "", path, model, settings.ollama_base_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"리팩터 실패: {exc}") from exc
+    return {"path": path, "review": text, "model": model}
+
+
+@router.post("/workspaces/{workspace_id}/ai-tests")
+async def workspace_ai_tests(
+    workspace_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    path = (payload.get("path") or "").strip()
+    if not path:
+        raise HTTPException(400, "path 가 필요해요")
+    try:
+        info = await asyncio.get_running_loop().run_in_executor(
+            None, read_file, dest, path
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc))
+    model = settings.model_auto_code or settings.ollama_model
+    try:
+        text = await ai_generate_tests(
+            info.get("text") or "", path, model, settings.ollama_base_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"테스트 생성 실패: {exc}") from exc
+    return {"path": path, "tests": text, "model": model}
+
+
+# ── 파일 활동 타임라인 (#70) ────────────────────────────────
+@router.get("/workspaces/{workspace_id}/file-timeline")
+async def workspace_file_timeline(
+    workspace_id: str,
+    path: str = Query(...),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    ws = await _fetch_workspace_owned_by(workspace_id, user, db)
+    dest = Path(ws.local_path)
+    if not dest.is_dir():
+        raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
+    git_items: list[dict] = []
+    if is_git_workdir(dest):
+        try:
+            git_items = await asyncio.get_running_loop().run_in_executor(
+                None, file_git_log, dest, path, limit
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    # 채팅 메시지에서 이 경로를 언급한 답변도 같이 모음 — 사용자 본인의
+    # 세션만, 최근 N개.  검색 비용을 줄이려 attachments_summary + content
+    # 둘 다 LIKE 검색.
+    chat_items: list[dict] = []
+    if path.strip():
+        like = f"%{path.strip()}%"
+        from sqlalchemy import or_, select as _sel
+        rows = (
+            await db.execute(
+                _sel(
+                    models.Message.id,
+                    models.Message.session_id,
+                    models.Message.role,
+                    models.Message.content,
+                    models.Message.created_at,
+                )
+                .join(
+                    models.Session,
+                    models.Session.id == models.Message.session_id,
+                )
+                .where(models.Session.user_id == user.id)
+                .where(
+                    or_(
+                        models.Message.content.ilike(like),
+                        models.Message.attachments_summary.ilike(like),
+                    )
+                )
+                .order_by(models.Message.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        for mid, sid, role, content, when in rows:
+            snippet = (content or "")[:240]
+            chat_items.append(
+                {
+                    "message_id": mid,
+                    "session_id": sid,
+                    "role": role,
+                    "snippet": snippet,
+                    "when": when.isoformat() if when else None,
+                }
+            )
+    return {"path": path, "commits": git_items, "chats": chat_items}

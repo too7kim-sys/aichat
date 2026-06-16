@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { api } from "../api/client";
 
 /** 워크스페이스 도구 모음 (#59~64) — 트리 툴바에 6개 버튼 + 각각의
@@ -561,6 +561,550 @@ export function StatsPanel({ workspaceId }: { workspaceId: string }) {
                       </li>
                     ))}
                   </ul>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+// ── #65 스태시 관리 ───────────────────────────────────────
+export function StashPanel({
+  workspaceId,
+  onChanged,
+}: {
+  workspaceId: string;
+  onChanged?: () => void;
+}) {
+  type Data = Awaited<ReturnType<typeof api.workspaceStashes>>;
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Data | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function refresh() {
+    try {
+      setData(await api.workspaceStashes(workspaceId));
+    } catch {
+      setData(null);
+    }
+  }
+  useEffect(() => {
+    if (!open) return;
+    void refresh();
+  }, [open, workspaceId]);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api.workspaceStashSave(workspaceId, msg);
+      setMsg("");
+      onChanged?.();
+      await refresh();
+    } catch (e) {
+      window.alert(`스태시 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function apply(ref: string, pop: boolean) {
+    setBusy(true);
+    try {
+      await api.workspaceStashApply(workspaceId, ref, pop);
+      onChanged?.();
+      await refresh();
+    } catch (e) {
+      window.alert(`적용 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function drop(ref: string) {
+    if (!window.confirm(`${ref} 를 삭제할까요?  되돌릴 수 없어요.`)) return;
+    setBusy(true);
+    try {
+      await api.workspaceStashDrop(workspaceId, ref);
+      await refresh();
+    } catch (e) {
+      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="git stash 관리">
+        📥 스태시
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>📥 스태시 관리</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <div className="ws-crud-row">
+                <input
+                  placeholder="새 스태시 메시지 (선택)"
+                  value={msg}
+                  onChange={(e) => setMsg(e.target.value)}
+                  disabled={busy}
+                />
+                <button type="button" onClick={save} disabled={busy}>
+                  {busy ? "…" : "+ 현재 변경 stash"}
+                </button>
+              </div>
+              {!data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : data.stashes.length === 0 ? (
+                <div className="patch-preview-empty">저장된 스태시가 없어요.</div>
+              ) : (
+                <ul className="ws-branch-list">
+                  {data.stashes.map((s) => (
+                    <li key={s.index}>
+                      <span title={s.when}>
+                        <code>{s.index}</code> · {s.message}
+                      </span>
+                      <span style={{ display: "inline-flex", gap: 4 }}>
+                        <button type="button" disabled={busy} onClick={() => apply(s.index, true)} title="apply + drop">
+                          pop
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => apply(s.index, false)}>
+                          apply
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => drop(s.index)}>
+                          drop
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #66 conflict 해결 (3-way Monaco DiffEditor) ───────────
+const ConflictDiffEditor = lazy(() =>
+  import("@monaco-editor/react").then((m) => ({ default: m.DiffEditor })),
+);
+const ConflictMonacoEditor = lazy(() =>
+  import("@monaco-editor/react").then((m) => ({ default: m.default })),
+);
+
+export function ConflictPanel({
+  workspaceId,
+  onChanged,
+}: {
+  workspaceId: string;
+  onChanged?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [paths, setPaths] = useState<string[]>([]);
+  const [sel, setSel] = useState<string | null>(null);
+  const [data, setData] = useState<{
+    base: string;
+    ours: string;
+    theirs: string;
+    merged: string;
+  } | null>(null);
+  const [edit, setEdit] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api.workspaceConflicts(workspaceId).then((r) => setPaths(r.paths)).catch(() => setPaths([]));
+  }, [open, workspaceId]);
+  useEffect(() => {
+    if (!sel) {
+      setData(null);
+      return;
+    }
+    api
+      .workspaceConflictVersions(workspaceId, sel)
+      .then((r) => {
+        setData(r);
+        setEdit(r.merged);
+      })
+      .catch(() => setData(null));
+  }, [sel, workspaceId]);
+
+  async function resolve() {
+    if (!sel) return;
+    setBusy(true);
+    try {
+      await api.workspaceConflictResolve(workspaceId, sel, edit);
+      onChanged?.();
+      // refresh.
+      const r = await api.workspaceConflicts(workspaceId);
+      setPaths(r.paths);
+      setSel(null);
+      setData(null);
+    } catch (e) {
+      window.alert(`해결 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 충돌이 없으면 버튼 자체를 숨김 — UI 가 너무 복잡해지지 않게.
+  // 사용자가 메뉴 열어도 깔끔.
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="머지 conflict 해결">
+        ⚔ conflict
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal ws-log-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>⚔ 머지 conflict</h3>
+              {sel && <code className="patch-preview-path">{sel}</code>}
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              {!sel ? (
+                paths.length === 0 ? (
+                  <div className="patch-preview-empty">✓ conflict 파일 없음</div>
+                ) : (
+                  <ul className="ws-branch-list">
+                    {paths.map((p) => (
+                      <li key={p}>
+                        <span><code>{p}</code></span>
+                        <button type="button" onClick={() => setSel(p)}>
+                          해결
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : !data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : (
+                <>
+                  <div className="ws-crud-row">
+                    <button type="button" onClick={() => setEdit(data.ours)}>
+                      ⬅ 내 변경 사용
+                    </button>
+                    <button type="button" onClick={() => setEdit(data.theirs)}>
+                      상대 변경 사용 ➡
+                    </button>
+                    <button type="button" onClick={() => setEdit(data.base)}>
+                      공통 조상으로
+                    </button>
+                  </div>
+                  <div className="ws-conflict-grid">
+                    <div>
+                      <div className="ws-conflict-label">내 변경 (ours)</div>
+                      <Suspense fallback={<div className="patch-preview-empty">…</div>}>
+                        <ConflictDiffEditor
+                          height="34vh"
+                          original={data.base}
+                          modified={data.ours}
+                          theme={
+                            document.documentElement.getAttribute("data-theme") === "dark"
+                              ? "vs-dark"
+                              : "light"
+                          }
+                          options={{ readOnly: true, renderSideBySide: false, minimap: { enabled: false }, automaticLayout: true }}
+                        />
+                      </Suspense>
+                    </div>
+                    <div>
+                      <div className="ws-conflict-label">상대 변경 (theirs)</div>
+                      <Suspense fallback={<div className="patch-preview-empty">…</div>}>
+                        <ConflictDiffEditor
+                          height="34vh"
+                          original={data.base}
+                          modified={data.theirs}
+                          theme={
+                            document.documentElement.getAttribute("data-theme") === "dark"
+                              ? "vs-dark"
+                              : "light"
+                          }
+                          options={{ readOnly: true, renderSideBySide: false, minimap: { enabled: false }, automaticLayout: true }}
+                        />
+                      </Suspense>
+                    </div>
+                  </div>
+                  <div className="ws-conflict-label">최종 결과 (편집 후 저장)</div>
+                  <Suspense fallback={<div className="patch-preview-empty">에디터 로딩…</div>}>
+                    <div className="ws-conflict-merge">
+                      <ConflictMonacoEditor
+                        height="34vh"
+                        value={edit}
+                        theme={
+                          document.documentElement.getAttribute("data-theme") === "dark"
+                            ? "vs-dark"
+                            : "light"
+                        }
+                        onChange={(v) => setEdit(v || "")}
+                        options={{ minimap: { enabled: false }, automaticLayout: true, wordWrap: "on" }}
+                      />
+                    </div>
+                  </Suspense>
+                  <div className="ws-crud-row">
+                    <button type="button" onClick={() => setSel(null)}>← 목록</button>
+                    <button type="button" className="primary" disabled={busy} onClick={resolve}>
+                      {busy ? "…" : "✓ 저장 + git add"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #67 사용자 정의 task ──────────────────────────────────
+export function CustomTasksPanel({ workspaceId }: { workspaceId: string }) {
+  type Tasks = Awaited<ReturnType<typeof api.workspaceCustomTasks>>;
+  type Result = Awaited<ReturnType<typeof api.workspaceCustomTaskRun>>;
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Tasks | null>(null);
+  const [running, setRunning] = useState<string | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    api.workspaceCustomTasks(workspaceId).then(setData).catch(() => setData(null));
+  }, [open, workspaceId]);
+
+  async function run(id: string) {
+    setRunning(id);
+    setResult(null);
+    try {
+      const r = await api.workspaceCustomTaskRun(workspaceId, id);
+      setResult(r);
+    } catch (e) {
+      window.alert(`실행 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title=".aichat-tasks.json 사용자 명령">
+        ⚙ tasks
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>⚙ 사용자 정의 task</h3>
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              <p className="ws-crud-hint">
+                워크스페이스 루트의 <code>.aichat-tasks.json</code> 을 읽어 등록된 명령을 안전하게 실행합니다.
+                예: <code>{`{"tasks": [{"name": "통합 빌드", "argv": ["make", "all"], "timeout": 120}]}`}</code>
+              </p>
+              {!data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : data.tasks.length === 0 ? (
+                <div className="patch-preview-empty">.aichat-tasks.json 이 없거나 비어 있어요.</div>
+              ) : (
+                <ul className="ws-branch-list">
+                  {data.tasks.map((t) => (
+                    <li key={t.id}>
+                      <span>
+                        <b>{t.name}</b>
+                        {t.description && <em style={{ marginLeft: 8, color: "var(--text-muted)" }}>· {t.description}</em>}
+                      </span>
+                      <button type="button" disabled={running === t.id} onClick={() => run(t.id)}>
+                        {running === t.id ? "…" : "▶ 실행"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {result && (
+                <>
+                  <div className="ws-stats-sec">
+                    {result.name} · {result.ok ? "✅ ok" : "❌ fail"} · {result.duration_ms}ms
+                  </div>
+                  {result.stdout && (
+                    <>
+                      <div className="patch-preview-meta">STDOUT</div>
+                      <pre className="patch-preview-diff">{result.stdout}</pre>
+                    </>
+                  )}
+                  {result.stderr && (
+                    <>
+                      <div className="patch-preview-meta">STDERR</div>
+                      <pre className="patch-preview-diff">{result.stderr}</pre>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #68 AI 리팩터 / 테스트 생성 ───────────────────────────
+export function AIToolsPanel({
+  workspaceId,
+  filePath,
+}: {
+  workspaceId: string;
+  filePath: string | null;
+}) {
+  const [open, setOpen] = useState<"refactor" | "tests" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState("");
+
+  async function run(kind: "refactor" | "tests") {
+    if (!filePath) {
+      window.alert("먼저 트리에서 파일을 선택하세요.");
+      return;
+    }
+    setOpen(kind);
+    setBusy(true);
+    setText("(생성 중…)");
+    try {
+      if (kind === "refactor") {
+        const r = await api.workspaceAiRefactor(workspaceId, filePath);
+        setText(r.review);
+      } else {
+        const r = await api.workspaceAiTests(workspaceId, filePath);
+        setText(r.tests);
+      }
+    } catch (e) {
+      setText(`실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => run("refactor")} title="선택한 파일을 AI 가 리팩터 제안" disabled={busy || !filePath}>
+        🤖 리팩터
+      </button>
+      <button type="button" className="ws-tree-btn" onClick={() => run("tests")} title="선택한 파일에 대한 단위 테스트 생성" disabled={busy || !filePath}>
+        🧪 AI 테스트
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(null)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>{open === "refactor" ? "🤖 AI 리팩터 제안" : "🧪 AI 테스트 생성"}</h3>
+              {filePath && <code className="patch-preview-path">{filePath}</code>}
+              <button type="button" className="modal-close" onClick={() => setOpen(null)}>×</button>
+            </header>
+            <pre className="wsc-review-body">{text}</pre>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── #70 파일 활동 타임라인 ────────────────────────────────
+export function TimelinePanel({
+  workspaceId,
+  filePath,
+}: {
+  workspaceId: string;
+  filePath: string | null;
+}) {
+  type Data = Awaited<ReturnType<typeof api.workspaceFileTimeline>>;
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Data | null>(null);
+
+  useEffect(() => {
+    if (!open || !filePath) {
+      setData(null);
+      return;
+    }
+    api.workspaceFileTimeline(workspaceId, filePath, 80).then(setData).catch(() => setData(null));
+  }, [open, workspaceId, filePath]);
+
+  return (
+    <>
+      <button type="button" className="ws-tree-btn" onClick={() => setOpen(true)} title="선택 파일의 git log + 채팅 흔적" disabled={!filePath}>
+        ⏱ 활동
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal patch-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h3>⏱ 파일 활동 타임라인</h3>
+              {filePath && <code className="patch-preview-path">{filePath}</code>}
+              <button type="button" className="modal-close" onClick={() => setOpen(false)}>×</button>
+            </header>
+            <div className="patch-preview-body">
+              {!filePath ? (
+                <div className="patch-preview-empty">먼저 트리에서 파일을 선택하세요.</div>
+              ) : !data ? (
+                <div className="patch-preview-empty">불러오는 중…</div>
+              ) : (
+                <>
+                  <div className="ws-stats-sec">git 커밋 ({data.commits.length})</div>
+                  {data.commits.length === 0 ? (
+                    <div className="patch-preview-empty">변경 이력 없음</div>
+                  ) : (
+                    <ul className="ws-log-list">
+                      {data.commits.map((c) => (
+                        <li key={c.sha}>
+                          <code>{c.short_sha}</code>
+                          <span className="ws-log-subj">{c.subject}</span>
+                          <span className="ws-log-meta">
+                            {c.author_name} · {new Date(c.when).toLocaleDateString()}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="ws-stats-sec">채팅에서 언급 ({data.chats.length})</div>
+                  {data.chats.length === 0 ? (
+                    <div className="patch-preview-empty">언급된 메시지 없음</div>
+                  ) : (
+                    <ul className="ws-todo-list">
+                      {data.chats.map((m) => (
+                        <li key={m.message_id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              window.dispatchEvent(
+                                new CustomEvent("chat:switch-session", {
+                                  detail: {
+                                    sessionId: m.session_id,
+                                    messageId: m.message_id,
+                                  },
+                                }),
+                              );
+                              setOpen(false);
+                            }}
+                          >
+                            <span className={`ws-todo-tag tag-${m.role === "user" ? "NOTE" : "TODO"}`}>
+                              {m.role === "user" ? "USER" : "AI"}
+                            </span>
+                            <code>{m.when ? new Date(m.when).toLocaleString() : ""}</code>
+                            <span className="ws-todo-msg">{m.snippet}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </>
               )}
             </div>

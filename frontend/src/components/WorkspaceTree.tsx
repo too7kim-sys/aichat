@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
 import { api, type WorkspaceTreeEntry } from "../api/client";
 import {
+  AIToolsPanel,
   BranchPanel,
+  ConflictPanel,
+  CustomTasksPanel,
   FileCRUDPanel,
   LogPanel,
   ReplacePanel,
+  StashPanel,
   StatsPanel,
+  TimelinePanel,
   TodoPanel,
 } from "./WorkspaceTools";
 import {
@@ -91,6 +96,13 @@ export function WorkspaceTree({
   const [tree, setTree] = useState<WorkspaceTreeEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [bundle, setBundle] = useState<BundleStatus | null>(null);
+  // AI 리팩터 / 테스트 / 타임라인 패널이 '현재 어떤 파일에 대해' 작동할
+  // 지를 알아야 하므로 트리 안에서 클릭된 마지막 경로를 추적.
+  const [lastFile, setLastFile] = useState<string | null>(null);
+  function handleSelectFile(p: string) {
+    setLastFile(p);
+    void onSelectFile(p);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -125,13 +137,18 @@ export function WorkspaceTree({
 
   return (
     <>
-      <WorkspaceGrep workspaceId={workspaceId} onSelect={onSelectFile} />
+      <WorkspaceGrep workspaceId={workspaceId} onSelect={handleSelectFile} />
       <div className="ws-tree-toolbar">
         <BranchPanel workspaceId={workspaceId} />
         <LogPanel workspaceId={workspaceId} />
         <FileCRUDPanel workspaceId={workspaceId} />
         <ReplacePanel workspaceId={workspaceId} />
-        <TodoPanel workspaceId={workspaceId} onJump={onSelectFile} />
+        <TodoPanel workspaceId={workspaceId} onJump={handleSelectFile} />
+        <StashPanel workspaceId={workspaceId} />
+        <ConflictPanel workspaceId={workspaceId} />
+        <CustomTasksPanel workspaceId={workspaceId} />
+        <AIToolsPanel workspaceId={workspaceId} filePath={lastFile} />
+        <TimelinePanel workspaceId={workspaceId} filePath={lastFile} />
         <StatsPanel workspaceId={workspaceId} />
         <TestRunnerButton workspaceId={workspaceId} />
         <RunCommandButton
@@ -173,7 +190,7 @@ export function WorkspaceTree({
           items={tree}
           depth={0}
           activePath={activePath}
-          onSelect={onSelectFile}
+          onSelect={handleSelectFile}
           fileStatus={bundle?.file_status ?? {}}
         />
       )}
