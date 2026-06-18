@@ -6,12 +6,28 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models, schemas
 from ..auth import get_current_user
 from ..config import settings
+
+
+# /save-file 입력 검증 — content 가 무제한 크기로 들어오면 워크스페이스
+# 디렉터리에 GB 단위 파일을 한 번에 박을 수 있어 위험.  500KB 로 캡.
+# 그보다 큰 파일은 사용자가 직접 git push 로 올려야 한다.
+_MAX_SAVE_FILE_BYTES = 500_000
+
+
+class _WorkspaceSaveFile(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    content: str = Field(max_length=_MAX_SAVE_FILE_BYTES * 2)  # UTF-8 char 단위
+
+
+class _WorkspaceRevert(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
 from pathlib import Path
 
 from ..code.workspace import (
@@ -867,13 +883,13 @@ async def workspace_diff(
 @router.post("/workspaces/{workspace_id}/revert")
 async def workspace_revert(
     workspace_id: str,
-    payload: dict,
+    payload: _WorkspaceRevert,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
     """Discard local changes to a single file. Body: {"path": "..."}."""
-    rel = (payload or {}).get("path")
-    if not isinstance(rel, str) or not rel.strip():
+    rel = payload.path.strip()
+    if not rel:
         raise HTTPException(400, "path가 필요합니다")
     ws = await _fetch_workspace_owned_by(workspace_id, user, db)
     dest = Path(ws.local_path)
@@ -1120,7 +1136,7 @@ async def workspace_ai_commit_message(
 @router.post("/workspaces/{workspace_id}/save-file")
 async def workspace_save_file(
     workspace_id: str,
-    payload: dict,
+    payload: _WorkspaceSaveFile,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1128,10 +1144,15 @@ async def workspace_save_file(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
-    rel = (payload.get("path") or "").strip()
-    content = payload.get("content") or ""
+    rel = payload.path.strip()
+    content = payload.content
     if not rel:
         raise HTTPException(400, "파일 경로가 비어 있어요")
+    # UTF-8 인코딩 후 바이트 길이로 한 번 더 검증 — Field max_length 는
+    # 코드 포인트 단위라 한국어처럼 멀티바이트 문자는 실제 디스크 크기
+    # 가 더 클 수 있음.
+    if len(content.encode("utf-8")) > _MAX_SAVE_FILE_BYTES:
+        raise HTTPException(413, "파일이 너무 큽니다 (최대 500KB).  큰 파일은 git push 로 올려 주세요.")
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, apply_file_write, dest, rel, content

@@ -580,10 +580,19 @@ async def create_action(
     return _to_out(row)
 
 
+class ActionItemPatch(BaseModel):
+    """PATCH /action-items/{id} body — 모든 필드 optional."""
+    status: str | None = Field(default=None, pattern=r"^(todo|doing|done)$")
+    title: str | None = Field(default=None, max_length=300)
+    detail: str | None = Field(default=None, max_length=10_000)
+    assignee_user_id: str | None = Field(default=None, max_length=36)
+    due_at: str | None = Field(default=None, max_length=40)
+
+
 @actions_router.patch("/{aid}", response_model=ActionItemOut)
 async def update_action(
     aid: str,
-    payload: dict,
+    payload: ActionItemPatch,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -592,29 +601,27 @@ async def update_action(
     )
     if row is None:
         raise HTTPException(404, "항목이 없어요")
-    if "status" in payload and payload["status"] in (
-        "todo", "doing", "done",
-    ):
-        row.status = payload["status"]
-    if "title" in payload and payload["title"]:
-        row.title = str(payload["title"])[:300]
-    if "detail" in payload:
-        row.detail = payload["detail"] or None
-    if "assignee_user_id" in payload:
-        row.assignee_user_id = payload["assignee_user_id"] or None
+    if payload.status is not None:
+        row.status = payload.status
+    if payload.title is not None and payload.title:
+        row.title = payload.title
+    if payload.detail is not None:
+        row.detail = payload.detail or None
+    if payload.assignee_user_id is not None:
+        row.assignee_user_id = payload.assignee_user_id or None
         # 담당자 지정 알림.
-        if payload["assignee_user_id"]:
+        if payload.assignee_user_id:
             db.add(
                 models.Notification(
-                    user_id=payload["assignee_user_id"],
+                    user_id=payload.assignee_user_id,
                     kind="action_assigned",
                     title=f"새 액션아이템: {row.title}",
                     link="/?cowork=actions",
                 )
             )
-    if "due_at" in payload and payload["due_at"]:
+    if payload.due_at:
         try:
-            row.due_at = datetime.fromisoformat(payload["due_at"])
+            row.due_at = datetime.fromisoformat(payload.due_at)
         except Exception:
             pass
     await db.commit()
@@ -854,10 +861,14 @@ async def approve_run(
     await db.commit()
 
 
+class _RunReject(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
 @runs_router.post("/{run_id}/reject", status_code=204)
 async def reject_run(
     run_id: str,
-    payload: dict | None = None,
+    payload: _RunReject | None = None,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -880,7 +891,7 @@ async def reject_run(
         if is_owner_row is None:
             raise HTTPException(403, "owner / 관리자만 거부 가능")
     row.status = "rejected"
-    row.error = (payload or {}).get("reason") or "거부됨"
+    row.error = (payload.reason if payload else "") or "거부됨"
     row.finished_at = datetime.utcnow()
     if wf:
         db.add(

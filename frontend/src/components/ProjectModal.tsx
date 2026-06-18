@@ -3091,7 +3091,7 @@ function AddProjectForm({
           disabled={submitting}
         >
           {submitting ? (
-            "추가 중..."
+            "추가 중…"
           ) : (
             <>
               <IconPlus size={14} />

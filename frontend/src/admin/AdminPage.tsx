@@ -1342,7 +1342,7 @@ function ErrorsPanel() {
     return () => window.clearInterval(id);
   }, []);
 
-  if (loading) return <div className="admin-empty">불러오는 중...</div>;
+  if (loading) return <div className="admin-empty">불러오는 중…</div>;
   if (err)
     return <div className="admin-empty admin-error">오류: {err}</div>;
   if (!data) return null;
@@ -1511,7 +1511,10 @@ function AuditPanel() {
         userQ: userQ || undefined,
         limit,
         dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
+        // date_to 는 그 날의 23:59:59 까지 포함하도록 시각 부분을 붙여
+        // 보냄 — 백엔드의 fromisoformat 이 미드나잇으로 해석해 그 날을
+        // 통째로 빠뜨리는 일이 없게.
+        dateTo: dateTo ? `${dateTo}T23:59:59` : undefined,
       });
       setRows(r);
       setErr(null);
@@ -1527,7 +1530,7 @@ function AuditPanel() {
         event: event || undefined,
         userQ: userQ || undefined,
         dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
+        dateTo: dateTo ? `${dateTo}T23:59:59` : undefined,
       });
     } catch (e) {
       errorToast("CSV 내보내기 실패", e);
@@ -1588,7 +1591,7 @@ function AuditPanel() {
       </div>
 
       {loading ? (
-        <div className="admin-empty">불러오는 중...</div>
+        <div className="admin-empty">불러오는 중…</div>
       ) : err ? (
         <div className="admin-empty admin-error">오류: {err}</div>
       ) : rows.length === 0 ? (
@@ -1679,7 +1682,7 @@ function ActiveSessionsPanel() {
         <button type="button" className="admin-btn" onClick={refresh}>새로고침</button>
       </div>
       {loading ? (
-        <div className="admin-empty">불러오는 중...</div>
+        <div className="admin-empty">불러오는 중…</div>
       ) : err ? (
         <div className="admin-empty admin-error">오류: {err}</div>
       ) : rows.length === 0 ? (
@@ -2828,7 +2831,7 @@ function QualityPanel() {
     }
   }
 
-  if (loading && !stats) return <div className="admin-empty">불러오는 중...</div>;
+  if (loading && !stats) return <div className="admin-empty">불러오는 중…</div>;
   if (err) return <div className="admin-empty admin-error">{err}</div>;
 
   return (
@@ -3131,7 +3134,7 @@ function UsagePanel() {
     void refresh(days);
   }, [days]);
 
-  if (loading) return <div className="admin-empty">불러오는 중...</div>;
+  if (loading) return <div className="admin-empty">불러오는 중…</div>;
   if (err) return <div className="admin-empty admin-error">{err}</div>;
   if (!data) return null;
   return (

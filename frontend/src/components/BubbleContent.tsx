@@ -55,7 +55,7 @@ function ThinkBlock({
       <summary>
         <span className="think-icon">🧠</span>
         <span className="think-label">사고 과정</span>
-        {live && <span className="think-status">진행중...</span>}
+        {live && <span className="think-status">진행 중…</span>}
       </summary>
       <div className="think-body">
         {text}

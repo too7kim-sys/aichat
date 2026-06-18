@@ -1087,7 +1087,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           <>
             <header className="chat-header">
               <div className="chat-header-inner">
-                <h2 className="chat-title">대화 불러오는 중...</h2>
+                <h2 className="chat-title">대화 불러오는 중…</h2>
               </div>
             </header>
             <div className="messages">
@@ -1100,7 +1100,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 <MessageBubble
                   role="assistant"
                   provider="Ollama"
-                  content={liveStream.buffer || "응답 생성 중..."}
+                  content={liveStream.buffer || "응답 생성 중…"}
                   streaming
                 />
               </div>
@@ -1120,7 +1120,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 </button>
               </>
             ) : (
-              <p>불러오는 중...</p>
+              <p>불러오는 중…</p>
             )}
           </div>
         )}
@@ -1918,7 +1918,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 <div className="bubble-header">{activeProviderLabel}</div>
                 <div className="content thinking">
                   <span className="spinner" />
-                  응답 생성 중... {formatElapsed(elapsedSec)}
+                  응답 생성 중… {formatElapsed(elapsedSec)}
                 </div>
               </div>
             </div>
@@ -2548,7 +2548,7 @@ function SourcesBox({
     return (
       <div className="sources">
         <strong>검색 출처</strong>
-        <span className="sources-status"> · 검색 중...</span>
+        <span className="sources-status"> · 검색 중…</span>
         {warning && <div className="sources-warning">{warning}</div>}
       </div>
     );

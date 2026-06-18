@@ -542,11 +542,21 @@ function AppInner({
               <tbody>
                 <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>상단 검색</td></tr>
                 <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>이 대화에서 찾기</td></tr>
+                <tr>
+                  <td>
+                    <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>
+                  </td>
+                  <td>명령 팔레트 — 세션·작업 모음</td>
+                </tr>
                 <tr><td><kbd>?</kbd></td><td>이 도움말</td></tr>
                 <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>별표 메시지 사이 이동</td></tr>
-                <tr><td><kbd>Enter</kbd></td><td>메시지 전송 (Shift+Enter 줄바꿈)</td></tr>
+                <tr><td><kbd>Enter</kbd></td><td>메시지 전송 (<kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈)</td></tr>
                 <tr><td><kbd>/</kbd></td><td>프롬프트 라이브러리 (입력칸 시작 시)</td></tr>
-                <tr><td><kbd>Esc</kbd></td><td>검색·메뉴·이 도움말 닫기</td></tr>
+                <tr>
+                  <td><kbd>↑</kbd> / <kbd>↓</kbd></td>
+                  <td>슬래시·검색 결과에서 항목 이동</td>
+                </tr>
+                <tr><td><kbd>Esc</kbd></td><td>검색·메뉴·모달 닫기</td></tr>
               </tbody>
             </table>
             <div className="shortcut-help-foot">

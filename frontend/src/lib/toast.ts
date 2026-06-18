@@ -28,15 +28,15 @@ function friendlyMessage(err: unknown): string {
     if (m) {
       const code = Number(m[1]);
       const detail = m[2].trim();
-      if (code === 401) return "로그인이 만료됐어요.  다시 로그인해 주세요.";
+      if (code === 401) return "로그인이 만료됐어요. 다시 로그인해 주세요.";
       if (code === 403) return detail || "권한이 없어요.";
       if (code === 404) return detail || "요청한 항목을 찾을 수 없어요.";
       if (code === 409) return detail || "이미 처리된 작업이에요.";
       if (code === 413) return "파일이 너무 큽니다.";
       if (code === 422) return detail || "입력값이 올바르지 않아요.";
       if (code === 423) return detail || "잠시 후 다시 시도해 주세요.";
-      if (code === 429) return "요청이 너무 잦아요.  잠시 후 다시.";
-      if (code >= 500) return "서버 오류가 발생했어요.  잠시 후 다시 시도해 주세요.";
+      if (code === 429) return "요청이 너무 잦아요. 잠시 후 다시.";
+      if (code >= 500) return "서버 오류가 발생했어요. 잠시 후 다시 시도해 주세요.";
       return detail || msg;
     }
     if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
