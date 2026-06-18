@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { api } from "../api/client";
+import { errorToast, infoToast } from "../lib/toast";
 
 /** 파일·git 상태가 바뀌면 트리·status 패널이 다시 가져오도록 한 번
  *  쏴 주는 헬퍼.  ws:tree-refresh 를 WorkspaceTree 가 listen. */
@@ -44,7 +45,7 @@ export function BranchPanel({
       onChanged?.();
       await refresh();
     } catch (e) {
-      window.alert(`전환 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("전환 실패", e);
     } finally {
       setBusy(false);
     }
@@ -268,7 +269,7 @@ export function FileCRUDPanel({
       setPath("");
       setOpen(false);
     } catch (e) {
-      window.alert(`생성 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("생성 실패", e);
     } finally {
       setBusy(false);
     }
@@ -353,7 +354,7 @@ export function ReplacePanel({ workspaceId }: { workspaceId: string }) {
       setPreview(res);
       if (!dryRun) notifyTreeChanged();
     } catch (e) {
-      window.alert(`치환 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("치환 실패", e);
     } finally {
       setBusy(false);
     }
@@ -616,7 +617,7 @@ export function StashPanel({
       onChanged?.();
       await refresh();
     } catch (e) {
-      window.alert(`스태시 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("스태시 실패", e);
     } finally {
       setBusy(false);
     }
@@ -629,7 +630,7 @@ export function StashPanel({
       onChanged?.();
       await refresh();
     } catch (e) {
-      window.alert(`적용 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("적용 실패", e);
     } finally {
       setBusy(false);
     }
@@ -641,7 +642,7 @@ export function StashPanel({
       await api.workspaceStashDrop(workspaceId, ref);
       await refresh();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     } finally {
       setBusy(false);
     }
@@ -763,7 +764,7 @@ export function ConflictPanel({
       setSel(null);
       setData(null);
     } catch (e) {
-      window.alert(`해결 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("해결 실패", e);
     } finally {
       setBusy(false);
     }
@@ -902,7 +903,7 @@ export function CustomTasksPanel({ workspaceId }: { workspaceId: string }) {
       const r = await api.workspaceCustomTaskRun(workspaceId, id);
       setResult(r);
     } catch (e) {
-      window.alert(`실행 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("실행 실패", e);
     } finally {
       setRunning(null);
     }
@@ -985,7 +986,7 @@ export function AIToolsPanel({
 
   async function run(kind: "refactor" | "tests") {
     if (!filePath) {
-      window.alert("먼저 트리에서 파일을 선택하세요.");
+      infoToast("먼저 트리에서 파일을 선택하세요.");
       return;
     }
     setOpen(kind);
@@ -1173,7 +1174,7 @@ export function SnippetPanel({
       setAdding(false);
       await refresh();
     } catch (e) {
-      window.alert(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("저장 실패", e);
     }
   }
   async function remove(id: string) {
@@ -1182,7 +1183,7 @@ export function SnippetPanel({
       await api.deleteSnippet(id);
       await refresh();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     }
   }
 
@@ -1289,7 +1290,7 @@ export function AIDocPanel({
 
   async function run() {
     if (!filePath) {
-      window.alert("먼저 트리에서 파일을 선택하세요.");
+      infoToast("먼저 트리에서 파일을 선택하세요.");
       return;
     }
     setOpen(true);
@@ -1346,7 +1347,7 @@ export function SecurityPanel({
     try {
       setData(await api.workspaceSecurityScan(workspaceId));
     } catch (e) {
-      window.alert(`보안 점검 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("보안 점검 실패", e);
     } finally {
       setBusy(false);
     }
@@ -1437,7 +1438,7 @@ export function TagPanel({ workspaceId }: { workspaceId: string }) {
       notifyTreeChanged();
       await refresh();
     } catch (e) {
-      window.alert(`태그 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("태그 실패", e);
     } finally {
       setBusy(false);
     }
@@ -1446,9 +1447,9 @@ export function TagPanel({ workspaceId }: { workspaceId: string }) {
     setBusy(true);
     try {
       await api.workspaceTagPush(workspaceId, n);
-      window.alert(`pushed: ${n}`);
+      infoToast(`pushed: ${n}`);
     } catch (e) {
-      window.alert(`push 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("push 실패", e);
     } finally {
       setBusy(false);
     }
@@ -1461,7 +1462,7 @@ export function TagPanel({ workspaceId }: { workspaceId: string }) {
       notifyTreeChanged();
       await refresh();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     } finally {
       setBusy(false);
     }
@@ -1813,7 +1814,7 @@ export function ComparePanel({ workspaceId }: { workspaceId: string }) {
       const r = await api.workspaceCompare(workspaceId, base, head);
       setFiles(r.files);
     } catch (e) {
-      window.alert(`비교 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("비교 실패", e);
     } finally {
       setBusy(false);
     }
@@ -2150,7 +2151,7 @@ export function SymbolSearchPanel({
       const r = await api.workspaceSymbols(workspaceId, q.trim());
       setResults(r.items);
     } catch (e) {
-      window.alert(`검색 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("검색 실패", e);
     } finally {
       setBusy(false);
     }
@@ -2301,7 +2302,7 @@ export function ImportZipPanel({
       notifyTreeChanged();
       onChanged?.();
     } catch (e) {
-      window.alert(`zip 임포트 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("zip 임포트 실패", e);
     } finally {
       setBusy(false);
     }
@@ -2386,14 +2387,17 @@ export function BulkSelectPanel({
       notifyTreeChanged();
       const okN = r.deleted.length;
       const failN = r.failed.length;
-      window.alert(
+      infoToast(
         `삭제 완료 — ok ${okN}건, 실패 ${failN}건` +
-          (failN > 0 ? `:\n${r.failed.map((f) => `${f.path}: ${f.error}`).join("\n")}` : ""),
+          (failN > 0 ? ` (자세한 사유는 콘솔)` : ""),
       );
+      if (failN > 0 && typeof console !== "undefined") {
+        console.warn("ws.delete failures", r.failed);
+      }
       onChanged?.();
       onClear();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     } finally {
       setBusy(false);
     }

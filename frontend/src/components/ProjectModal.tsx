@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { admin, api } from "../api/client";
+import { errorToast, infoToast } from "../lib/toast";
 import type {
   CorpusType,
   DbDriverInfo,
@@ -504,9 +505,7 @@ export function ProjectModal({
                               );
                             }
                           } catch (e) {
-                            window.alert(
-                              `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
-                            );
+                            errorToast("삭제 실패", e);
                           }
                         }
                       : null
@@ -599,9 +598,7 @@ export function ProjectModal({
                   }
                   setSubPopup(null);
                 } catch (e) {
-                  window.alert(
-                    `삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
-                  );
+                  errorToast("삭제 실패", e);
                 }
               }}
             />
@@ -1156,14 +1153,7 @@ function ProjectCard({
                                 )
                               ) {
                                 await deleteSnapshot(p.id, s.id).catch(
-                                  (err) =>
-                                    window.alert(
-                                      `삭제 실패: ${
-                                        err instanceof Error
-                                          ? err.message
-                                          : String(err)
-                                      }`,
-                                    ),
+                                  (err) => errorToast("삭제 실패", err),
                                 );
                               }
                             }}
@@ -2387,7 +2377,7 @@ function AddProjectForm({
               result.errors.length > 3
                 ? ` (외 ${result.errors.length - 3}개)`
                 : "";
-            window.alert(
+            infoToast(
               `${uploadFiles.length}개 중 ${result.files.length}개 업로드됨 — ` +
                 `${result.errors.length}개 거부: ${sample}${more}`,
             );

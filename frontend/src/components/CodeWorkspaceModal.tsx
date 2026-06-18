@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { api, type Workspace, type WorkspaceFile } from "../api/client";
+import { errorToast } from "../lib/toast";
 
 // Monaco 는 무거운 의존성이라 lazy + Suspense 로 분리. 평소 트리만 보고
 // 파일 안 여는 경우엔 다운로드도 안 함.
@@ -411,9 +412,7 @@ function WorkspaceView({
                       // 변경 패널이 다시 가져오도록 알림.
                       window.dispatchEvent(new CustomEvent("ws:tree-refresh"));
                     } catch (e) {
-                      window.alert(
-                        `저장 실패: ${e instanceof Error ? e.message : String(e)}`,
-                      );
+                      errorToast("저장 실패", e);
                     } finally {
                       setSaving(false);
                     }

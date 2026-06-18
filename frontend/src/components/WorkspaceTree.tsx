@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type WorkspaceTreeEntry } from "../api/client";
+import { errorToast } from "../lib/toast";
 import {
   ActivityPanel,
   AIDocPanel,
@@ -162,7 +163,7 @@ export function WorkspaceTree({
       try {
         await api.workspaceUploadFile(workspaceId, f.name, f);
       } catch (e) {
-        window.alert(`${f.name} 업로드 실패: ${e instanceof Error ? e.message : String(e)}`);
+        errorToast(`${f.name} 업로드 실패`, e);
       }
     }
     bumpTree();

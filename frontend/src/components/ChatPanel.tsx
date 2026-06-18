@@ -2,6 +2,7 @@ import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { copyText } from "../lib/clipboard";
+import { errorToast, infoToast } from "../lib/toast";
 import { useAuth } from "../auth/AuthContext";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
@@ -228,9 +229,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         },
       ]);
     } catch (e) {
-      window.alert(
-        `파일 첨부 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("파일 첨부 실패", e);
     }
   }
   // Bumped by the markdown renderer every time the user applies a
@@ -1515,9 +1514,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   }),
                 );
               } catch (e) {
-                window.alert(
-                  `공유 링크 생성 실패: ${e instanceof Error ? e.message : String(e)}`,
-                );
+                errorToast("공유 링크 생성 실패", e);
               }
             }}
             title="이 대화의 공유 링크 (로그인된 사용자 읽기 전용)"
@@ -1536,9 +1533,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                     prev ? { ...prev, has_passphrase: false } : prev,
                   );
                 } catch (e) {
-                  window.alert(
-                    `해제 실패: ${e instanceof Error ? e.message : String(e)}`,
-                  );
+                  errorToast("해제 실패", e);
                 }
                 return;
               }
@@ -1557,9 +1552,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                   }),
                 );
               } catch (e) {
-                window.alert(
-                  `잠금 실패: ${e instanceof Error ? e.message : String(e)}`,
-                );
+                errorToast("잠금 실패", e);
               }
             }}
             title={session.has_passphrase ? "잠금 해제" : "세션 비밀번호 잠금"}
@@ -1870,9 +1863,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                         }),
                       );
                     } catch (e) {
-                      window.alert(
-                        `분기 실패: ${e instanceof Error ? e.message : String(e)}`,
-                      );
+                      errorToast("분기 실패", e);
                     }
                   }}
                   onMetaChanged={(patch) =>
@@ -2803,9 +2794,7 @@ function RagChunksBox({
                       c.end_line,
                     );
                   } catch (e) {
-                    window.alert(
-                      `다운로드 실패: ${e instanceof Error ? e.message : String(e)}`,
-                    );
+                    errorToast("다운로드 실패", e);
                   }
                 }}
               >
@@ -2835,7 +2824,7 @@ function ExportSessionMenu({ sessionId, title }: { sessionId: string; title: str
         await api.exportSessionDocx(sessionId, title, include, maskPii);
       }
     } catch (e) {
-      window.alert(`내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("내보내기 실패", e);
     } finally {
       setBusy(false);
     }
@@ -2993,9 +2982,7 @@ function SlashPromptPicker({
       setAdding(false);
       await refreshMacros();
     } catch (e) {
-      window.alert(
-        `매크로 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("매크로 저장 실패", e);
     }
   }
   async function removeMacro(id: string) {
@@ -3004,9 +2991,7 @@ function SlashPromptPicker({
       await api.deleteMacro(id);
       await refreshMacros();
     } catch (e) {
-      window.alert(
-        `매크로 삭제 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("매크로 삭제 실패", e);
     }
   }
 
@@ -3186,7 +3171,7 @@ function MicButton({
         ? "이 페이지가 HTTPS 가 아니라 브라우저가 마이크 권한 요청 자체를 막아요. " +
           "관리자에게 HTTPS 적용 또는 localhost 로 접속을 요청해 주세요."
         : "이 브라우저는 마이크 캡처 API 를 지원하지 않아요. 최신 Chrome / Edge / Firefox 로 다시 시도해 주세요.";
-      window.alert(`🎙 음성 입력 사용 불가\n\n${why}`);
+      infoToast(`🎙 음성 입력 사용 불가 — ${why}`);
       return;
     }
     try {
@@ -3209,9 +3194,7 @@ function MicButton({
           const r = await api.transcribeInline(blob);
           if (r.text) onTranscribed(r.text);
         } catch (e) {
-          window.alert(
-            `음성 인식 실패: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          errorToast("음성 인식 실패", e);
         } finally {
           setBusy(false);
         }
@@ -3234,7 +3217,7 @@ function MicButton({
       } else if (name === "NotReadableError") {
         hint = "\n\n다른 앱(Zoom·Teams 등) 이 마이크를 잡고 있을 수 있어요. 그 앱 종료 후 재시도.";
       }
-      window.alert(`🎙 마이크 접근 실패 (${name || "오류"})\n${msg}${hint}`);
+      infoToast(`🎙 마이크 접근 실패 (${name || "오류"}) — ${msg}${hint}`);
     }
   }
   function stop() {

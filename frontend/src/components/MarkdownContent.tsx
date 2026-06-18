@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { api } from "../api/client";
+import { errorToast } from "../lib/toast";
 import { copyText } from "../lib/clipboard";
 import { useArtifacts } from "../artifact/ArtifactContext";
 import { useChatWorkspace } from "../state/ChatWorkspaceContext";
@@ -562,7 +563,7 @@ function FileSaveAsPrompt({ body, language }: { body: string; language: string }
         }),
       );
     } catch (e) {
-      window.alert(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("저장 실패", e);
     } finally {
       setBusy(false);
     }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { errorToast } from "../lib/toast";
 import type { Session } from "../types";
 
 /** 휴지통 모달 (#31) — 삭제된 세션을 보고 복원 / 영구삭제.
@@ -45,7 +46,7 @@ export function TrashModal({
       await refresh();
       await onChanged?.();
     } catch (e) {
-      window.alert(`복원 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("복원 실패", e);
     } finally {
       setBusyId(null);
     }
@@ -58,7 +59,7 @@ export function TrashModal({
       await refresh();
       await onChanged?.();
     } catch (e) {
-      window.alert(`영구 삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("영구 삭제 실패", e);
     } finally {
       setBusyId(null);
     }
@@ -79,7 +80,7 @@ export function TrashModal({
       await refresh();
       await onChanged?.();
     } catch (e) {
-      window.alert(`비우기 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("비우기 실패", e);
     }
   }
 

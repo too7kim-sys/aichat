@@ -7,6 +7,7 @@ import {
   type Workflow,
 } from "../api/client";
 import { queueAttachment } from "../state/attachQueue";
+import { errorToast } from "../lib/toast";
 import { useAuth } from "../auth/AuthContext";
 import { useWorkspaces } from "../state/WorkspacesContext";
 import type { ChatProject, Session } from "../types";
@@ -258,7 +259,7 @@ function ChatPane({
     try {
       await api.moveSessionToChatProject(sessionId, targetId);
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
       return;
     }
     await Promise.all([onChatProjectsRefresh?.(), onSessionRefresh?.()]);
@@ -804,9 +805,7 @@ function SessionRow({
       await onRename(s.id, next);
       setEditing(false);
     } catch (e) {
-      window.alert(
-        `이름 변경 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("이름 변경 실패", e);
     } finally {
       setBusy(false);
     }
@@ -821,9 +820,7 @@ function SessionRow({
       await api.pinSession(s.id, !s.pinned);
       await onSessionRefresh?.();
     } catch (e) {
-      window.alert(
-        `고정 토글 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("고정 토글 실패", e);
     }
   }
 
@@ -1111,9 +1108,7 @@ function CoworkPane({
       setRecordStartedAt(Date.now());
       setRecordElapsedSec(0);
     } catch (e) {
-      window.alert(
-        `마이크 접근 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("마이크 접근 실패", e);
     }
   }
 
@@ -1132,9 +1127,7 @@ function CoworkPane({
       await api.uploadTranscript(blob, filename);
       await refreshAll();
     } catch (e) {
-      window.alert(
-        `업로드 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("업로드 실패", e);
     } finally {
       setUploading(false);
     }
@@ -1162,7 +1155,7 @@ function CoworkPane({
         await onSessionRefresh?.();
       }
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     } finally {
       setBusyId(null);
     }
@@ -1197,9 +1190,7 @@ function CoworkPane({
         prev.map((x) => (x.id === updated.id ? updated : x)),
       );
     } catch (e) {
-      window.alert(
-        `실행 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("실행 실패", e);
     } finally {
       setBusyId(null);
     }
@@ -1725,9 +1716,7 @@ function TranscriptRow({
       await onRenamed();
       setEditing(false);
     } catch (e) {
-      window.alert(
-        `이름 변경 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("이름 변경 실패", e);
     } finally {
       setBusy(false);
     }
