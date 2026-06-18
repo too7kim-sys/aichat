@@ -15,6 +15,7 @@ import { SharedSessionView } from "./SharedSessionView";
 import { ResetPasswordForm } from "./auth/ResetPasswordForm";
 import { UserMenu } from "./auth/UserMenu";
 import { VerifyBanner } from "./auth/VerifyBanner";
+import { NotificationBell } from "./components/NotificationBell";
 import { ModelProvider } from "./state/ModelContext";
 import { ProjectsProvider } from "./state/ProjectsContext";
 import { WorkspacesProvider } from "./state/WorkspacesContext";
@@ -430,6 +431,7 @@ function AppInner({
             sessions={sessions}
             onPick={jumpToMessage}
           />
+          <NotificationBell />
           <UserMenu onOpenMyPage={onOpenMyPage} onOpenAdmin={onOpenAdmin} />
         </div>
         {activeId ? (

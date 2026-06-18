@@ -339,6 +339,10 @@ class Project(Base):
     is_shared: Mapped[bool] = mapped_column(
         Boolean, default=False, index=True
     )
+    # 팀 공유 (#89) — 역할-맵 외 팀 단위 공유.
+    team_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
     # The vector index lives in a Snapshot row, not on Project itself
     # (the project is the logical group; snapshots are the versioned
     # instances). current_snapshot_id is the one chat retrieval uses
@@ -407,6 +411,10 @@ class Prompt(Base):
     tags: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_shared: Mapped[bool] = mapped_column(
         Boolean, default=False, index=True
+    )
+    # 팀 공유 (#89) — 역할-맵 외에 팀 단위 공유.
+    team_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
@@ -567,6 +575,13 @@ class Workflow(Base):
         String(36), nullable=True
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 팀 공유 (#89) — set 되면 그 팀 멤버가 모두 보고 실행 가능.
+    team_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    # 승인 게이트 (#91) — true 면 run 요청이 즉시 실행되지 않고
+    # 'pending_approval' 상태로 들어가, 팀 owner 가 approve 해야 진행.
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
@@ -860,4 +875,177 @@ class CodeSnippet(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+# ── 팀 / 그룹 (#89) ──────────────────────────────────────────
+class Team(Base):
+    """팀 — 사내 협업 단위.  프롬프트·워크플로·RAG·매크로 공유의 기본
+    그룹.  역할(Role)이 권한 차원이라면 Team 은 '누구와 같이 쓰는지'."""
+
+    __tablename__ = "teams"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    created_by_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
+class TeamMember(Base):
+    """팀 멤버십 — role 은 'owner' | 'member' (팀 내부 권한)."""
+
+    __tablename__ = "team_members"
+
+    team_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("teams.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(20), default="member")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
+# ── 워크플로 실행 이력 (#90) ─────────────────────────────────
+class WorkflowRun(Base):
+    """매 워크플로 실행의 입출력 기록.  Workflow.last_run_* 가 마지막
+    한 줄만 남기는 한계 보완 — 비교·재실행·감사용."""
+
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workflow_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        index=True,
+    )
+    triggered_by_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    # 입력 — prompt vars JSON 스냅샷 (워크플로 정의가 변해도 그 시점 그대로).
+    prompt_vars: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 출력 — 생성된 채팅 세션 (= 답변 본문).
+    session_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+
+
+# ── 회의록 액션아이템 (#92) ──────────────────────────────────
+class ActionItem(Base):
+    """회의록에서 LLM 이 추출한 '할 일' / 결정사항.  칸반 상태로 관리."""
+
+    __tablename__ = "action_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    transcript_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("transcripts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # 'todo' | 'doing' | 'done' (칸반 컬럼).
+    status: Mapped[str] = mapped_column(String(16), default="todo", index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 담당자 (있을 때) — 회의록 본문에서 LLM 이 추정.
+    assignee_text: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    assignee_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+# ── 코멘트 (#93) ─────────────────────────────────────────────
+class Comment(Base):
+    """메시지·청크·워크플로·회의록 등에 다는 인라인 코멘트.  target_type
+    + target_id 로 다형성 — 새 타깃이 생겨도 컬럼 추가 불필요."""
+
+    __tablename__ = "comments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # 'message' | 'chunk' | 'workflow' | 'transcript' 등.
+    target_type: Mapped[str] = mapped_column(String(20), index=True)
+    target_id: Mapped[str] = mapped_column(String(80), index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    body: Mapped[str] = mapped_column(Text)
+    # @멘션된 사용자 id 들 — 알림 fan-out 에 사용 (JSON 배열).
+    mentions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # 스레드 — 최초 코멘트는 NULL, 답글은 부모 id.
+    parent_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("comments.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+
+# ── 알림 (#94) ───────────────────────────────────────────────
+class Notification(Base):
+    """사용자별 알림 inbox.  워크플로 완료/실패, 코멘트 멘션, 승인 요청,
+    회의록 처리 완료 등 다양한 이벤트가 모임."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    # 종류: workflow_done / workflow_fail / mention / approval_request /
+    # approval_approved / approval_rejected / transcript_done / action_assigned.
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 클릭 시 어디로? — '/api' prefix 없는 SPA 경로.
+    link: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
     )

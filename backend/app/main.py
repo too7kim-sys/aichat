@@ -11,8 +11,8 @@ from .config import settings
 from .database import init_db
 from .providers.registry import all_providers
 from .routers import (
-    admin, api_keys, auth, chat, chat_projects, code, files, macros, ollama,
-    prompts, search, sessions, snippets, transcripts, workflows,
+    admin, api_keys, auth, chat, chat_projects, code, cowork, files, macros,
+    ollama, prompts, search, sessions, snippets, transcripts, workflows,
 )
 
 # RAG router pulls in qdrant-client. Import lazily so a missing
@@ -278,6 +278,11 @@ app.include_router(macros.router)
 app.include_router(macros.sys_router)
 app.include_router(api_keys.router)
 app.include_router(snippets.router)
+app.include_router(cowork.teams_router)
+app.include_router(cowork.comments_router)
+app.include_router(cowork.notifications_router)
+app.include_router(cowork.actions_router)
+app.include_router(cowork.runs_router)
 app.include_router(workflows.router)
 app.include_router(transcripts.router)
 app.include_router(search.router)

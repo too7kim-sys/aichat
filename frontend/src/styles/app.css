@@ -10382,6 +10382,86 @@ body {
   overflow: hidden;
 }
 
+/* 🔔 알림 벨 (#94). */
+.notif-wrap { position: relative; display: inline-block; }
+.notif-trigger {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  font-size: 14px;
+}
+.notif-trigger:hover { background: var(--accent-soft); border-color: var(--accent); }
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #c0392b;
+  color: #fff;
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-weight: 700;
+  min-width: 14px;
+  height: 14px;
+  line-height: 12px;
+}
+.notif-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(360px, 92vw);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  z-index: 150;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.notif-head button {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.notif-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.notif-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+}
+.notif-list li {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.notif-list li:hover { background: var(--accent-soft); }
+.notif-list li.unread { background: rgba(204, 120, 92, 0.06); }
+.notif-list li.unread .notif-title { font-weight: 600; }
+.notif-title { font-size: 13px; color: var(--text); }
+.notif-body { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+.notif-time { font-size: 10.5px; color: var(--text-faint); margin-top: 3px; }
+
 /* drag-drop 업로드 (#85) + 다중 선택 (#87). */
 .ws-tree-wrap { position: relative; }
 .ws-tree-wrap.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }

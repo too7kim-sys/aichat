@@ -2219,6 +2219,178 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ paths }),
     }),
+  // ── 팀 (#89) ─────────────────────────────────────────────
+  listTeams: () =>
+    json<
+      {
+        id: string;
+        name: string;
+        description: string;
+        member_count: number;
+        is_owner: boolean;
+      }[]
+    >("/teams"),
+  createTeam: (name: string, description = "") =>
+    json<{
+      id: string;
+      name: string;
+      description: string;
+      member_count: number;
+      is_owner: boolean;
+    }>("/teams", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    }),
+  listTeamMembers: (teamId: string) =>
+    json<{
+      members: { user_id: string; email: string; name: string; role: string }[];
+    }>(`/teams/${teamId}/members`),
+  addTeamMember: (
+    teamId: string,
+    userId: string,
+    role: "owner" | "member" = "member",
+  ) =>
+    json<void>(`/teams/${teamId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId, role }),
+    }),
+  removeTeamMember: (teamId: string, userId: string) =>
+    json<void>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+  deleteTeam: (teamId: string) =>
+    json<void>(`/teams/${teamId}`, { method: "DELETE" }),
+  // ── 코멘트 (#93) ─────────────────────────────────────────
+  listComments: (targetType: string, targetId: string) => {
+    const params = new URLSearchParams({
+      target_type: targetType,
+      target_id: targetId,
+    });
+    return json<{
+      items: {
+        id: string;
+        target_type: string;
+        target_id: string;
+        user_id: string | null;
+        user_name: string;
+        body: string;
+        parent_id: string | null;
+        mentions: string[];
+        resolved: boolean;
+        created_at: string;
+      }[];
+    }>(`/comments?${params.toString()}`);
+  },
+  createComment: (payload: {
+    target_type: "message" | "chunk" | "workflow" | "transcript" | "action";
+    target_id: string;
+    body: string;
+    parent_id?: string | null;
+    mentions?: string[];
+  }) =>
+    json<{
+      id: string;
+      target_type: string;
+      target_id: string;
+      user_id: string | null;
+      user_name: string;
+      body: string;
+      parent_id: string | null;
+      mentions: string[];
+      resolved: boolean;
+      created_at: string;
+    }>("/comments", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  resolveComment: (id: string, resolved: boolean) =>
+    json<unknown>(`/comments/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ resolved }),
+    }),
+  deleteComment: (id: string) =>
+    json<void>(`/comments/${id}`, { method: "DELETE" }),
+  // ── 알림 (#94) ───────────────────────────────────────────
+  listNotifications: (unreadOnly = false, limit = 50) => {
+    const params = new URLSearchParams({
+      unread_only: String(unreadOnly),
+      limit: String(limit),
+    });
+    return json<{
+      unread_count: number;
+      items: {
+        id: string;
+        kind: string;
+        title: string;
+        body: string | null;
+        link: string | null;
+        read_at: string | null;
+        created_at: string | null;
+      }[];
+    }>(`/notifications?${params.toString()}`);
+  },
+  markNotificationRead: (id: string) =>
+    json<void>(`/notifications/${id}/read`, { method: "POST" }),
+  markAllNotificationsRead: () =>
+    json<void>(`/notifications/read-all`, { method: "POST" }),
+  // ── 액션 아이템 (#92) ────────────────────────────────────
+  listActionItems: (transcriptId?: string, status?: string) => {
+    const params = new URLSearchParams();
+    if (transcriptId) params.set("transcript_id", transcriptId);
+    if (status) params.set("status", status);
+    const qs = params.toString();
+    return json<
+      {
+        id: string;
+        transcript_id: string | null;
+        session_id: string | null;
+        status: string;
+        title: string;
+        detail: string | null;
+        assignee_text: string | null;
+        assignee_user_id: string | null;
+        due_at: string | null;
+        created_at: string;
+      }[]
+    >(`/action-items${qs ? "?" + qs : ""}`);
+  },
+  createActionItem: (payload: {
+    transcript_id?: string | null;
+    session_id?: string | null;
+    title: string;
+    detail?: string;
+    assignee_text?: string;
+    due_at?: string;
+  }) =>
+    json<unknown>("/action-items", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateActionItem: (id: string, patch: Record<string, unknown>) =>
+    json<unknown>(`/action-items/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deleteActionItem: (id: string) =>
+    json<void>(`/action-items/${id}`, { method: "DELETE" }),
+  // ── 워크플로 실행 이력 / 승인 (#90, #91) ─────────────────
+  listWorkflowRuns: (workflowId: string, limit = 50) =>
+    json<{
+      items: {
+        id: string;
+        status: string;
+        session_id: string | null;
+        triggered_by_id: string | null;
+        started_at: string | null;
+        finished_at: string | null;
+        error: string;
+      }[];
+    }>(`/workflow-runs?workflow_id=${workflowId}&limit=${limit}`),
+  approveWorkflowRun: (runId: string) =>
+    json<void>(`/workflow-runs/${runId}/approve`, { method: "POST" }),
+  rejectWorkflowRun: (runId: string, reason = "") =>
+    json<void>(`/workflow-runs/${runId}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

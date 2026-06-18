@@ -161,6 +161,25 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "ALTER TABLE messages ADD COLUMN tags TEXT"
                 )
+            # ── 협업 89~91: team_id / requires_approval 컬럼 ──
+            for tbl in ("workflows", "prompts", "projects"):
+                cols_q = await conn.exec_driver_sql(f"PRAGMA table_info({tbl})")
+                cset = {row[1] for row in cols_q.fetchall()}
+                if cset and "team_id" not in cset:
+                    await conn.exec_driver_sql(
+                        f"ALTER TABLE {tbl} ADD COLUMN team_id VARCHAR(36)"
+                    )
+                    await conn.exec_driver_sql(
+                        f"CREATE INDEX IF NOT EXISTS ix_{tbl}_team_id "
+                        f"ON {tbl}(team_id)"
+                    )
+            wcols = await conn.exec_driver_sql("PRAGMA table_info(workflows)")
+            wexisting = {row[1] for row in wcols.fetchall()}
+            if wexisting and "requires_approval" not in wexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE workflows ADD COLUMN requires_approval "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
             # Users: 토큰 무효화 컷오프 (강제 로그아웃·비번 변경).
             ucols = await conn.exec_driver_sql("PRAGMA table_info(users)")
             uexisting = {row[1] for row in ucols.fetchall()}
