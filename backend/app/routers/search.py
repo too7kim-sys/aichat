@@ -70,7 +70,7 @@ def _make_snippet(content: str, query: str, width: int = 140) -> str:
 @router.get("/messages", response_model=list[MessageSearchResult])
 async def search_messages(
     q: str = "",
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
     user: models.User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -79,10 +79,6 @@ async def search_messages(
     # walking the full message table on every keystroke.
     if len(query) < 2:
         return []
-    if limit < 1:
-        limit = 50
-    if limit > 200:
-        limit = 200
     like = f"%{query}%"
     stmt = (
         select(models.Message, models.Session.title)

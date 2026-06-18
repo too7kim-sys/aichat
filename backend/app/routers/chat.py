@@ -7,7 +7,9 @@ from collections.abc import AsyncIterator
 
 log = logging.getLogger("uvicorn.error")
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from ._rate_limit import enforce_rate_limit
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -873,9 +875,14 @@ async def log_merge(
 async def chat_single(
     session_id: str,
     payload: schemas.ChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
+    # IP 기반 rate limit — 한 클라이언트가 한 분에 30회 이상 chat 호출은
+    # 거의 봇 트래픽.  사용자 키 기반이 더 정확하지만 enforce_rate_limit
+    # 가 IP scope 라 그대로 사용.  429 가 떨어지면 사용자가 잠깐 기다림.
+    enforce_rate_limit("chat", request, limit=30, window_seconds=60)
     if not payload.provider:
         raise HTTPException(400, "provider is required")
     provider = get_provider(payload.provider)

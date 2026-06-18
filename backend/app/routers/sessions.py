@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -303,7 +303,7 @@ async def ack_escalation(
 async def list_starred_messages(
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
 ):
     """사용자가 별표한 메시지 모음 (최신순). 사이드바의 "별표한 답변"
     탭이 사용. 다른 세션의 메시지를 한 화면에 모으는 게 핵심."""

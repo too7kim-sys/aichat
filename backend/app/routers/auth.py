@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -418,12 +418,8 @@ async def delete_me(
 async def my_audit(
     user: models.User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
 ):
-    if limit < 1:
-        limit = 50
-    if limit > 200:
-        limit = 200
     rows = (
         await db.execute(
             select(models.AuditLog)

@@ -10,7 +10,7 @@ import json as _json
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -421,11 +421,10 @@ notifications_router = APIRouter(
 @notifications_router.get("")
 async def list_notifications(
     unread_only: bool = False,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    limit = max(1, min(int(limit or 50), 200))
     stmt = select(models.Notification).where(
         models.Notification.user_id == user.id
     )
@@ -783,7 +782,7 @@ async def list_pending_approvals(
 @runs_router.get("")
 async def list_runs(
     workflow_id: str,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -799,7 +798,7 @@ async def list_runs(
             select(models.WorkflowRun)
             .where(models.WorkflowRun.workflow_id == workflow_id)
             .order_by(models.WorkflowRun.started_at.desc())
-            .limit(max(1, min(int(limit or 50), 500)))
+            .limit(limit)
         )
     ).scalars().all()
     return {

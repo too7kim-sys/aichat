@@ -13,7 +13,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -117,13 +118,13 @@ async def list_users(
     status: str | None = None,
     role: str | None = None,
     q: str | None = None,
-    limit: int = 200,
+    limit: int = Query(200, ge=1, le=500),
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """List users for the admin dashboard. Optional filters: status
     bucket (pending / approved / rejected), role, free-text query
-    against email or name. Capped to 200 rows — the dashboard is for
+    against email or name. Capped to 500 rows — the dashboard is for
     moderation, not bulk export."""
     if status and status not in _VALID_STATUS:
         raise HTTPException(400, f"unknown status: {status}")
@@ -135,10 +136,6 @@ async def list_users(
         ).scalar_one_or_none()
         if exists is None:
             raise HTTPException(400, f"unknown role: {role}")
-    if limit < 1:
-        limit = 50
-    if limit > 500:
-        limit = 500
 
     stmt = select(models.User)
     if status:
@@ -728,7 +725,7 @@ async def update_settings(
 
 @router.get("/errors")
 async def list_errors(
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
@@ -741,8 +738,6 @@ async def list_errors(
         "workflows":   [{id, user_email, name, last_error, last_run_at}, ...],
       }
     """
-    limit = max(1, min(int(limit or 50), 200))
-
     # 사용자 id → email 캐시. 작은 매핑이라 한 번에 다 끌어와 in-memory 매칭.
     users_q = await db.execute(select(models.User.id, models.User.email))
     email_of = {uid: em for (uid, em) in users_q.all()}
@@ -835,14 +830,13 @@ async def _list_app_errors(limit: int) -> list[dict]:
 
 @router.get("/search-quality")
 async def list_search_quality(
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     only_misses: bool = False,
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """RAG 검색 품질 로그 (#110).  최근 항목순.  only_misses=true 면
     hit_count==0 또는 top_score<0.3 인 '잘 안 됐을 가능성' 만 본다."""
-    limit = max(1, min(int(limit or 100), 500))
     q = (
         select(models.SearchQualityLog)
         .order_by(models.SearchQualityLog.created_at.desc())
@@ -881,7 +875,7 @@ async def list_search_quality(
 
 @router.get("/audit")
 async def list_audit(
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     event: str | None = None,
     user_q: str | None = None,
     date_from: str | None = None,
@@ -892,8 +886,6 @@ async def list_audit(
     """감사 로그 검색. `event` + `user_q` (이메일 부분 일치) + 날짜
     범위(`date_from` / `date_to`, ISO 8601 또는 YYYY-MM-DD) 로 좁힐 수
     있고 항상 최신순. 기본 100건."""
-    limit = max(1, min(int(limit or 100), 500))
-
     q = select(models.AuditLog).order_by(models.AuditLog.created_at.desc())
     if event:
         q = q.where(models.AuditLog.event == event.strip())
@@ -1132,18 +1124,14 @@ async def get_model_usage(
 
 @router.get("/user-activity")
 async def get_user_activity(
-    days: int = 30,
-    limit: int = 100,
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(100, ge=1, le=500),
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """사용자별 메시지·세션·로그인 활동 요약. 최근 활동 우선."""
     from .. import dashboard
-    return await dashboard.user_activity_summary(
-        db,
-        days=max(1, min(int(days), 365)),
-        limit=max(1, min(int(limit), 500)),
-    )
+    return await dashboard.user_activity_summary(db, days=days, limit=limit)
 
 
 @router.get("/backups")
@@ -1480,18 +1468,21 @@ async def list_orphans(
     }
 
 
+class _OrphanCleanup(BaseModel):
+    kind: str = Field(pattern=r"^comments$")
+    target_type: str = Field(max_length=20)
+
+
 @router.post("/integrity/orphans/cleanup")
 async def cleanup_orphans(
-    payload: dict,
+    payload: _OrphanCleanup,
     request: Request,
     db: AsyncSession = Depends(get_db),
     actor: models.User = Depends(require_admin),
 ):
-    """payload = {kind: 'comments', target_type: 'message' | ...}.  지정
-    된 카테고리의 고아 Comment 행만 삭제.  감사 로그에 actor 기록."""
-    kind = (payload or {}).get("kind")
-    target_type = (payload or {}).get("target_type")
-    if kind != "comments" or target_type not in _COMMENT_TARGET_MODELS:
+    """지정된 카테고리의 고아 Comment 행만 삭제.  감사 로그에 actor 기록."""
+    target_type = payload.target_type
+    if target_type not in _COMMENT_TARGET_MODELS:
         raise HTTPException(400, "지원하지 않는 정리 대상")
     orphan = await _orphan_comment_ids(db)
     ids = orphan.get(target_type, [])
@@ -1569,21 +1560,26 @@ async def check_file_integrity(
     }
 
 
+class _OrphanDirCleanup(BaseModel):
+    # 명시적으로 작은 max_length — 100개 이상 한 번에 정리는 비정상.
+    project_ids: list[str] = Field(max_length=100)
+
+
 @router.post("/integrity/files/cleanup")
 async def cleanup_orphan_dirs(
-    payload: dict,
+    payload: _OrphanDirCleanup,
     request: Request,
     db: AsyncSession = Depends(get_db),
     actor: models.User = Depends(require_admin),
 ):
-    """payload = {project_ids: ['…']}.  '/integrity/files' 가 알려준
-    orphan_dirs 중에서 지정된 것만 실제로 rm -rf.  경로 트래버설 가드:
-    upload_root 밖이거나 실재 Project 가 있는 디렉터리는 건너뜀."""
+    """'/integrity/files' 가 알려준 orphan_dirs 중에서 지정된 것만 실제로
+    rm -rf.  경로 트래버설 가드: upload_root 밖이거나 실재 Project 가 있는
+    디렉터리는 건너뜀."""
     from pathlib import Path
     import shutil
 
-    project_ids = (payload or {}).get("project_ids") or []
-    if not isinstance(project_ids, list) or not project_ids:
+    project_ids = payload.project_ids
+    if not project_ids:
         raise HTTPException(400, "삭제할 project_id 목록이 비어 있음")
     root = Path(settings.rag_upload_dir).expanduser().resolve()
     if not root.is_dir():
@@ -1636,15 +1632,14 @@ async def cleanup_orphan_dirs(
 
 @router.get("/requests/slow")
 async def list_slow_requests(
-    limit: int = 200,
-    threshold_ms: int | None = None,
+    limit: int = Query(200, ge=1, le=1000),
+    threshold_ms: int | None = Query(None, ge=0, le=300_000),
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """Slow request 로그 (#117).  threshold_ms 를 안 주면
     settings.slow_request_ms (기본 500ms) 사용."""
     th = threshold_ms if threshold_ms is not None else settings.slow_request_ms
-    limit = max(1, min(int(limit or 200), 1000))
     rows = (
         await db.execute(
             select(models.RequestLog)
@@ -1817,12 +1812,11 @@ async def slo_dashboard(
 
 @router.get("/webhooks/recent")
 async def list_recent_webhooks(
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     _admin: models.User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """최근 발송된 webhook 결과 — admin 이 '동작했나' 점검할 때."""
-    limit = max(1, min(int(limit or 50), 500))
     rows = (
         await db.execute(
             select(models.WebhookDelivery)
@@ -1872,11 +1866,10 @@ async def test_webhook(
 
 @router.get("/disliked")
 async def list_disliked(
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
-    limit = max(1, min(int(limit or 100), 500))
     rows = (
         await db.execute(
             select(models.Message, models.Session.title, models.Session.user_id)
@@ -1916,14 +1909,13 @@ async def list_disliked(
 
 @router.get("/escalations")
 async def list_escalations(
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     only_open: bool = True,
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
     """사용자가 'AI 가 못 풀었어요' 를 누른 답변 목록 (#123).
     only_open=true 면 ack 안 된 것만."""
-    limit = max(1, min(int(limit or 100), 500))
     q = (
         select(models.Message, models.Session.title, models.Session.user_id)
         .join(models.Session, models.Session.id == models.Message.session_id)
@@ -2101,15 +2093,13 @@ async def health_check(
 
 @router.get("/usage")
 async def usage_per_user(
-    limit: int = 200,
-    days: int = 30,
+    limit: int = Query(200, ge=1, le=1000),
+    days: int = Query(30, ge=1, le=365),
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
     from datetime import datetime as _dt, timedelta as _td
 
-    limit = max(1, min(int(limit or 200), 1000))
-    days = max(1, min(int(days or 30), 365))
     cutoff = _dt.utcnow() - _td(days=days)
 
     # 사용자별 집계: 메시지 수, 어시스턴트 토큰 합, 평균 latency,
