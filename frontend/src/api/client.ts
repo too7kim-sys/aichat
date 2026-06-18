@@ -653,9 +653,42 @@ export const admin = {
         provider: string | null;
         content: string;
         feedback_note: string | null;
+        feedback_category: string | null;
+        rating: number | null;
         created_at: string | null;
       }[]
     >(`/admin/disliked?limit=${limit}`),
+  /** 'AI 가 못 풀었어요' 표시된 메시지 inbox (#123). */
+  listEscalations: (opts?: { limit?: number; onlyOpen?: boolean }) => {
+    const params = new URLSearchParams();
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.onlyOpen !== undefined) {
+      params.set("only_open", opts.onlyOpen ? "true" : "false");
+    }
+    const qs = params.toString();
+    return json<Array<{
+      message_id: string;
+      session_id: string;
+      session_title: string;
+      user_email: string;
+      content: string;
+      reason: string | null;
+      escalated_at: string | null;
+      ack_at: string | null;
+    }>>(`/admin/escalations${qs ? "?" + qs : ""}`);
+  },
+  /** 피드백 통계 (#124). */
+  feedbackStats: (days = 30) =>
+    json<{
+      days: number;
+      total_assistant_messages: number;
+      up: number;
+      down: number;
+      escalated: number;
+      down_by_category: Record<string, number>;
+      by_provider: Record<string, { up: number; down: number; n: number }>;
+      by_rating: Record<string, number>;
+    }>(`/admin/feedback-stats?days=${days}`),
   // ── 시스템 헬스 (#39) ────────────────────────────────
   health: () =>
     json<{
@@ -1087,6 +1120,8 @@ export const api = {
       starred?: boolean;
       feedback?: -1 | 0 | 1;
       feedback_note?: string | null;
+      feedback_category?: string | null;
+      rating?: number | null;
       tags?: string[];
     },
   ) =>
@@ -1095,11 +1130,25 @@ export const api = {
       starred: boolean;
       feedback: number;
       feedback_note: string | null;
+      feedback_category: string | null;
+      rating: number | null;
       tags: string[] | null;
     }>(`/sessions/${sessionId}/messages/${messageId}/meta`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  /** 사용자가 'AI 가 못 풀었어요' 표시 (#123). */
+  escalateMessage: (sessionId: string, messageId: string, reason: string) =>
+    json<{ escalated_at: string | null; reason: string | null }>(
+      `/sessions/${sessionId}/messages/${messageId}/escalate`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    ),
+  /** 관리자가 escalation 처리 완료 표시 (#123). */
+  ackEscalation: (sessionId: string, messageId: string) =>
+    json<void>(
+      `/sessions/${sessionId}/messages/${messageId}/escalate/ack`,
+      { method: "POST" },
+    ),
   // ── 사용자 슬래시 매크로 (#33) ─────────────────────────────
   listMacros: () =>
     json<

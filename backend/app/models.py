@@ -708,6 +708,31 @@ class Message(Base):
     feedback_note: Mapped[str | None] = mapped_column(
         String(500), nullable=True,
     )
+    # 👎 의 사유 분류 (#121) — 'inaccurate' | 'incomplete' | 'irrelevant'
+    # | 'unsafe' | 'other'.  feedback=-1 일 때만 의미가 있다.
+    feedback_category: Mapped[str | None] = mapped_column(
+        String(20), nullable=True,
+    )
+    # 1~5 별점 (#122).  None = 미평가.  feedback 토글과 독립 — 한 답변에
+    # 👍 + 4성 같은 조합이 가능.
+    rating: Mapped[int | None] = mapped_column(nullable=True)
+    # 운영자 escalation flag (#123).  사용자가 'AI 가 못 풀었어요' 를
+    # 명시적으로 누르면 시각을 박고 운영자 inbox 에 알림이 들어간다.
+    # escalation 이 resolved 되면 운영자가 ack 시각을 기록.
+    escalated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True,
+    )
+    escalated_reason: Mapped[str | None] = mapped_column(
+        String(500), nullable=True,
+    )
+    escalation_ack_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+    escalation_ack_by_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     # 자유 태그 (#32) — JSON 문자열로 직렬화된 string[].  최대 8개.
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

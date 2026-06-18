@@ -161,6 +161,36 @@ async def init_db() -> None:
                 await conn.exec_driver_sql(
                     "ALTER TABLE messages ADD COLUMN tags TEXT"
                 )
+            # 피드백 분류 + 별점 + escalation (#121~#123).
+            if mexisting and "feedback_category" not in mexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN feedback_category "
+                    "VARCHAR(20)"
+                )
+            if mexisting and "rating" not in mexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN rating INTEGER"
+                )
+            if mexisting and "escalated_at" not in mexisting:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN escalated_at DATETIME"
+                )
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN escalated_reason "
+                    "VARCHAR(500)"
+                )
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN escalation_ack_at DATETIME"
+                )
+                await conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN escalation_ack_by_id "
+                    "VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_messages_escalated_at "
+                    "ON messages(escalated_at) "
+                    "WHERE escalated_at IS NOT NULL"
+                )
             # ── 협업 89~91: team_id / requires_approval 컬럼 ──
             for tbl in ("workflows", "prompts", "projects"):
                 cols_q = await conn.exec_driver_sql(f"PRAGMA table_info({tbl})")

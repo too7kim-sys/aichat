@@ -191,12 +191,21 @@ async def update_message_meta(
         msg.starred = bool(payload.starred)
     if payload.feedback is not None:
         msg.feedback = int(payload.feedback)
-        # 평가가 0 으로 돌아가면 메모도 자동 정리.
+        # 평가가 0 으로 돌아가면 메모/분류도 자동 정리.
         if msg.feedback == 0:
             msg.feedback_note = None
+            msg.feedback_category = None
     if payload.feedback_note is not None:
         note = payload.feedback_note.strip()
         msg.feedback_note = note or None
+    if payload.feedback_category is not None:
+        cat = (payload.feedback_category or "").strip()
+        if cat and cat not in schemas._FEEDBACK_CATEGORIES:
+            raise HTTPException(400, f"알 수 없는 사유 분류: {cat}")
+        msg.feedback_category = cat or None
+    if payload.rating is not None:
+        # 0 = 클리어, 1~5 = 평점.  Pydantic 이 범위 검사함.
+        msg.rating = int(payload.rating) if payload.rating > 0 else None
     if payload.tags is not None:
         # 빈 리스트 = 태그 모두 제거.  최대 8개, 각 24자.
         import json as _json
@@ -208,6 +217,83 @@ async def update_message_meta(
     await db.commit()
     await db.refresh(msg)
     return msg
+
+
+@router.post("/{session_id}/messages/{message_id}/escalate")
+async def escalate_message(
+    session_id: str,
+    message_id: str,
+    payload: schemas.MessageEscalateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """사용자가 'AI 가 못 풀었어요' 를 누름 (#123).  해당 메시지에
+    escalated_at 을 박고, 모든 admin 사용자에게 Notification 발송.
+    이미 escalated 상태면 reason 만 업데이트 (재escalate 안 함)."""
+    from datetime import datetime as _dt
+    session = await _load_owned(db, session_id, user.id)
+    msg = next((m for m in session.messages if m.id == message_id), None)
+    if msg is None:
+        raise HTTPException(404, "message not found")
+    if msg.role != "assistant":
+        raise HTTPException(400, "AI 답변만 escalation 할 수 있어요")
+    reason = (payload.reason or "").strip()[:500]
+    is_new = msg.escalated_at is None
+    msg.escalated_reason = reason or None
+    if is_new:
+        msg.escalated_at = _dt.utcnow()
+        # admin 들에게 알림 fan-out.  admin 수가 적으니 단순 broadcast.
+        admins = (
+            await db.execute(
+                select(models.User.id).where(models.User.role == "admin")
+            )
+        ).scalars().all()
+        for aid in admins:
+            db.add(
+                models.Notification(
+                    user_id=aid,
+                    kind="user_escalation",
+                    title=f"⚠️ 사용자 escalation — {user.email}",
+                    body=(reason or "(사유 없음)")[:200],
+                    link="/?admin=feedback",
+                )
+            )
+    await db.commit()
+    return {
+        "escalated_at": msg.escalated_at.isoformat() if msg.escalated_at else None,
+        "reason": msg.escalated_reason,
+    }
+
+
+@router.post("/{session_id}/messages/{message_id}/escalate/ack", status_code=204)
+async def ack_escalation(
+    session_id: str,
+    message_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """관리자가 escalation 을 처리 완료 표시 (#123).  본인의 세션이
+    아니어도 admin 이면 ack 가능."""
+    from datetime import datetime as _dt
+    is_admin = user.role == "admin"
+    if is_admin:
+        msg = (
+            await db.execute(
+                select(models.Message).where(models.Message.id == message_id)
+            )
+        ).scalar_one_or_none()
+        if msg is None:
+            raise HTTPException(404, "message not found")
+    else:
+        session = await _load_owned(db, session_id, user.id)
+        msg = next((m for m in session.messages if m.id == message_id), None)
+        if msg is None:
+            raise HTTPException(404, "message not found")
+    if msg.escalated_at is None:
+        raise HTTPException(400, "escalation 상태가 아니에요")
+    msg.escalation_ack_at = _dt.utcnow()
+    msg.escalation_ack_by_id = user.id
+    await db.commit()
 
 
 @router.get(

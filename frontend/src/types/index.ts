@@ -23,6 +23,13 @@ export interface Message {
   feedback?: number;
   /** 평가에 덧붙인 자유 메모. 500자 한도. */
   feedback_note?: string | null;
+  /** 👎 사유 분류 (#121). */
+  feedback_category?: string | null;
+  /** 1~5 별점 (#122). */
+  rating?: number | null;
+  /** 'AI 가 못 풀었어요' escalation 시각 (#123). */
+  escalated_at?: string | null;
+  escalation_ack_at?: string | null;
   /** 답변 생성 지연 (ms) — 어시스턴트 메시지의 응답 시간 표시용. */
   latency_ms?: number | null;
   /** 어시스턴트 출력 토큰 수 — mini 표시용. */

@@ -2715,39 +2715,162 @@ function IntegrityPanel() {
 
 function QualityPanel() {
   type Row = Awaited<ReturnType<typeof admin.listDisliked>>[number];
+  type Esc = Awaited<ReturnType<typeof admin.listEscalations>>[number];
+  type Stats = Awaited<ReturnType<typeof admin.feedbackStats>>;
   const [rows, setRows] = useState<Row[]>([]);
+  const [escalations, setEscalations] = useState<Esc[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [tab, setTab] = useState<"disliked" | "escalated">("disliked");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
-    void (async () => {
-      try {
-        const r = await admin.listDisliked(100);
-        setRows(r);
-        setErr(null);
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
 
-  if (loading) return <div className="admin-empty">불러오는 중...</div>;
+  async function refresh() {
+    setLoading(true);
+    try {
+      const [r, e, s] = await Promise.all([
+        admin.listDisliked(100),
+        admin.listEscalations({ limit: 100, onlyOpen: true }),
+        admin.feedbackStats(30),
+      ]);
+      setRows(r);
+      setEscalations(e);
+      setStats(s);
+      setErr(null);
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function ack(sessId: string, msgId: string) {
+    try {
+      await api.ackEscalation(sessId, msgId);
+      await refresh();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (loading && !stats) return <div className="admin-empty">불러오는 중...</div>;
   if (err) return <div className="admin-empty admin-error">{err}</div>;
 
   return (
     <div className="admin-errors">
       <div className="admin-errors-head">
         <div>
-          <h2>👎 답변 품질 — 싫어요 받은 답변</h2>
+          <h2>답변 품질</h2>
           <p>
-            사용자가 만족하지 못한 답변을 한 화면에서 점검할 수 있어요.
-            메모가 있으면 어떤 점이 아쉬웠는지 함께 표시됩니다.
+            👎 / ⚠️ escalation / 별점을 한 화면에서 점검. 최근 30일 통계 +
+            상세 목록.
           </p>
         </div>
-        <span className="admin-errors-stamp">{rows.length}건</span>
       </div>
-      {rows.length === 0 ? (
+
+      {stats && (
+        <div className="admin-policy" style={{ display: "block", marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 16, padding: "8px 0" }}>
+            <FeedbackStat label="AI 답변" value={stats.total_assistant_messages} />
+            <FeedbackStat label="👍" value={stats.up} tone="ok" />
+            <FeedbackStat label="👎" value={stats.down} tone="warn" />
+            <FeedbackStat label="⚠️ Escalation" value={stats.escalated} tone="err" />
+          </div>
+          {Object.keys(stats.down_by_category).length > 0 && (
+            <div className="pm-help">
+              👎 사유: {Object.entries(stats.down_by_category)
+                .map(([k, v]) => `${k} ${v}`)
+                .join(" · ")}
+            </div>
+          )}
+          {Object.values(stats.by_rating).some((n) => n > 0) && (
+            <div className="pm-help">
+              별점: {[5, 4, 3, 2, 1]
+                .map((n) => `${n}★ ${stats.by_rating[String(n)] ?? 0}`)
+                .join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="admin-controls">
+        <div className="admin-tabs" role="tablist">
+          <button
+            role="tab"
+            className={`admin-tab${tab === "disliked" ? " active" : ""}`}
+            onClick={() => setTab("disliked")}
+          >
+            👎 싫어요 ({rows.length})
+          </button>
+          <button
+            role="tab"
+            className={`admin-tab${tab === "escalated" ? " active" : ""}`}
+            onClick={() => setTab("escalated")}
+          >
+            ⚠️ Escalation ({escalations.length})
+          </button>
+        </div>
+        <button type="button" className="admin-btn" onClick={refresh}>
+          새로고침
+        </button>
+      </div>
+
+      {tab === "escalated" ? (
+        escalations.length === 0 ? (
+          <div className="admin-empty">✓ 처리 대기 중 escalation 없음</div>
+        ) : (
+          <table className="admin-table admin-error-table">
+            <thead>
+              <tr>
+                <th>요청 시각</th>
+                <th>사용자</th>
+                <th>세션</th>
+                <th>사유</th>
+                <th>답변 미리보기</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {escalations.map((r) => (
+                <tr key={r.message_id}>
+                  <td className="admin-error-when">
+                    {r.escalated_at ? new Date(r.escalated_at).toLocaleString() : "—"}
+                  </td>
+                  <td>{r.user_email}</td>
+                  <td>
+                    <a
+                      href={`?session=${r.session_id}&message=${r.message_id}`}
+                      title="이 세션으로 이동"
+                    >
+                      {r.session_title}
+                    </a>
+                  </td>
+                  <td>
+                    {r.reason ? (
+                      <div className="admin-quality-note">{r.reason}</div>
+                    ) : (
+                      <span className="admin-cell-muted">(사유 없음)</span>
+                    )}
+                  </td>
+                  <td>
+                    <div className="admin-quality-snippet">{r.content}</div>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="admin-btn"
+                      onClick={() => ack(r.session_id, r.message_id)}
+                      title="처리 완료 표시"
+                    >
+                      ✓ 처리됨
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      ) : rows.length === 0 ? (
         <div className="admin-empty">✓ 최근 싫어요 표시된 답변이 없습니다.</div>
       ) : (
         <table className="admin-table admin-error-table">
@@ -2756,6 +2879,8 @@ function QualityPanel() {
               <th>사용자</th>
               <th>세션</th>
               <th>답변</th>
+              <th>사유</th>
+              <th>별점</th>
               <th>메모</th>
               <th>시각</th>
             </tr>
@@ -2779,6 +2904,16 @@ function QualityPanel() {
                   )}
                 </td>
                 <td>
+                  {r.feedback_category ? (
+                    <code>{r.feedback_category}</code>
+                  ) : (
+                    <span className="admin-cell-muted">—</span>
+                  )}
+                </td>
+                <td>
+                  {r.rating ? "★".repeat(r.rating) : <span className="admin-cell-muted">—</span>}
+                </td>
+                <td>
                   {r.feedback_note ? (
                     <div className="admin-quality-note">{r.feedback_note}</div>
                   ) : (
@@ -2795,6 +2930,31 @@ function QualityPanel() {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+
+function FeedbackStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "ok" | "warn" | "err";
+}) {
+  const color =
+    tone === "ok" ? "#15803d"
+    : tone === "warn" ? "#a16207"
+    : tone === "err" ? "#b91c1c"
+    : "inherit";
+  return (
+    <div style={{ flex: 1, textAlign: "center" }}>
+      <div style={{ fontSize: 22, fontWeight: 600, color }}>
+        {value.toLocaleString()}
+      </div>
+      <div className="pm-help" style={{ marginTop: 2 }}>{label}</div>
     </div>
   );
 }

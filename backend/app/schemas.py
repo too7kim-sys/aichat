@@ -34,6 +34,12 @@ class MessageOut(BaseModel):
     starred: bool = False
     feedback: int = 0
     feedback_note: str | None = None
+    # 👎 사유 분류 + 별점 (#121, #122).
+    feedback_category: str | None = None
+    rating: int | None = None
+    # Escalation (#123) — 사용자가 'AI 못 풀었어요' 를 표시한 시각.
+    escalated_at: datetime | None = None
+    escalation_ack_at: datetime | None = None
     # 자유 태그 (#32) — wire 에선 list[str], DB 컬럼은 JSON 문자열.
     tags: list[str] | None = None
     created_at: datetime
@@ -124,6 +130,11 @@ class MessageUpdate(BaseModel):
     content: str = Field(min_length=1, max_length=200_000)
 
 
+_FEEDBACK_CATEGORIES = {
+    "inaccurate", "incomplete", "irrelevant", "unsafe", "other",
+}
+
+
 class MessageMetaUpdate(BaseModel):
     """PATCH body for star + feedback on a single message. All fields
     optional — pass only what changed. `feedback` accepts 1 (👍) /
@@ -131,8 +142,17 @@ class MessageMetaUpdate(BaseModel):
     starred: bool | None = None
     feedback: int | None = Field(default=None, ge=-1, le=1)
     feedback_note: str | None = Field(default=None, max_length=500)
+    # 👎 사유 분류 (#121) — feedback=-1 일 때만 의미.  None = 미설정.
+    feedback_category: str | None = Field(default=None, max_length=20)
+    # 1~5 별점 (#122).  0 또는 None = 클리어.
+    rating: int | None = Field(default=None, ge=0, le=5)
     # 자유 태그 (#32) — 빈 리스트 / None 모두 허용 (None = 미변경).
     tags: list[str] | None = None
+
+
+class MessageEscalateRequest(BaseModel):
+    """POST /messages/{id}/escalate body (#123)."""
+    reason: str = Field(default="", max_length=500)
 
 
 class SessionMove(BaseModel):

@@ -47,13 +47,19 @@ interface Props {
   starred?: boolean;
   feedback?: number;
   feedbackNote?: string | null;
+  feedbackCategory?: string | null;
+  rating?: number | null;
+  escalatedAt?: string | null;
   /** 별표/평가 토글 — 부모가 session.messages 를 갱신할 수 있게.
    *  meta 만 PATCH 하는 가벼운 API 가 따로 있다 (api.updateMessageMeta). */
   onMetaChanged?: (next: {
     starred?: boolean;
     feedback?: number;
     feedback_note?: string | null;
+    feedback_category?: string | null;
+    rating?: number | null;
     tags?: string[] | null;
+    escalated_at?: string | null;
   }) => void;
   /** 정확 시각 — 어시스턴트는 답변 받은 시각, 사용자는 발송 시각. */
   createdAt?: string | null;
@@ -118,6 +124,9 @@ export function MessageBubble({
   starred = false,
   feedback = 0,
   feedbackNote = null,
+  feedbackCategory = null,
+  rating = null,
+  escalatedAt = null,
   onMetaChanged,
   createdAt = null,
   latencyMs = null,
@@ -147,6 +156,10 @@ export function MessageBubble({
   const [noteLocal, setNoteLocal] = useState<string | null>(feedbackNote);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [noteDraft, setNoteDraft] = useState(feedbackNote ?? "");
+  // #121 사유 분류 + #122 별점 + #123 escalation 상태.
+  const [categoryLocal, setCategoryLocal] = useState<string | null>(feedbackCategory);
+  const [ratingLocal, setRatingLocal] = useState<number | null>(rating);
+  const [escalatedLocal, setEscalatedLocal] = useState<string | null>(escalatedAt);
   // 자유 태그 (#32). 낙관적 갱신.
   const [tagsLocal, setTagsLocal] = useState<string[]>(tags ?? []);
   const [tagInputOpen, setTagInputOpen] = useState(false);
@@ -366,6 +379,9 @@ export function MessageBubble({
   }
   useEffect(() => setStarredLocal(starred), [starred]);
   useEffect(() => setFeedbackLocal(feedback), [feedback]);
+  useEffect(() => setCategoryLocal(feedbackCategory), [feedbackCategory]);
+  useEffect(() => setRatingLocal(rating), [rating]);
+  useEffect(() => setEscalatedLocal(escalatedAt), [escalatedAt]);
   useEffect(() => {
     setNoteLocal(feedbackNote);
     if (!showNoteEditor) setNoteDraft(feedbackNote ?? "");
@@ -419,13 +435,54 @@ export function MessageBubble({
     try {
       await api.updateMessageMeta(sessionId, messageId, {
         feedback_note: next,
+        feedback_category: categoryLocal,
       });
       setNoteLocal(next);
-      onMetaChanged?.({ feedback_note: next });
+      onMetaChanged?.({ feedback_note: next, feedback_category: categoryLocal });
       setShowNoteEditor(false);
     } catch (e) {
       window.alert(
         `메모 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  async function setRating(value: number) {
+    if (!sessionId || !messageId || locked) return;
+    const next = ratingLocal === value ? null : value;
+    setRatingLocal(next);
+    try {
+      await api.updateMessageMeta(sessionId, messageId, { rating: next ?? 0 });
+      onMetaChanged?.({ rating: next });
+    } catch (e) {
+      setRatingLocal(ratingLocal);
+      window.alert(`별점 저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function escalate() {
+    if (!sessionId || !messageId || locked) return;
+    if (escalatedLocal) {
+      window.alert("이미 운영자에게 escalation 된 답변입니다.");
+      return;
+    }
+    const reason = window.prompt(
+      "어떤 부분이 풀리지 않았는지 간단히 적어 주세요 (선택):",
+      "",
+    );
+    if (reason === null) return; // 취소
+    try {
+      const r = await api.escalateMessage(sessionId, messageId, reason);
+      setEscalatedLocal(r.escalated_at);
+      onMetaChanged?.({ escalated_at: r.escalated_at });
+      window.dispatchEvent(
+        new CustomEvent("chat:toast", {
+          detail: "운영자에게 전달했습니다 — 알림이 발송됐어요.",
+        }),
+      );
+    } catch (e) {
+      window.alert(
+        `Escalation 실패: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -741,6 +798,42 @@ export function MessageBubble({
                 >
                   <IconThumbsDown size={11} />
                 </button>
+                {role === "assistant" && (
+                  <div
+                    className="bubble-rating"
+                    title="별점 (선택)"
+                    style={{ display: "inline-flex", gap: 2, marginLeft: 4 }}
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        className={`bubble-tiny-btn${(ratingLocal ?? 0) >= n ? " active" : ""}`}
+                        onClick={() => setRating(n)}
+                        disabled={locked}
+                        title={`${n}점`}
+                        style={{ padding: "0 2px", fontSize: 11, lineHeight: 1 }}
+                      >
+                        {(ratingLocal ?? 0) >= n ? "★" : "☆"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {role === "assistant" && (
+                  <button
+                    type="button"
+                    className={`bubble-tiny-btn${escalatedLocal ? " active" : ""}`}
+                    onClick={escalate}
+                    disabled={locked || !!escalatedLocal}
+                    title={
+                      escalatedLocal
+                        ? "이미 운영자에게 전달됨"
+                        : "AI 가 못 풀었어요 — 운영자에게 전달"
+                    }
+                  >
+                    ⚠️
+                  </button>
+                )}
                 {feedbackLocal !== 0 && (
                   <button
                     type="button"
@@ -1058,34 +1151,57 @@ export function MessageBubble({
         {showNoteEditor && sessionId && messageId && (
           <div className="bubble-feedback-note">
             {feedbackLocal === -1 && (
-              <div className="bubble-feedback-reasons">
-                {[
-                  "부정확함",
-                  "동문서답",
-                  "너무 길다",
-                  "너무 짧다",
-                  "맥락 무시",
-                  "출처 부족",
-                ].map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    className={`bubble-reason-chip${noteDraft.includes(r) ? " picked" : ""}`}
-                    onClick={() => {
-                      setNoteDraft((cur) => {
-                        if (cur.includes(r)) {
-                          return cur
-                            .replace(new RegExp(`${r}[,\\s]*`), "")
-                            .trim();
-                        }
-                        return cur ? `${r}, ${cur}` : r;
-                      });
-                    }}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="bubble-feedback-reasons">
+                  {([
+                    ["inaccurate", "부정확함"],
+                    ["incomplete", "정보 부족"],
+                    ["irrelevant", "맥락 무시"],
+                    ["unsafe", "보안/개인정보"],
+                    ["other", "기타"],
+                  ] as const).map(([code, label]) => (
+                    <button
+                      key={code}
+                      type="button"
+                      className={`bubble-reason-chip${categoryLocal === code ? " picked" : ""}`}
+                      onClick={() =>
+                        setCategoryLocal((cur) => (cur === code ? null : code))
+                      }
+                      title="대표 사유 (1개)"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="bubble-feedback-reasons">
+                  {[
+                    "부정확함",
+                    "동문서답",
+                    "너무 길다",
+                    "너무 짧다",
+                    "맥락 무시",
+                    "출처 부족",
+                  ].map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      className={`bubble-reason-chip${noteDraft.includes(r) ? " picked" : ""}`}
+                      onClick={() => {
+                        setNoteDraft((cur) => {
+                          if (cur.includes(r)) {
+                            return cur
+                              .replace(new RegExp(`${r}[,\\s]*`), "")
+                              .trim();
+                          }
+                          return cur ? `${r}, ${cur}` : r;
+                        });
+                      }}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
             <textarea
               className="bubble-feedback-note-input"
