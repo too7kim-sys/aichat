@@ -487,6 +487,48 @@ export const admin = {
     json<void>(`/admin/backups/${encodeURIComponent(name)}`, {
       method: "DELETE",
     }),
+  // ── 데이터 정합성 (#112~#115) ─────────────────────────────
+  checkBackupIntegrity: () =>
+    json<{
+      backup_dir: string;
+      files: Array<{
+        name: string;
+        size_bytes?: number;
+        sha256?: string;
+        integrity?: string;
+        mtime?: string;
+        ok?: boolean;
+        error?: string;
+      }>;
+    }>("/admin/integrity/backups"),
+  listOrphans: () =>
+    json<{
+      comments: Record<string, { count: number; sample: string[] }>;
+    }>("/admin/integrity/orphans"),
+  cleanupOrphans: (kind: "comments", targetType: string) =>
+    json<{ deleted: number }>("/admin/integrity/orphans/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ kind, target_type: targetType }),
+    }),
+  checkFileIntegrity: () =>
+    json<{
+      upload_root: string;
+      orphan_dirs: Array<{
+        path: string;
+        project_id: string;
+        size_bytes: number;
+        file_count: number;
+      }>;
+      missing_dirs: Array<{ project_id: string; name: string }>;
+    }>("/admin/integrity/files"),
+  cleanupOrphanDirs: (projectIds: string[]) =>
+    json<{ deleted_dirs: number; freed_bytes: number }>(
+      "/admin/integrity/files/cleanup",
+      {
+        method: "POST",
+        body: JSON.stringify({ project_ids: projectIds }),
+      },
+    ),
   listErrors: (limit = 50) =>
     json<{
       transcripts: Array<{
