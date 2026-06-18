@@ -721,8 +721,56 @@ async def extract_actions_from_transcript(
     return n
 
 
-# ── 워크플로 실행 이력 + 승인 (#90, #91) ────────────────────
+# ── 워크플로 실행 이력 + 승인 (#90, #91, #99) ────────────────────
 runs_router = APIRouter(prefix="/api/workflow-runs", tags=["cowork"])
+
+
+@runs_router.get("/pending-approvals")
+async def list_pending_approvals(
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """승인 대기 큐 (#99) — 내가 owner 인 팀의 워크플로 + 내가 만든
+    개인 워크플로의 pending_approval 실행을 모두 모아 한 화면에."""
+    # 내가 owner 인 팀 id 들.
+    owner_team_ids = (
+        await db.execute(
+            select(models.TeamMember.team_id).where(
+                models.TeamMember.user_id == user.id,
+                models.TeamMember.role == "owner",
+            )
+        )
+    ).scalars().all()
+    stmt = (
+        select(models.WorkflowRun, models.Workflow)
+        .join(
+            models.Workflow,
+            models.Workflow.id == models.WorkflowRun.workflow_id,
+        )
+        .where(models.WorkflowRun.status == "pending_approval")
+    )
+    if not _is_admin(user):
+        # 관리자가 아니면 내가 owner 인 팀 or 내가 만든 워크플로만.
+        clauses = [models.Workflow.user_id == user.id]
+        if owner_team_ids:
+            clauses.append(models.Workflow.team_id.in_(owner_team_ids))
+        from sqlalchemy import or_
+        stmt = stmt.where(or_(*clauses))
+    stmt = stmt.order_by(models.WorkflowRun.started_at.desc()).limit(200)
+    rows = (await db.execute(stmt)).all()
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "workflow_id": r.workflow_id,
+                "workflow_name": wf.name,
+                "triggered_by_id": r.triggered_by_id,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "team_id": wf.team_id,
+            }
+            for (r, wf) in rows
+        ]
+    }
 
 
 @runs_router.get("")

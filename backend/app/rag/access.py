@@ -111,11 +111,44 @@ async def accessible_shared_prompt_ids(
     return list(dict.fromkeys(rows))
 
 
+async def _user_in_team(
+    db: AsyncSession, user_id: str, team_id: str | None
+) -> bool:
+    if not team_id:
+        return False
+    row = (
+        await db.execute(
+            select(models.TeamMember.user_id).where(
+                models.TeamMember.team_id == team_id,
+                models.TeamMember.user_id == user_id,
+            )
+        )
+    ).first()
+    return row is not None
+
+
+async def user_team_ids(
+    db: AsyncSession, user_id: str
+) -> list[str]:
+    """All team IDs the user is a member of. Used by list endpoints to
+    include team-shared rows without per-row team lookups."""
+    rows = (
+        await db.execute(
+            select(models.TeamMember.team_id).where(
+                models.TeamMember.user_id == user_id
+            )
+        )
+    ).scalars().all()
+    return list(rows)
+
+
 async def can_access_prompt(
     db: AsyncSession, user: models.User, prompt: models.Prompt
 ) -> bool:
-    """Per-prompt authorization: owner OR (shared AND role mapped)."""
+    """Per-prompt authorization: owner OR (team member) OR (shared AND role mapped)."""
     if prompt.user_id == user.id:
+        return True
+    if prompt.team_id and await _user_in_team(db, user.id, prompt.team_id):
         return True
     if not prompt.is_shared:
         return False
@@ -136,8 +169,10 @@ async def can_access_prompt(
 async def can_access_project(
     db: AsyncSession, user: models.User, project: models.Project
 ) -> bool:
-    """Per-project authorization: owner OR (shared AND role mapped)."""
+    """Per-project authorization: owner OR (team member) OR (shared AND role mapped)."""
     if project.user_id == user.id:
+        return True
+    if project.team_id and await _user_in_team(db, user.id, project.team_id):
         return True
     if not project.is_shared:
         return False

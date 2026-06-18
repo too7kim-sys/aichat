@@ -631,6 +631,9 @@ export interface Project {
   /** How many snapshots the indexer keeps per project; older ones
    *  are auto-pruned after each successful reindex. 0 = unlimited. */
   snapshot_retention_count: number;
+  /** Optional team — when set, all team members can read+search this
+   *  project regardless of role mapping. Owner edits stay owner-only. */
+  team_id?: string | null;
   /** False when the user is accessing this as a shared knowledge base
    *  they don't own — the UI hides delete / reindex in that case. */
   owned: boolean;
@@ -647,6 +650,8 @@ export interface Prompt {
   is_shared: boolean;
   role_codes: string[];
   owned: boolean;
+  /** Optional team — when set, team members can use this prompt. */
+  team_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1220,6 +1225,8 @@ export const api = {
      *  given role codes. */
     is_shared?: boolean;
     role_codes?: string[];
+    /** Optional team that gets read+search access on this project. */
+    team_id?: string | null;
     /** How many snapshots to keep per project (0 = unlimited).
      *  Defaults to 10 on the backend if omitted. */
     snapshot_retention_count?: number;
@@ -1268,6 +1275,7 @@ export const api = {
       api_detail_url?: string | null;
       is_shared?: boolean;
       role_codes?: string[];
+      team_id?: string | null;
       snapshot_retention_count?: number;
     },
   ) =>
@@ -1423,6 +1431,7 @@ export const api = {
     tags?: string;
     is_shared?: boolean;
     role_codes?: string[];
+    team_id?: string | null;
   }) =>
     json<Prompt>("/prompts", {
       method: "POST",
@@ -1438,6 +1447,7 @@ export const api = {
       tags: string;
       is_shared: boolean;
       role_codes: string[];
+      team_id: string | null;
     }>,
   ) =>
     json<Prompt>(`/prompts/${id}`, {
@@ -1545,6 +1555,13 @@ export const api = {
     json<Transcript>(`/transcripts/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ title }),
+    }),
+  /** 회의록 본문에서 LLM 으로 액션아이템을 추출 (#97). 반환: 생성된 개수.
+   *  같은 회의록을 두 번 누르면 새 항목이 추가됩니다 — 기존 항목은
+   *  보존되므로 누적 수기 편집이 가능합니다. */
+  extractTranscriptActions: (id: string) =>
+    json<{ created: number }>(`/transcripts/${id}/extract-actions`, {
+      method: "POST",
     }),
   /** Download the transcript's chat session as a Korean 회의록 DOCX.
    *  Optional `messageIds` lets the caller hand-pick which messages
@@ -2287,7 +2304,13 @@ export const api = {
     }>(`/comments?${params.toString()}`);
   },
   createComment: (payload: {
-    target_type: "message" | "chunk" | "workflow" | "transcript" | "action";
+    target_type:
+      | "message"
+      | "chunk"
+      | "workflow"
+      | "transcript"
+      | "action"
+      | "session";
     target_id: string;
     body: string;
     parent_id?: string | null;
@@ -2398,6 +2421,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ reason }),
     }),
+  /** 승인 대기 큐 (#99) — 내가 owner 인 팀의 워크플로 + 내 워크플로
+   *  중 pending_approval 상태의 실행만 모아 옴. */
+  listPendingApprovals: () =>
+    json<{
+      items: {
+        id: string;
+        workflow_id: string;
+        workflow_name: string;
+        triggered_by_id: string | null;
+        started_at: string | null;
+        team_id: string | null;
+      }[];
+    }>("/workflow-runs/pending-approvals"),
   revertWorkspaceFile: (id: string, path: string) =>
     json<{ path: string; removed: boolean }>(
       `/code/workspaces/${id}/revert`,

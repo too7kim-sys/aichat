@@ -85,6 +85,15 @@ export function CmdPalette({
         window.dispatchEvent(new CustomEvent("cowork:open-teams"));
       },
     });
+    out.push({
+      key: "act-approvals",
+      kind: "action",
+      label: "🛂 승인 대기 큐",
+      hint: "워크플로 실행 승인",
+      onPick: () => {
+        window.dispatchEvent(new CustomEvent("cowork:open-approvals"));
+      },
+    });
     // 세션 — 최근 30 개.
     for (const s of sessions.slice(0, 30)) {
       out.push({

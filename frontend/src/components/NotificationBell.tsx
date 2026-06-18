@@ -49,8 +49,31 @@ export function NotificationBell() {
         /* ignore */
       }
     }
+    // 백엔드가 link 에 cowork=actions / workflows / approvals 같은 쿼리
+    // 를 박아 보내면 해당 패널을 띄운다.  단순 history pushState 만
+    // 해서는 React 가 반응하지 않으므로 커스텀 이벤트로 우회.
     if (it.link) {
-      window.history.replaceState({}, "", it.link);
+      try {
+        const u = new URL(it.link, window.location.origin);
+        const cw = u.searchParams.get("cowork");
+        if (cw === "actions") {
+          window.dispatchEvent(new CustomEvent("cowork:open-actions"));
+        } else if (cw === "workflows" || cw === "approvals") {
+          window.dispatchEvent(new CustomEvent("cowork:open-approvals"));
+        } else if (cw === "teams") {
+          window.dispatchEvent(new CustomEvent("cowork:open-teams"));
+        }
+        const target = u.searchParams.get("target");
+        if (target?.startsWith("session:")) {
+          window.dispatchEvent(
+            new CustomEvent("chat:switch-session", {
+              detail: { sessionId: target.slice("session:".length) },
+            }),
+          );
+        }
+      } catch {
+        /* 잘못된 link — 무시 */
+      }
     }
     setOpen(false);
     void refresh();

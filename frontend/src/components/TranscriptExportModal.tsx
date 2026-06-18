@@ -270,6 +270,36 @@ export function TranscriptExportModal({
             >
               <IconChat size={13} /> 채팅에서 수정
             </button>
+            <button
+              type="button"
+              className="pm-btn-secondary"
+              onClick={async () => {
+                setBusy(true);
+                setErr(null);
+                try {
+                  const r = await api.extractTranscriptActions(transcript.id);
+                  window.dispatchEvent(
+                    new CustomEvent("chat:toast", {
+                      detail:
+                        r.created > 0
+                          ? `${r.created}개 액션 항목을 추출했습니다`
+                          : "추출된 액션 항목이 없습니다",
+                    }),
+                  );
+                  window.dispatchEvent(
+                    new CustomEvent("cowork:open-actions"),
+                  );
+                } catch (e) {
+                  setErr(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              disabled={busy || !transcript.session_id}
+              title="회의록에서 결정사항·할일을 자동으로 뽑아 칸반 보드에 추가"
+            >
+              🎯 액션 추출
+            </button>
             <div className="cp-edit-actions-right">
               <label
                 className="export-menu-toggle"

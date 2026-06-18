@@ -869,6 +869,8 @@ function ProjectCard({
   const [eApiUrl, setEApiUrl] = useState(p.api_detail_url ?? "");
   const [eShared, setEShared] = useState(p.is_shared);
   const [eRoles, setERoles] = useState<Set<string>>(new Set(p.role_codes));
+  const [eTeamId, setETeamId] = useState<string>(p.team_id ?? "");
+  const [eTeams, setETeams] = useState<{ id: string; name: string }[]>([]);
   const [eRetention, setERetention] = useState<string>(
     String(p.snapshot_retention_count ?? 10),
   );
@@ -885,12 +887,20 @@ function ProjectCard({
     setEApiUrl(p.api_detail_url ?? "");
     setEShared(p.is_shared);
     setERoles(new Set(p.role_codes));
+    setETeamId(p.team_id ?? "");
     setERetention(String(p.snapshot_retention_count ?? 10));
   }, [
     p.id, p.name, p.source_ref, p.sql_query, p.api_detail_key,
-    p.api_detail_url, p.is_shared, p.role_codes,
+    p.api_detail_url, p.is_shared, p.role_codes, p.team_id,
     p.snapshot_retention_count, editing,
   ]);
+
+  useEffect(() => {
+    api
+      .listTeams()
+      .then((r) => setETeams(r.map((t) => ({ id: t.id, name: t.name }))))
+      .catch(() => setETeams([]));
+  }, []);
 
   async function saveEdit() {
     setEditBusy(true);
@@ -924,6 +934,9 @@ function ProjectCard({
         const sameSize = cur.size === eRoles.size;
         const sameMembers = sameSize && [...cur].every((c) => eRoles.has(c));
         if (!sameMembers) payload.role_codes = Array.from(eRoles);
+      }
+      if ((eTeamId || null) !== (p.team_id ?? null)) {
+        payload.team_id = eTeamId || null;
       }
       // Retention — parse to a sane integer in [0, 10000]. 0 reads
       // as "무제한" in the form; the backend uses the same convention.
@@ -1381,6 +1394,26 @@ function ProjectCard({
               )}
             </div>
           )}
+
+          <div className="pm-field">
+            <label htmlFor={`pm-edit-team-${p.id}`}>공유 팀 (선택)</label>
+            <select
+              id={`pm-edit-team-${p.id}`}
+              value={eTeamId}
+              onChange={(e) => setETeamId(e.target.value)}
+              disabled={editBusy}
+            >
+              <option value="">— 개인 지식베이스 —</option>
+              {eTeams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <div className="pm-help">
+              팀을 지정하면 팀원이 검색·채팅에서 함께 활용할 수 있습니다.
+            </div>
+          </div>
 
           <div className="pm-field">
             <label htmlFor={`pm-edit-retention-${p.id}`}>

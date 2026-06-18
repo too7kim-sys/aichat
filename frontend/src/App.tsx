@@ -16,7 +16,11 @@ import { ResetPasswordForm } from "./auth/ResetPasswordForm";
 import { UserMenu } from "./auth/UserMenu";
 import { VerifyBanner } from "./auth/VerifyBanner";
 import { NotificationBell } from "./components/NotificationBell";
-import { ActionKanbanPanel, TeamsPanel } from "./components/CoworkPanels";
+import {
+  ActionKanbanPanel,
+  ApprovalsPanel,
+  TeamsPanel,
+} from "./components/CoworkPanels";
 import { ModelProvider } from "./state/ModelContext";
 import { ProjectsProvider } from "./state/ProjectsContext";
 import { WorkspacesProvider } from "./state/WorkspacesContext";
@@ -186,9 +190,10 @@ function AppInner({
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   // Cmd 팔레트 (#49) — Ctrl/⌘+Shift+P 로 띄움.
   const [cmdPalOpen, setCmdPalOpen] = useState(false);
-  // cowork 패널 (#92, #89) — Cmd 팔레트 / 알림 link 에서 트리거.
+  // cowork 패널 (#92, #89, #99) — Cmd 팔레트 / 알림 link 에서 트리거.
   const [actionsOpen, setActionsOpen] = useState(false);
   const [teamsOpen, setTeamsOpen] = useState(false);
+  const [approvalsOpen, setApprovalsOpen] = useState(false);
   useEffect(() => {
     function onActions() {
       setActionsOpen(true);
@@ -196,11 +201,16 @@ function AppInner({
     function onTeams() {
       setTeamsOpen(true);
     }
+    function onApprovals() {
+      setApprovalsOpen(true);
+    }
     window.addEventListener("cowork:open-actions", onActions);
     window.addEventListener("cowork:open-teams", onTeams);
+    window.addEventListener("cowork:open-approvals", onApprovals);
     return () => {
       window.removeEventListener("cowork:open-actions", onActions);
       window.removeEventListener("cowork:open-teams", onTeams);
+      window.removeEventListener("cowork:open-approvals", onApprovals);
     };
   }, []);
 
@@ -484,6 +494,9 @@ function AppInner({
         />
       )}
       {teamsOpen && <TeamsPanel onClose={() => setTeamsOpen(false)} />}
+      {approvalsOpen && (
+        <ApprovalsPanel onClose={() => setApprovalsOpen(false)} />
+      )}
       {cmdPalOpen && (
         <CmdPalette
           sessions={sessions}

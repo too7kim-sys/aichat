@@ -18,7 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import audit, models, schemas
 from ..auth import get_current_user, require_admin
 from ..database import get_db
-from ..rag.access import accessible_shared_prompt_ids, can_access_prompt
+from ..rag.access import (
+    accessible_shared_prompt_ids,
+    can_access_prompt,
+    user_team_ids,
+)
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 
@@ -102,7 +106,21 @@ async def list_prompts(
 
     shared_ids = await accessible_shared_prompt_ids(db, user)
     owned_ids = {p.id for p in owned}
-    extra_ids = [pid for pid in shared_ids if pid not in owned_ids]
+    extra_ids = set(pid for pid in shared_ids if pid not in owned_ids)
+
+    # Team-shared prompts the user can see by team membership (#95).
+    team_ids = await user_team_ids(db, user.id)
+    if team_ids:
+        team_prompt_ids = (
+            await db.execute(
+                select(models.Prompt.id).where(
+                    models.Prompt.team_id.in_(team_ids),
+                    models.Prompt.user_id != user.id,
+                )
+            )
+        ).scalars().all()
+        extra_ids.update(team_prompt_ids)
+
     shared: list[models.Prompt] = []
     if extra_ids:
         shared = list(
@@ -149,6 +167,7 @@ async def create_prompt(
         category=(payload.category or "").strip() or None,
         tags=(payload.tags or "").strip() or None,
         is_shared=payload.is_shared,
+        team_id=payload.team_id or None,
     )
     db.add(prompt)
     await db.flush()
@@ -222,6 +241,8 @@ async def update_prompt(
                 403, "역할 매핑은 관리자만 변경할 수 있습니다",
             )
         await _set_prompt_roles(db, p.id, payload.role_codes)
+    if payload.team_id is not None:
+        p.team_id = payload.team_id or None
     await audit.record(
         db, request, "prompt_updated", user_id=user.id,
         detail=f"id={p.id}",

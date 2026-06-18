@@ -23,6 +23,7 @@ import type { LocalAttachment } from "../export/MergeAttachmentsDialog";
 import { MessageBubble } from "./MessageBubble";
 import { ShoppingBrowser } from "./ShoppingBrowser";
 import { BrandLogo } from "./BrandLogo";
+import { CommentThread } from "./CoworkPanels";
 import { WorkspaceChangesPanel } from "./WorkspaceChangesPanel";
 import { WorkspaceTree } from "./WorkspaceTree";
 import { useArtifacts } from "../artifact/ArtifactContext";
@@ -342,6 +343,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
   // ── 세션 통계 카드 (#26) ────────────────────────────────
   const [statsOpen, setStatsOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   // 헤더 popover 들의 click-outside / Esc 처리 (UI 최적화).
   useEffect(() => {
     if (!typoOpen && !statsOpen) return;
@@ -1373,6 +1375,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           >
             {locked ? "🔒 잠김" : "🔓"}
           </button>
+          <button
+            type="button"
+            className="panel-toggle"
+            onClick={() => setCommentsOpen(true)}
+            title="이 세션에 코멘트 남기기 (팀원과 공유)"
+            aria-label="세션 코멘트"
+          >
+            💬
+          </button>
           <div className="chat-stats-wrap" ref={statsRef}>
             <button
               type="button"
@@ -2387,6 +2398,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             💾 저장
           </a>
         </div>
+      )}
+      {commentsOpen && (
+        <CommentThread
+          targetType="session"
+          targetId={session.id}
+          onClose={() => setCommentsOpen(false)}
+        />
       )}
     </div>
   );

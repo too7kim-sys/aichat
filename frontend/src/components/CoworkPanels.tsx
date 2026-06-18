@@ -301,6 +301,123 @@ export function WorkflowRunsPanel({
 }
 
 
+// ── #99 승인 대기 큐 ─────────────────────────────────────────
+export function ApprovalsPanel({ onClose }: { onClose: () => void }) {
+  type Pending = Awaited<
+    ReturnType<typeof api.listPendingApprovals>
+  >["items"][number];
+  const [items, setItems] = useState<Pending[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try {
+      const r = await api.listPendingApprovals();
+      setItems(r.items);
+    } catch {
+      setItems([]);
+    }
+  }
+  useEffect(() => {
+    void refresh();
+    const t = window.setInterval(refresh, 8000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  async function approve(id: string) {
+    setBusy(true);
+    try {
+      await api.approveWorkflowRun(id);
+      await refresh();
+    } catch (e) {
+      window.alert(`승인 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function reject(id: string) {
+    const reason = window.prompt("거부 사유 (선택):") || "";
+    setBusy(true);
+    try {
+      await api.rejectWorkflowRun(id, reason);
+      await refresh();
+    } catch (e) {
+      window.alert(`거부 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal patch-preview-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header>
+          <h3>🛂 승인 대기 큐</h3>
+          <button type="button" className="modal-close" onClick={onClose}>
+            ×
+          </button>
+        </header>
+        <div className="patch-preview-body">
+          {items.length === 0 ? (
+            <div className="patch-preview-empty">
+              승인 대기 중인 워크플로 실행이 없어요
+            </div>
+          ) : (
+            <table className="ws-stats-table">
+              <thead>
+                <tr>
+                  <th>워크플로</th>
+                  <th>요청 시각</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <b>{r.workflow_name}</b>
+                      {r.team_id && (
+                        <div style={{ fontSize: 11, opacity: 0.7 }}>
+                          team: {r.team_id.slice(0, 8)}…
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {r.started_at
+                        ? new Date(r.started_at).toLocaleString()
+                        : "—"}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => approve(r.id)}
+                      >
+                        ✓ 승인
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => reject(r.id)}
+                        style={{ marginLeft: 4 }}
+                      >
+                        ✕ 거부
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ── #92 액션아이템 칸반 ─────────────────────────────────────
 export function ActionKanbanPanel({
   transcriptId,
@@ -437,7 +554,13 @@ export function CommentThread({
   targetId,
   onClose,
 }: {
-  targetType: "message" | "chunk" | "workflow" | "transcript" | "action";
+  targetType:
+    | "message"
+    | "chunk"
+    | "workflow"
+    | "transcript"
+    | "action"
+    | "session";
   targetId: string;
   onClose: () => void;
 }) {

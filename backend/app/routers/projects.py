@@ -19,7 +19,11 @@ from .. import models, schemas
 from ..auth import get_current_user, require_admin
 from ..config import settings
 from ..database import get_db
-from ..rag.access import accessible_shared_project_ids, can_access_project
+from ..rag.access import (
+    accessible_shared_project_ids,
+    can_access_project,
+    user_team_ids,
+)
 from ..rag.db_drivers import (
     DriverInfo,
     SqlPreviewRequest,
@@ -190,7 +194,21 @@ async def list_projects(
         db, user, ready_only=False
     )
     owned_ids = {p.id for p in owned}
-    extra_ids = [pid for pid in shared_ids if pid not in owned_ids]
+    extra_ids = set(pid for pid in shared_ids if pid not in owned_ids)
+
+    # Team-shared projects the user can see by team membership (#96).
+    team_ids = await user_team_ids(db, user.id)
+    if team_ids:
+        team_project_ids = (
+            await db.execute(
+                select(models.Project.id).where(
+                    models.Project.team_id.in_(team_ids),
+                    models.Project.user_id != user.id,
+                )
+            )
+        ).scalars().all()
+        extra_ids.update(team_project_ids)
+
     shared: list[models.Project] = []
     if extra_ids:
         shared = list(
@@ -658,6 +676,7 @@ async def create_project(
         api_detail_key=api_key,
         api_detail_url=api_url,
         is_shared=payload.is_shared,
+        team_id=payload.team_id or None,
         snapshot_retention_count=payload.snapshot_retention_count,
         status="pending",
     )
@@ -935,6 +954,8 @@ async def update_project(
                 403, "역할 매핑은 관리자만 변경할 수 있습니다",
             )
         await _set_project_roles(db, project_id, payload.role_codes)
+    if payload.team_id is not None:
+        project.team_id = payload.team_id or None
 
     # Snapshot retention — owner (or admin) can tighten / loosen the
     # cap. When the number drops we run the pruner immediately so

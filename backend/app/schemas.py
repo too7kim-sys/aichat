@@ -259,6 +259,7 @@ class ProjectCreate(BaseModel):
     # in chat for those users. Personal projects leave is_shared=False.
     is_shared: bool = False
     role_codes: list[str] = Field(default_factory=list, max_length=50)
+    team_id: str | None = Field(default=None, max_length=36)
     # How many snapshots to keep per project (0 = unlimited). After
     # each fresh snapshot the indexer drops anything older than the
     # N most recent + the currently-active one. Server-side defaults
@@ -277,6 +278,7 @@ class PromptOut(BaseModel):
     is_shared: bool
     role_codes: list[str] = []
     owned: bool = True
+    team_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -293,6 +295,7 @@ class PromptCreate(BaseModel):
     tags: str = Field(default="", max_length=200)
     is_shared: bool = False
     role_codes: list[str] = Field(default_factory=list, max_length=50)
+    team_id: str | None = Field(default=None, max_length=36)
 
 
 class PromptUpdate(BaseModel):
@@ -303,6 +306,7 @@ class PromptUpdate(BaseModel):
     tags: str | None = Field(default=None, max_length=200)
     is_shared: bool | None = None
     role_codes: list[str] | None = Field(default=None, max_length=50)
+    team_id: str | None = Field(default=None, max_length=36)
 
 
 class TranscriptOut(BaseModel):
@@ -404,6 +408,7 @@ class ProjectUpdate(BaseModel):
     api_detail_url: str | None = Field(default=None, max_length=500)
     is_shared: bool | None = None
     role_codes: list[str] | None = Field(default=None, max_length=50)
+    team_id: str | None = Field(default=None, max_length=36)
     snapshot_retention_count: int | None = Field(default=None, ge=0, le=10000)
 
 
@@ -447,6 +452,7 @@ class ProjectOut(BaseModel):
     # Populated for shared projects so the admin UI can render the
     # current role grants. Empty for personal projects.
     role_codes: list[str] = []
+    team_id: str | None = None
     # True when the requesting user owns this project (vs. accessing
     # it as a shared knowledge base). Lets the UI hide owner-only
     # controls (delete, reindex) for shared projects a user merely

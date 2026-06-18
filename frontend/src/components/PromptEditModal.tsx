@@ -38,8 +38,17 @@ export function PromptEditModal({
   const [shareRoles, setShareRoles] = useState<Set<string>>(
     new Set(prompt?.role_codes ?? []),
   );
+  const [teamId, setTeamId] = useState<string>(prompt?.team_id ?? "");
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .listTeams()
+      .then((r) => setTeams(r.map((t) => ({ id: t.id, name: t.name }))))
+      .catch(() => setTeams([]));
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -78,6 +87,7 @@ export function PromptEditModal({
           is_shared: isAdmin ? isShared : false,
           role_codes:
             isAdmin && isShared ? Array.from(shareRoles) : [],
+          team_id: teamId || null,
         });
       } else {
         await api.updatePrompt(prompt!.id, {
@@ -86,6 +96,7 @@ export function PromptEditModal({
           body,
           category: category.trim(),
           tags: tags.trim(),
+          team_id: teamId || null,
           ...(isAdmin
             ? {
                 is_shared: isShared,
@@ -234,6 +245,26 @@ export function PromptEditModal({
                 disabled={busy}
                 placeholder="python, 리뷰, 사내규정"
               />
+            </div>
+          </div>
+
+          <div className="pm-field">
+            <label htmlFor="prompt-team">공유 팀 (선택)</label>
+            <select
+              id="prompt-team"
+              value={teamId}
+              onChange={(e) => setTeamId(e.target.value)}
+              disabled={busy}
+            >
+              <option value="">— 개인 프롬프트 —</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <div className="pm-help">
+              팀을 지정하면 팀원의 카탈로그에도 노출됩니다.
             </div>
           </div>
 

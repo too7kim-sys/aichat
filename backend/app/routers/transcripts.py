@@ -276,6 +276,57 @@ async def delete_transcript(
     await db.commit()
 
 
+@router.post("/{transcript_id}/extract-actions")
+async def extract_actions(
+    transcript_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """회의록 본문에서 LLM 으로 액션 아이템을 추출해 ActionItem 으로
+    저장 (#97).  반환: {created: N}.  같은 회의록을 두 번 돌리면
+    이전 추출분은 그대로 두고 새 항목만 추가된다."""
+    from ..routers.cowork import extract_actions_from_transcript
+
+    tr = await db.scalar(
+        select(models.Transcript).where(
+            models.Transcript.id == transcript_id,
+            models.Transcript.user_id == user.id,
+        )
+    )
+    if tr is None:
+        raise HTTPException(404, "transcript not found")
+    if not tr.session_id:
+        raise HTTPException(400, "연결된 채팅 세션이 없습니다")
+    # 세션의 사용자 메시지(= 전사 본문) 를 모아 LLM 에 던진다.
+    rows = (
+        await db.execute(
+            select(models.Message)
+            .where(
+                models.Message.session_id == tr.session_id,
+                models.Message.role == "user",
+            )
+            .order_by(models.Message.created_at)
+        )
+    ).scalars().all()
+    body_text = "\n\n".join(m.content or "" for m in rows)
+    if not body_text.strip():
+        return {"created": 0}
+    model = (
+        settings.transcription_summary_model
+        or getattr(settings, "default_model", "")
+        or "qwen2.5:7b"
+    )
+    n = await extract_actions_from_transcript(
+        db,
+        transcript_id=tr.id,
+        session_id=tr.session_id,
+        transcript_text=body_text,
+        model=model,
+        base_url=settings.ollama_base_url,
+    )
+    return {"created": n}
+
+
 @router.patch("/{transcript_id}", response_model=schemas.TranscriptOut)
 async def rename_transcript(
     transcript_id: str,
