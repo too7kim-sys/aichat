@@ -725,6 +725,10 @@ class AppSettingsOut(BaseModel):
     """Snapshot of the runtime-toggleable app settings the admin
     dashboard reads/writes."""
     auto_approve_signups: bool
+    # RAG 품질 토글 (#111).
+    rag_query_rewrite: bool = False
+    rag_llm_rerank: bool = False
+    rag_mmr: bool = True
 
 
 class AppSettingsUpdate(BaseModel):
@@ -732,6 +736,9 @@ class AppSettingsUpdate(BaseModel):
     UI PUT just the field it cares about without round-tripping
     everything."""
     auto_approve_signups: bool | None = None
+    rag_query_rewrite: bool | None = None
+    rag_llm_rerank: bool | None = None
+    rag_mmr: bool | None = None
 
 
 class SignupResponse(BaseModel):

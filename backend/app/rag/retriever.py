@@ -108,6 +108,27 @@ async def retrieve(
     target_snapshot = snapshot_id or await _resolve_snapshot_id(project_id)
     if not target_snapshot:
         return []
+    # 품질 후처리 (#107~#110) — 모듈 import 가 retrieve 본 흐름을 막지
+    # 않도록 try/except 로 감싼다.  실패해도 RRF 결과로 fallback.
+    try:
+        from . import quality as _quality
+        _flags = await _quality.load_flags()
+    except Exception:  # noqa: BLE001
+        _quality = None  # type: ignore[assignment]
+        _flags = None
+    _t0_ms = _quality.now_ms() if _quality else 0
+    # 질의 재작성 (#107) — 짧은 한국어 질의를 검색용으로 풀어쓴 뒤
+    # 임베딩 한 번만 더.  실패 / no-op 이면 원본 그대로.
+    embed_query = query
+    if _quality and _flags:
+        try:
+            rewritten = await _quality.rewrite_query(
+                query, enabled=_flags.query_rewrite,
+            )
+            if rewritten:
+                embed_query = f"{query} | {rewritten}"
+        except Exception:  # noqa: BLE001
+            pass
     # 프로젝트 메타 (이름·소유자·공유 여부) 한 번 가져와서 청크마다 박음.
     proj_meta: dict | None = None
     async with SessionLocal() as db:
@@ -127,7 +148,7 @@ async def retrieve(
                 "is_shared": bool(row[2]),
             }
     try:
-        qvec = await embed_one(query)
+        qvec = await embed_one(embed_query)
     except EmbedError as exc:
         log.warning("RAG retrieval: embedding failed (%s) — returning empty", exc)
         return []
@@ -211,17 +232,22 @@ async def retrieve(
                     "vec_score": 0.0,
                 }
 
-    # 4) RRF 점수로 정렬 → top-K.
+    # 4) RRF 점수로 정렬 — LLM 재순위/MMR 가 다음 단계에서 자를 수 있게
+    # top_k 보다 넉넉히 (재순위 pool 크기만큼) 만들어 둔다.
     ranked = sorted(chunk_score.items(), key=lambda kv: kv[1], reverse=True)
-    final = ranked[: settings.rag_top_k]
-    hits: list[RetrievedChunk] = []
+    pool_size = max(
+        settings.rag_top_k,
+        settings.rag_llm_rerank_pool if settings.rag_llm_rerank else 0,
+    )
+    final = ranked[:pool_size]
+    pool_chunks: list[RetrievedChunk] = []
     for cid, _rrf in final:
         m = chunk_meta.get(cid)
         if not m:
             continue
         # 표시용 score 는 원래 의미를 보존하려고 vector score 를 그대로
         # 들고 간다 (citation chip 임계값이 vector 기준이라).
-        hits.append(
+        pool_chunks.append(
             RetrievedChunk(
                 filename=m["filename"],
                 start_line=m["start_line"],
@@ -237,7 +263,50 @@ async def retrieve(
                 corpus_type=m["corpus_type"],
             )
         )
-    return _merge_adjacent(hits)
+
+    # 5) LLM 재순위 (#108).  실패하면 RRF 결과 그대로 사용.
+    if _quality and _flags:
+        try:
+            reranked = await _quality.llm_rerank(
+                query, pool_chunks,
+                top_k=settings.rag_top_k,
+                enabled=_flags.llm_rerank,
+            )
+            if reranked:
+                pool_chunks = reranked
+        except Exception:  # noqa: BLE001
+            pass
+    # 6) MMR 다양성 (#109).  관련성 순으로 들어온 리스트에서 같은 파일/
+    # 유사 본문이 연속으로 잡히지 않도록 솎아낸다.
+    if _quality and _flags:
+        try:
+            pool_chunks = _quality.mmr_select(
+                pool_chunks,
+                top_k=settings.rag_top_k,
+                enabled=_flags.mmr,
+            )
+        except Exception:  # noqa: BLE001
+            pool_chunks = pool_chunks[: settings.rag_top_k]
+    else:
+        pool_chunks = pool_chunks[: settings.rag_top_k]
+
+    # 7) 품질 로그 (#110).  실패해도 silently — RAG 본 흐름과 독립.
+    if _quality:
+        try:
+            top_score = pool_chunks[0].score if pool_chunks else 0.0
+            elapsed = _quality.now_ms() - _t0_ms
+            await _quality.log_retrieval_quality(
+                user_id=user_id,
+                project_ids=[project_id],
+                query=query,
+                top_score=top_score,
+                hit_count=len(pool_chunks),
+                elapsed_ms=elapsed,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    return _merge_adjacent(pool_chunks)
 
 
 async def retrieve_many(

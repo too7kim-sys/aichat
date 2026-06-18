@@ -21,10 +21,18 @@ from .config import settings as env_settings
 # Registry of well-known keys + their typed defaults. Keep this short —
 # anything bigger probably wants its own table.
 KEY_AUTO_APPROVE_SIGNUPS = "auto_approve_signups"
+# RAG 품질 토글 (#111) — env 의 rag_* 가 첫 부팅 기본값, 그 뒤로는 DB.
+KEY_RAG_QUERY_REWRITE = "rag_query_rewrite"
+KEY_RAG_LLM_RERANK = "rag_llm_rerank"
+KEY_RAG_MMR = "rag_mmr"
 
 _BOOL_DEFAULTS: dict[str, bool] = {
     # Default ON — operators have to opt into the approval queue.
     KEY_AUTO_APPROVE_SIGNUPS: True,
+    # RAG 단계는 env 의 부울 기본을 그대로 따라간다.
+    KEY_RAG_QUERY_REWRITE: env_settings.rag_query_rewrite,
+    KEY_RAG_LLM_RERANK: env_settings.rag_llm_rerank,
+    KEY_RAG_MMR: env_settings.rag_mmr,
 }
 
 

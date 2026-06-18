@@ -648,6 +648,15 @@ async def get_settings(
         auto_approve_signups=await app_settings.get_bool(
             db, app_settings.KEY_AUTO_APPROVE_SIGNUPS,
         ),
+        rag_query_rewrite=await app_settings.get_bool(
+            db, app_settings.KEY_RAG_QUERY_REWRITE,
+        ),
+        rag_llm_rerank=await app_settings.get_bool(
+            db, app_settings.KEY_RAG_LLM_RERANK,
+        ),
+        rag_mmr=await app_settings.get_bool(
+            db, app_settings.KEY_RAG_MMR,
+        ),
     )
 
 
@@ -661,27 +670,52 @@ async def update_settings(
     """Flip runtime app settings. Admin-only — moderators can act on
     the approval queue but shouldn't unilaterally change the policy
     that creates the queue in the first place."""
-    if payload.auto_approve_signups is not None:
-        old = await app_settings.get_bool(
-            db, app_settings.KEY_AUTO_APPROVE_SIGNUPS,
+    async def _maybe_flip(key: str, new_val: bool | None, label: str) -> None:
+        if new_val is None:
+            return
+        old = await app_settings.get_bool(db, key)
+        if old == new_val:
+            return
+        await app_settings.set_bool(db, key, new_val, actor_id=actor.id)
+        await audit.record(
+            db, request, "settings_changed",
+            user_id=actor.id,
+            detail=f"{label}: {old}→{new_val}",
         )
-        new = payload.auto_approve_signups
-        if old != new:
-            await app_settings.set_bool(
-                db,
-                app_settings.KEY_AUTO_APPROVE_SIGNUPS,
-                new,
-                actor_id=actor.id,
-            )
-            await audit.record(
-                db, request, "settings_changed",
-                user_id=actor.id,
-                detail=f"auto_approve_signups: {old}→{new}",
-            )
+
+    await _maybe_flip(
+        app_settings.KEY_AUTO_APPROVE_SIGNUPS,
+        payload.auto_approve_signups,
+        "auto_approve_signups",
+    )
+    await _maybe_flip(
+        app_settings.KEY_RAG_QUERY_REWRITE,
+        payload.rag_query_rewrite,
+        "rag_query_rewrite",
+    )
+    await _maybe_flip(
+        app_settings.KEY_RAG_LLM_RERANK,
+        payload.rag_llm_rerank,
+        "rag_llm_rerank",
+    )
+    await _maybe_flip(
+        app_settings.KEY_RAG_MMR,
+        payload.rag_mmr,
+        "rag_mmr",
+    )
     await db.commit()
     return schemas.AppSettingsOut(
         auto_approve_signups=await app_settings.get_bool(
             db, app_settings.KEY_AUTO_APPROVE_SIGNUPS,
+        ),
+        rag_query_rewrite=await app_settings.get_bool(
+            db, app_settings.KEY_RAG_QUERY_REWRITE,
+        ),
+        rag_llm_rerank=await app_settings.get_bool(
+            db, app_settings.KEY_RAG_LLM_RERANK,
+        ),
+        rag_mmr=await app_settings.get_bool(
+            db, app_settings.KEY_RAG_MMR,
         ),
     )
 
@@ -797,6 +831,52 @@ async def _list_app_errors(limit: int) -> list[dict]:
 # ── 감사 로그 뷰어 ─────────────────────────────────────────────────────
 # audit_log 테이블에 이미 로그인/회원가입/비번변경 같은 이벤트가 쌓여
 # 있다. 관리자가 검색·필터해서 한 화면에서 볼 수 있게 노출.
+
+
+@router.get("/search-quality")
+async def list_search_quality(
+    limit: int = 100,
+    only_misses: bool = False,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """RAG 검색 품질 로그 (#110).  최근 항목순.  only_misses=true 면
+    hit_count==0 또는 top_score<0.3 인 '잘 안 됐을 가능성' 만 본다."""
+    limit = max(1, min(int(limit or 100), 500))
+    q = (
+        select(models.SearchQualityLog)
+        .order_by(models.SearchQualityLog.created_at.desc())
+        .limit(limit)
+    )
+    if only_misses:
+        q = q.where(
+            (models.SearchQualityLog.hit_count == 0)
+            | (models.SearchQualityLog.top_score < 0.3)
+        )
+    rows = (await db.execute(q)).scalars().all()
+    user_ids = {r.user_id for r in rows if r.user_id}
+    emails: dict[str, str] = {}
+    if user_ids:
+        for uid, em in (
+            await db.execute(
+                select(models.User.id, models.User.email)
+                .where(models.User.id.in_(user_ids))
+            )
+        ).all():
+            emails[uid] = em
+    return [
+        {
+            "id": r.id,
+            "user_email": emails.get(r.user_id or "", "—"),
+            "query": r.query,
+            "project_ids": (r.project_ids or "").split(",") if r.project_ids else [],
+            "top_score": float(r.top_score or 0.0),
+            "hit_count": int(r.hit_count or 0),
+            "elapsed_ms": int(r.elapsed_ms or 0),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 
 
 @router.get("/audit")

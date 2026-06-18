@@ -143,6 +143,15 @@ class Settings(BaseSettings):
     # bases are being missed. 0.30 정도가 한국어 짧은 쿼리("사내 …")
     # 까지 잡으면서 잡음 청크는 거의 안 들어오는 균형점.
     rag_auto_min_score: float = 0.30
+    # RAG 품질 토글 (#107~#111).  .env 의 기본값에 더해 admin 이 런타임
+    # 으로 켜고 끌 수 있다 — 응답 지연/모델 부하 트레이드오프가 큰
+    # 단계들이라 환경마다 다르게 가도록 분리.
+    rag_query_rewrite: bool = False        # 짧은 질의를 LLM 로 확장
+    rag_query_rewrite_model: str = ""      # 비우면 transcription_summary_model 사용
+    rag_llm_rerank: bool = False           # top-N 을 LLM 으로 0~10 점수
+    rag_llm_rerank_pool: int = 12          # 재순위 대상 후보 수
+    rag_mmr: bool = True                   # Maximal Marginal Relevance 다양성
+    rag_mmr_lambda: float = 0.7            # 0=다양성만, 1=관련성만
     # Per-project file limits (separate from the git/folder upload
     # caps because the corpus is meant to be larger).
     rag_max_files: int = 5000

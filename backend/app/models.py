@@ -1049,3 +1049,30 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
     )
+
+
+# ── 검색 품질 로그 (#110) ────────────────────────────────────
+class SearchQualityLog(Base):
+    """RAG 검색 한 건당 한 줄.  admin 이 '검색이 잘 안 된 질의' 를 찾아
+    corpus 를 보강하거나 청크 전략을 조정할 때 사용.  retrieval 본 흐름
+    과 독립이라 실패해도 silently 무시 (quality.log_retrieval_quality)."""
+
+    __tablename__ = "search_quality_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # 콤마로 join 된 project id 목록 — 다중 프로젝트 동시 검색 케이스.
+    project_ids: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    query: Mapped[str] = mapped_column(String(500))
+    # 가장 잘 맞은 청크의 벡터 점수 (0~1).  0 이면 결과 자체가 없었던 것.
+    top_score: Mapped[float] = mapped_column(default=0.0)
+    hit_count: Mapped[int] = mapped_column(default=0)
+    elapsed_ms: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )

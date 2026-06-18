@@ -318,6 +318,10 @@ export const auth = {
 
 export interface AppSettings {
   auto_approve_signups: boolean;
+  /** RAG 품질 토글 (#111) — admin 이 런타임에 끄고 켤 수 있는 단계. */
+  rag_query_rewrite: boolean;
+  rag_llm_rerank: boolean;
+  rag_mmr: boolean;
 }
 
 export const admin = {
@@ -327,6 +331,24 @@ export const admin = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+  /** RAG 검색 품질 로그 (#110) — only_misses=true 면 점수 낮음·결과 0
+   *  케이스만 본다. */
+  listSearchQuality: (opts?: { limit?: number; onlyMisses?: boolean }) => {
+    const params = new URLSearchParams();
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.onlyMisses) params.set("only_misses", "true");
+    const qs = params.toString();
+    return json<Array<{
+      id: string;
+      user_email: string;
+      query: string;
+      project_ids: string[];
+      top_score: number;
+      hit_count: number;
+      elapsed_ms: number;
+      created_at: string | null;
+    }>>(`/admin/search-quality${qs ? "?" + qs : ""}`);
+  },
   listUsers: (opts?: { status?: string; role?: string; q?: string }) => {
     const params = new URLSearchParams();
     if (opts?.status) params.set("status", opts.status);
