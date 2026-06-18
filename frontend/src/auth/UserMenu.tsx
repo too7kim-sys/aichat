@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconUsers } from "../components/Icon";
 import { useAuth } from "./AuthContext";
+import { TeamsPanel } from "../components/CoworkPanels";
 
 interface Props {
   onOpenMyPage: () => void;
@@ -10,6 +11,7 @@ interface Props {
 export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [teamsOpen, setTeamsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   // 테마 (#35) — light / dark / system.  main.tsx 가 첫 페인트 전에
@@ -70,6 +72,15 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
             className="user-menu-item"
             onClick={() => {
               setOpen(false);
+              setTeamsOpen(true);
+            }}
+          >
+            👥 팀 관리
+          </button>
+          <button
+            className="user-menu-item"
+            onClick={() => {
+              setOpen(false);
               onOpenMyPage();
             }}
           >
@@ -124,6 +135,7 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
           </button>
         </div>
       )}
+      {teamsOpen && <TeamsPanel onClose={() => setTeamsOpen(false)} />}
     </div>
   );
 }

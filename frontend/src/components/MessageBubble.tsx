@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import { api, type AttachmentSummary } from "../api/client";
 import { copyText } from "../lib/clipboard";
 import { BrandLogo } from "./BrandLogo";
+import { CommentThread } from "./CoworkPanels";
 import { BubbleContent } from "./BubbleContent";
 import { IconChevronDown, IconChevronRight, IconEdit, IconFileText, IconImage, IconStar, IconThumbsDown, IconThumbsUp, IconX } from "./Icon";
 
@@ -332,6 +333,7 @@ export function MessageBubble({
   }, [body]);
   // 액션 행 ⋯ 오버플로우 메뉴 + 빠른 답장 칩 접기 (UI 최적화).
   const [moreOpen, setMoreOpen] = useState(false);
+  const [commentOpen, setCommentOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!moreOpen) return;
@@ -883,6 +885,18 @@ export function MessageBubble({
                       >
                         🖨 인쇄 / PDF
                       </button>
+                      {!locked && messageId && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMoreOpen(false);
+                            setCommentOpen(true);
+                          }}
+                        >
+                          💬 코멘트
+                        </button>
+                      )}
                       {!locked && (
                         <button
                           type="button"
@@ -1105,6 +1119,13 @@ export function MessageBubble({
           </div>
         )}
       </div>
+      {commentOpen && messageId && (
+        <CommentThread
+          targetType="message"
+          targetId={messageId}
+          onClose={() => setCommentOpen(false)}
+        />
+      )}
     </div>
   );
 }

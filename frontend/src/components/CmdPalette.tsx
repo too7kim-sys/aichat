@@ -68,6 +68,23 @@ export function CmdPalette({
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "?" }));
       },
     });
+    out.push({
+      key: "act-actions",
+      kind: "action",
+      label: "✅ 액션아이템 칸반",
+      hint: "전체 transcript 통합",
+      onPick: () => {
+        window.dispatchEvent(new CustomEvent("cowork:open-actions"));
+      },
+    });
+    out.push({
+      key: "act-teams",
+      kind: "action",
+      label: "👥 팀 관리",
+      onPick: () => {
+        window.dispatchEvent(new CustomEvent("cowork:open-teams"));
+      },
+    });
     // 세션 — 최근 30 개.
     for (const s of sessions.slice(0, 30)) {
       out.push({

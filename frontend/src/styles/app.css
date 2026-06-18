@@ -10382,6 +10382,93 @@ body {
   overflow: hidden;
 }
 
+/* 액션아이템 칸반 (#92). */
+.kanban {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.kanban-col {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 200px;
+}
+.kanban-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+.kanban-head span { color: var(--text-muted); font-weight: 400; }
+.kanban-col ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.kanban-col li {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+}
+.kanban-title { color: var(--text); }
+.kanban-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.kanban-actions { display: flex; gap: 3px; margin-top: 6px; }
+.kanban-actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.kanban-actions button:hover { background: var(--accent-soft); color: var(--accent); }
+
+/* 코멘트 스레드 (#93). */
+.comment-thread { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; max-height: 50vh; overflow-y: auto; }
+.comment-thread li {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.comment-thread li.resolved { opacity: 0.55; }
+.comment-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.comment-head strong { color: var(--text); }
+.comment-time { color: var(--text-muted); font-size: 11px; flex: 1; }
+.comment-actions { display: inline-flex; gap: 4px; }
+.comment-actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.comment-actions button:hover { background: var(--accent-soft); color: var(--accent); }
+.comment-body { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.55; margin-top: 4px; }
+
+/* 워크플로 실행 상태 배지 (#90). */
+.run-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.run-status.status-ok { background: #dcfce7; color: #166534; }
+.run-status.status-failed { background: #fee2e2; color: #b91c1c; }
+.run-status.status-running { background: #fef3c7; color: #92400e; }
+.run-status.status-pending_approval { background: #e0e7ff; color: #3730a3; }
+.run-status.status-approved { background: #dcfce7; color: #166534; }
+.run-status.status-rejected { background: #f5d0fe; color: #86198f; }
+
 /* 🔔 알림 벨 (#94). */
 .notif-wrap { position: relative; display: inline-block; }
 .notif-trigger {

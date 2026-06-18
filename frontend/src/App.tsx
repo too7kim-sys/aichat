@@ -16,6 +16,7 @@ import { ResetPasswordForm } from "./auth/ResetPasswordForm";
 import { UserMenu } from "./auth/UserMenu";
 import { VerifyBanner } from "./auth/VerifyBanner";
 import { NotificationBell } from "./components/NotificationBell";
+import { ActionKanbanPanel, TeamsPanel } from "./components/CoworkPanels";
 import { ModelProvider } from "./state/ModelContext";
 import { ProjectsProvider } from "./state/ProjectsContext";
 import { WorkspacesProvider } from "./state/WorkspacesContext";
@@ -185,6 +186,23 @@ function AppInner({
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   // Cmd 팔레트 (#49) — Ctrl/⌘+Shift+P 로 띄움.
   const [cmdPalOpen, setCmdPalOpen] = useState(false);
+  // cowork 패널 (#92, #89) — Cmd 팔레트 / 알림 link 에서 트리거.
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [teamsOpen, setTeamsOpen] = useState(false);
+  useEffect(() => {
+    function onActions() {
+      setActionsOpen(true);
+    }
+    function onTeams() {
+      setTeamsOpen(true);
+    }
+    window.addEventListener("cowork:open-actions", onActions);
+    window.addEventListener("cowork:open-teams", onTeams);
+    return () => {
+      window.removeEventListener("cowork:open-actions", onActions);
+      window.removeEventListener("cowork:open-teams", onTeams);
+    };
+  }, []);
 
   // Global keyboard shortcut: ⌘K / Ctrl+K focuses the header search
   // input from anywhere on the page. The input lives in the header
@@ -459,6 +477,13 @@ function AppInner({
           {toast}
         </div>
       )}
+      {actionsOpen && (
+        <ActionKanbanPanel
+          transcriptId={null}
+          onClose={() => setActionsOpen(false)}
+        />
+      )}
+      {teamsOpen && <TeamsPanel onClose={() => setTeamsOpen(false)} />}
       {cmdPalOpen && (
         <CmdPalette
           sessions={sessions}
