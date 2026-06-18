@@ -664,6 +664,9 @@ export interface Workflow {
   schedule_interval_minutes: number;
   enabled: boolean;
   skip_holidays: boolean;
+  /** 팀 공유 + 승인 게이트 (#89, #91). */
+  team_id?: string | null;
+  requires_approval?: boolean;
   last_run_at: string | null;
   last_run_status: string | null;
   last_session_id: string | null;
@@ -1456,6 +1459,8 @@ export const api = {
     schedule_interval_minutes?: number;
     enabled?: boolean;
     skip_holidays?: boolean;
+    team_id?: string | null;
+    requires_approval?: boolean;
   }) =>
     json<Workflow>("/workflows", {
       method: "POST",
@@ -1473,6 +1478,8 @@ export const api = {
       schedule_interval_minutes: number;
       enabled: boolean;
       skip_holidays: boolean;
+      team_id: string | null;
+      requires_approval: boolean;
     }>,
   ) =>
     json<Workflow>(`/workflows/${id}`, {

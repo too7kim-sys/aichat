@@ -344,6 +344,9 @@ class WorkflowOut(BaseModel):
     schedule_interval_minutes: int = 0
     enabled: bool = True
     skip_holidays: bool = False
+    # 협업 (#89, #91)
+    team_id: str | None = None
+    requires_approval: bool = False
     last_run_at: datetime | None = None
     last_run_status: str | None = None
     last_session_id: str | None = None
@@ -365,6 +368,8 @@ class WorkflowCreate(BaseModel):
     schedule_interval_minutes: int = 0
     enabled: bool = True
     skip_holidays: bool = False
+    team_id: str | None = Field(default=None, max_length=36)
+    requires_approval: bool = False
 
 
 class WorkflowUpdate(BaseModel):
@@ -377,6 +382,8 @@ class WorkflowUpdate(BaseModel):
     schedule_interval_minutes: int | None = None
     enabled: bool | None = None
     skip_holidays: bool | None = None
+    team_id: str | None = None
+    requires_approval: bool | None = None
 
 
 class ProjectAccessUpdate(BaseModel):

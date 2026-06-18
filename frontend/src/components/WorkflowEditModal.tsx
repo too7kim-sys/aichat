@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Prompt, type Project, type Workflow } from "../api/client";
 import { IconAlertTriangle, IconPlus, IconTrash, IconX } from "./Icon";
+import { WorkflowRunsPanel } from "./CoworkPanels";
 
 interface Props {
   /** null = create-new; Workflow = edit existing. */
@@ -49,6 +50,15 @@ export function WorkflowEditModal({
   );
   const [enabled, setEnabled] = useState(workflow?.enabled ?? true);
   const [skipHolidays, setSkipHolidays] = useState(workflow?.skip_holidays ?? false);
+  const [teamId, setTeamId] = useState<string>(workflow?.team_id ?? "");
+  const [requiresApproval, setRequiresApproval] = useState<boolean>(
+    workflow?.requires_approval ?? false,
+  );
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    api.listTeams().then((r) => setTeams(r.map((t) => ({ id: t.id, name: t.name })))).catch(() => setTeams([]));
+  }, []);
   // {var_name: value} editor — variables are detected from the
   // selected prompt's body and rendered as key-value rows so the
   // operator only fills in the placeholders the run actually needs.
@@ -110,6 +120,8 @@ export function WorkflowEditModal({
           schedule_interval_minutes: scheduleMins,
           enabled,
           skip_holidays: skipHolidays,
+          team_id: teamId || null,
+          requires_approval: requiresApproval,
         });
       } else {
         await api.updateWorkflow(workflow!.id, {
@@ -122,6 +134,8 @@ export function WorkflowEditModal({
           schedule_interval_minutes: scheduleMins,
           enabled,
           skip_holidays: skipHolidays,
+          team_id: teamId || null,
+          requires_approval: requiresApproval,
         });
       }
       await onSaved();
@@ -147,6 +161,13 @@ export function WorkflowEditModal({
   }
 
   return (
+    <>
+    {runsOpen && workflow && (
+      <WorkflowRunsPanel
+        workflowId={workflow.id}
+        onClose={() => setRunsOpen(false)}
+      />
+    )}
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal cp-edit-modal"
@@ -284,6 +305,44 @@ export function WorkflowEditModal({
             </div>
           </div>
 
+          <div className="pm-field-row">
+            <div className="pm-field">
+              <label htmlFor="wf-team">공유 팀 (선택)</label>
+              <select
+                id="wf-team"
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+                disabled={busy}
+              >
+                <option value="">— 개인 워크플로 —</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <div className="pm-help">
+                팀을 지정하면 팀원이 실행 이력·결과를 볼 수 있습니다.
+              </div>
+            </div>
+            <div className="pm-field">
+              <label className="pm-share-toggle" style={{ marginTop: 24 }}>
+                <input
+                  type="checkbox"
+                  checked={requiresApproval}
+                  onChange={(e) => setRequiresApproval(e.target.checked)}
+                  disabled={busy}
+                />
+                <span>
+                  <b>실행 전 승인 필요</b>
+                  <span className="pm-help">
+                    팀장(또는 관리자)이 승인해야 자동 실행이 시작됩니다.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
+
           <div className="pm-field">
             <label>자동 실행 주기</label>
             <div className="pm-sched-presets">
@@ -341,14 +400,25 @@ export function WorkflowEditModal({
 
           <div className="cp-edit-actions">
             {!isNew && (
-              <button
-                type="button"
-                className="pm-btn-secondary cp-edit-delete"
-                onClick={remove}
-                disabled={busy}
-              >
-                <IconTrash size={13} /> 삭제
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="pm-btn-secondary cp-edit-delete"
+                  onClick={remove}
+                  disabled={busy}
+                >
+                  <IconTrash size={13} /> 삭제
+                </button>
+                <button
+                  type="button"
+                  className="pm-btn-secondary"
+                  onClick={() => setRunsOpen(true)}
+                  disabled={busy}
+                  title="이 워크플로의 실행 이력 보기"
+                >
+                  📜 실행 이력
+                </button>
+              </>
             )}
             <div className="cp-edit-actions-right">
               <button
@@ -376,6 +446,7 @@ export function WorkflowEditModal({
         </div>
       </div>
     </div>
+    </>
   );
 }
 

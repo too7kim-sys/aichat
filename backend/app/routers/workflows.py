@@ -139,6 +139,8 @@ async def create_workflow(
         schedule_interval_minutes=max(0, payload.schedule_interval_minutes),
         enabled=payload.enabled,
         skip_holidays=payload.skip_holidays,
+        team_id=payload.team_id,
+        requires_approval=payload.requires_approval,
     )
     db.add(wf)
     await db.commit()
@@ -181,6 +183,10 @@ async def update_workflow(
         wf.enabled = payload.enabled
     if payload.skip_holidays is not None:
         wf.skip_holidays = payload.skip_holidays
+    if payload.team_id is not None:
+        wf.team_id = payload.team_id or None
+    if payload.requires_approval is not None:
+        wf.requires_approval = payload.requires_approval
     await db.commit()
     await db.refresh(wf)
     return await _serialize(db, wf)
