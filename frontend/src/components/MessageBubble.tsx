@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { api, type AttachmentSummary } from "../api/client";
 import { copyText } from "../lib/clipboard";
+import { errorToast, infoToast } from "../lib/toast";
 import { BrandLogo } from "./BrandLogo";
 import { CommentThread } from "./CoworkPanels";
 import { BubbleContent } from "./BubbleContent";
@@ -174,9 +175,7 @@ export function MessageBubble({
       onMetaChanged?.({ tags: next });
     } catch (e) {
       setTagsLocal(prev);
-      window.alert(
-        `태그 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("태그 저장 실패", e);
     }
   }
   function addTag() {
@@ -187,7 +186,7 @@ export function MessageBubble({
       return;
     }
     if (tagsLocal.length >= 8) {
-      window.alert("태그는 메시지당 최대 8개까지 붙일 수 있어요.");
+      infoToast("태그는 메시지당 최대 8개까지 붙일 수 있어요.");
       return;
     }
     void saveTags([...tagsLocal, t]);
@@ -209,7 +208,7 @@ export function MessageBubble({
       setTranslation({ target, text: r.text });
     } catch (e) {
       setTranslation(null);
-      window.alert(`번역 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("번역 실패", e);
     }
   }
   // 세션 내 검색 강조 (#46) — 어시스턴트 본문에 매칭 텍스트를
@@ -397,9 +396,7 @@ export function MessageBubble({
       onMetaChanged?.({ starred: next });
     } catch (e) {
       setStarredLocal(!next);
-      window.alert(
-        `별표 토글 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("별표 토글 실패", e);
     }
   }
 
@@ -423,9 +420,7 @@ export function MessageBubble({
       }
     } catch (e) {
       setFeedbackLocal(feedback);
-      window.alert(
-        `평가 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("평가 저장 실패", e);
     }
   }
 
@@ -441,9 +436,7 @@ export function MessageBubble({
       onMetaChanged?.({ feedback_note: next, feedback_category: categoryLocal });
       setShowNoteEditor(false);
     } catch (e) {
-      window.alert(
-        `메모 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("메모 저장 실패", e);
     }
   }
 
@@ -456,14 +449,14 @@ export function MessageBubble({
       onMetaChanged?.({ rating: next });
     } catch (e) {
       setRatingLocal(ratingLocal);
-      window.alert(`별점 저장 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("별점 저장 실패", e);
     }
   }
 
   async function escalate() {
     if (!sessionId || !messageId || locked) return;
     if (escalatedLocal) {
-      window.alert("이미 운영자에게 escalation 된 답변입니다.");
+      infoToast("이미 운영자에게 전달된 답변이에요.");
       return;
     }
     const reason = window.prompt(
@@ -475,15 +468,9 @@ export function MessageBubble({
       const r = await api.escalateMessage(sessionId, messageId, reason);
       setEscalatedLocal(r.escalated_at);
       onMetaChanged?.({ escalated_at: r.escalated_at });
-      window.dispatchEvent(
-        new CustomEvent("chat:toast", {
-          detail: "운영자에게 전달했습니다 — 알림이 발송됐어요.",
-        }),
-      );
+      infoToast("운영자에게 전달했어요 — 알림이 발송됐습니다.");
     } catch (e) {
-      window.alert(
-        `Escalation 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("운영자 전달 실패", e);
     }
   }
   // Sync local body only when the parent's `content` prop actually
@@ -560,9 +547,7 @@ export function MessageBubble({
       setEditing(false);
       setRewindMode(false);
     } catch (e) {
-      window.alert(
-        `메시지 수정 실패: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      errorToast("메시지 수정 실패", e);
     } finally {
       setSaving(false);
     }
@@ -1378,7 +1363,7 @@ function TtsButton({ text }: { text: string }) {
 function printSingleMessage(provider: string | null | undefined, body: string) {
   const w = window.open("", "_blank", "noopener,noreferrer,width=720,height=900");
   if (!w) {
-    window.alert("팝업이 차단됐어요. 브라우저 팝업 허용 후 다시 시도해 주세요.");
+    infoToast("팝업이 차단됐어요. 브라우저 팝업 허용 후 다시 시도해 주세요.");
     return;
   }
   const safe = body

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, auth, type AuditEvent } from "../api/client";
 import { copyText } from "../lib/clipboard";
+import { errorToast, infoToast } from "../lib/toast";
 import { useAuth } from "./AuthContext";
 import { PasswordStrength } from "./PasswordStrength";
 
@@ -36,11 +37,11 @@ export function MyPage({ onBack }: Props) {
     setRevoking(true);
     try {
       await auth.logoutAllOtherDevices();
-      window.alert("다른 디바이스 세션을 모두 끊었습니다. 다시 로그인해 주세요.");
+      infoToast("다른 디바이스 세션을 모두 끊었어요. 다시 로그인해 주세요.");
       // 본인 토큰도 invalidate 되므로 곧장 로그아웃 화면으로.
       logout();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
     } finally {
       setRevoking(false);
     }
@@ -323,7 +324,7 @@ function ApiKeysPanel() {
       setLabel("");
       await refresh();
     } catch (e) {
-      window.alert(`발급 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("발급 실패", e);
     }
   }
   async function revoke(id: string) {
@@ -332,7 +333,7 @@ function ApiKeysPanel() {
       await api.revokeApiKey(id);
       await refresh();
     } catch (e) {
-      window.alert(`회수 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("회수 실패", e);
     }
   }
 

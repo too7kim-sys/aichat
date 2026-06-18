@@ -11,6 +11,7 @@ import {
   type UserStatus,
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { errorToast, infoToast } from "../lib/toast";
 import { IconCheck, IconPlus, IconX } from "../components/Icon";
 import { ProjectModal } from "../components/ProjectModal";
 import { RolePickerModal } from "../components/RolePickerModal";
@@ -1179,7 +1180,7 @@ function KnowledgePanel({ isAdmin }: { isAdmin: boolean }) {
     try {
       await remove(p.id);
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     } finally {
       setBusyId(null);
     }
@@ -1529,7 +1530,7 @@ function AuditPanel() {
         dateTo: dateTo || undefined,
       });
     } catch (e) {
-      window.alert(`CSV 내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("CSV 내보내기 실패", e);
     }
   }
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
@@ -1656,7 +1657,7 @@ function ActiveSessionsPanel() {
       await admin.forceLogoutUser(r.user_id);
       await refresh();
     } catch (e) {
-      window.alert(`실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("실패", e);
     } finally {
       setBusyId(null);
     }
@@ -1963,7 +1964,7 @@ function BackupsPanel() {
       await admin.deleteBackup(name);
       await refresh();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
     }
   }
 
@@ -2050,7 +2051,7 @@ async function downloadAuthed(url: string, filename: string) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
-    window.alert(`다운로드 실패: ${res.status}`);
+    errorToast(`다운로드 실패 (HTTP ${res.status})`);
     return;
   }
   const blob = await res.blob();
@@ -2141,7 +2142,7 @@ function RagQualityPanel({
       const updated = await admin.updateSettings({ [key]: next });
       setAppSettings(updated);
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
     } finally {
       setBusy(false);
     }
@@ -2310,10 +2311,10 @@ function MonitorPanel() {
   async function sendTest() {
     try {
       await admin.testWebhook();
-      window.alert("테스트 알림을 전송했습니다 — 아래 '최근 발송' 표에서 결과를 확인하세요.");
+      infoToast("테스트 알림을 전송했어요 — 아래 '최근 발송' 표에서 결과를 확인하세요.");
       await refresh();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
     }
   }
 
@@ -2571,10 +2572,10 @@ function IntegrityPanel() {
     )) return;
     try {
       const r = await admin.cleanupOrphans("comments", targetType);
-      window.alert(`${r.deleted}건 삭제`);
+      infoToast(`${r.deleted}건 삭제됨`);
       await refreshAll();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
     }
   }
 
@@ -2585,12 +2586,10 @@ function IntegrityPanel() {
     )) return;
     try {
       const r = await admin.cleanupOrphanDirs(ids);
-      window.alert(
-        `${r.deleted_dirs}개 디렉터리, ${fmtBytes(r.freed_bytes)} 회수`,
-      );
+      infoToast(`${r.deleted_dirs}개 디렉터리, ${fmtBytes(r.freed_bytes)} 회수`);
       await refreshAll();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
     }
   }
 
@@ -2811,7 +2810,7 @@ function QualityPanel() {
       await api.ackEscalation(sessId, msgId);
       await refresh();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      errorToast("작업 실패", e);
     }
   }
 

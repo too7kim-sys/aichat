@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { errorToast } from "../lib/toast";
 
 /** cowork 89~94 2차 UI — 팀 관리 / 워크플로 실행 이력 / 액션아이템
  *  칸반 / 메시지 코멘트 스레드.  컴포넌트 한 파일에 모아 import 줄 단축. */
@@ -18,7 +19,7 @@ export function TeamsPanel({ onClose }: { onClose: () => void }) {
     try {
       setTeams(await api.listTeams());
     } catch (e) {
-      window.alert(`팀 목록 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("팀 목록 실패", e);
     }
   }
   useEffect(() => {
@@ -34,7 +35,7 @@ export function TeamsPanel({ onClose }: { onClose: () => void }) {
       setDesc("");
       await refresh();
     } catch (e) {
-      window.alert(`팀 생성 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("팀 생성 실패", e);
     } finally {
       setBusy(false);
     }
@@ -45,7 +46,7 @@ export function TeamsPanel({ onClose }: { onClose: () => void }) {
       await api.deleteTeam(id);
       await refresh();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     }
   }
 
@@ -120,7 +121,7 @@ function TeamMembersPanel({ teamId }: { teamId: string }) {
       setUserId("");
       await refresh();
     } catch (e) {
-      window.alert(`추가 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("추가 실패", e);
     }
   }
   async function remove(uid: string) {
@@ -128,7 +129,7 @@ function TeamMembersPanel({ teamId }: { teamId: string }) {
       await api.removeTeamMember(teamId, uid);
       await refresh();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     }
   }
 
@@ -191,7 +192,7 @@ export function WorkflowRunsPanel({
       await api.approveWorkflowRun(id);
       await refresh();
     } catch (e) {
-      window.alert(`승인 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("승인 실패", e);
     } finally {
       setBusy(false);
     }
@@ -203,7 +204,7 @@ export function WorkflowRunsPanel({
       await api.rejectWorkflowRun(id, reason);
       await refresh();
     } catch (e) {
-      window.alert(`거부 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("거부 실패", e);
     } finally {
       setBusy(false);
     }
@@ -329,7 +330,7 @@ export function ApprovalsPanel({ onClose }: { onClose: () => void }) {
       await api.approveWorkflowRun(id);
       await refresh();
     } catch (e) {
-      window.alert(`승인 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("승인 실패", e);
     } finally {
       setBusy(false);
     }
@@ -341,7 +342,7 @@ export function ApprovalsPanel({ onClose }: { onClose: () => void }) {
       await api.rejectWorkflowRun(id, reason);
       await refresh();
     } catch (e) {
-      window.alert(`거부 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("거부 실패", e);
     } finally {
       setBusy(false);
     }
@@ -451,7 +452,7 @@ export function ActionKanbanPanel({
       setTitle("");
       await refresh();
     } catch (e) {
-      window.alert(`추가 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("추가 실패", e);
     }
   }
   async function move(id: string, status: "todo" | "doing" | "done") {
@@ -459,7 +460,7 @@ export function ActionKanbanPanel({
       await api.updateActionItem(id, { status });
       await refresh();
     } catch (e) {
-      window.alert(`상태 변경 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("상태 변경 실패", e);
     }
   }
   async function remove(id: string) {
@@ -467,7 +468,7 @@ export function ActionKanbanPanel({
       await api.deleteActionItem(id);
       await refresh();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     }
   }
 
@@ -597,7 +598,7 @@ export function CommentThread({
       setDraft("");
       await refresh();
     } catch (e) {
-      window.alert(`등록 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("등록 실패", e);
     }
   }
   async function resolve(id: string, cur: boolean) {
@@ -605,7 +606,7 @@ export function CommentThread({
       await api.resolveComment(id, !cur);
       await refresh();
     } catch (e) {
-      window.alert(`해결 토글 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("해결 토글 실패", e);
     }
   }
   async function remove(id: string) {
@@ -613,7 +614,7 @@ export function CommentThread({
       await api.deleteComment(id);
       await refresh();
     } catch (e) {
-      window.alert(`삭제 실패: ${e instanceof Error ? e.message : String(e)}`);
+      errorToast("삭제 실패", e);
     }
   }
 

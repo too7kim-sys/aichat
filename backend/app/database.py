@@ -685,6 +685,20 @@ async def init_db() -> None:
         # Quiet the unused-import + text linters in environments where
         # neither branch above runs.
         _ = text
+        # RequestLog 보조 인덱스 — admin 통계가 (created_at >= cutoff
+        # 필터 + path/method 그룹) 패턴이라 복합 인덱스 + 'slow only'
+        # 부분 인덱스 두 개를 깔아 둔다.  IF NOT EXISTS 라 재실행 안전.
+        try:
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_request_log_created_path "
+                "ON request_log(created_at, path)"
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_request_log_slow "
+                "ON request_log(created_at) WHERE latency_ms >= 500"
+            )
+        except Exception:  # noqa: BLE001 — table may not exist yet (fresh DB).
+            pass
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:

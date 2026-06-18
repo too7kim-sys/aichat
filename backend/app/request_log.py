@@ -7,13 +7,15 @@ request 패널 + p50/p95/p99 통계의 raw 데이터로 활용한다.  ErrorLog 
 설계 메모:
   - /api/health, /api/admin/health 같은 로드 밸런서 probe 는 폭주성이라
     기록 스킵.  filter_path() 가 결정.
-  - 로깅 실패가 응답을 막지 않도록 try/except 로 감싸 silently 흡수.
+  - DB write 는 fire-and-forget task 로 — 응답 latency 에 ms 단위 hit
+    가 들어가지 않도록.  task 가 죽어도 사용자 응답은 정상.
   - 경로 정규화: UUID 처럼 보이는 path 세그먼트를 '{id}' 로 치환해
     /api/sessions/abc-def → /api/sessions/{id} 처럼 그룹 통계가 가능.
   - 보존 기간 초과 행은 cleanup_request_log() 가 정리 (DB init 후 호출).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -30,6 +32,10 @@ from .database import SessionLocal
 
 
 _log = logging.getLogger("uvicorn.error")
+
+# fire-and-forget _persist task 의 strong reference 모음 — 가비지컬렉터가
+# task 를 중간에 회수해 silently 사라지는 것을 막는다.
+_PENDING_TASKS: set[asyncio.Task] = set()
 
 # UUID v4 패턴 — 경로 세그먼트가 이걸 매치하면 {id} 로 치환.
 _UUID_RE = re.compile(
@@ -116,7 +122,7 @@ async def _persist(
 
 
 class RequestLogMiddleware(BaseHTTPMiddleware):
-    """매 요청을 RequestLog 한 줄로."""
+    """매 요청을 RequestLog 한 줄로 — DB write 는 fire-and-forget."""
 
     async def dispatch(self, request: Request, call_next):
         path_raw = request.url.path
@@ -130,20 +136,28 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            # ASGI route pattern 우선 (그룹 통계용), 없으면 정규화한 path.
             route_path: str | None = None
             route = request.scope.get("route")
             if route is not None:
                 route_path = getattr(route, "path", None)
-            await _persist(
-                method=request.method,
-                path=route_path or _normalize_path(path_raw),
-                status_code=status,
-                latency_ms=elapsed_ms,
-                user_id=_user_id_of(request),
-                ip=_client_ip(request),
-                user_agent=request.headers.get("user-agent"),
-            )
+            # 백그라운드 task — 응답 latency 에 DB write 가 들어가지 않게.
+            try:
+                task = asyncio.create_task(
+                    _persist(
+                        method=request.method,
+                        path=route_path or _normalize_path(path_raw),
+                        status_code=status,
+                        latency_ms=elapsed_ms,
+                        user_id=_user_id_of(request),
+                        ip=_client_ip(request),
+                        user_agent=request.headers.get("user-agent"),
+                    )
+                )
+                _PENDING_TASKS.add(task)
+                task.add_done_callback(_PENDING_TASKS.discard)
+            except RuntimeError:
+                # 이벤트 루프가 이미 닫힘 — 셧다운 직전 요청.  무시.
+                pass
 
 
 async def cleanup_request_log() -> int:
