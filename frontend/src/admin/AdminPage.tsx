@@ -1425,6 +1425,8 @@ function AuditPanel() {
   const [event, setEvent] = useState("");
   const [userQ, setUserQ] = useState("");
   const [limit, setLimit] = useState(100);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   async function refresh() {
     setLoading(true);
@@ -1433,6 +1435,8 @@ function AuditPanel() {
         event: event || undefined,
         userQ: userQ || undefined,
         limit,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
       });
       setRows(r);
       setErr(null);
@@ -1440,6 +1444,18 @@ function AuditPanel() {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+    }
+  }
+  async function exportCsv() {
+    try {
+      await admin.exportAuditCsv({
+        event: event || undefined,
+        userQ: userQ || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+      });
+    } catch (e) {
+      window.alert(`CSV 내보내기 실패: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
@@ -1467,6 +1483,18 @@ function AuditPanel() {
           onChange={(e) => setUserQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") refresh(); }}
         />
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          title="시작일 (포함)"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          title="종료일 (포함)"
+        />
         <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
           <option value={50}>최근 50</option>
           <option value={100}>최근 100</option>
@@ -1474,6 +1502,14 @@ function AuditPanel() {
           <option value={500}>최근 500</option>
         </select>
         <button type="button" className="admin-btn" onClick={refresh}>검색</button>
+        <button
+          type="button"
+          className="admin-btn"
+          onClick={exportCsv}
+          title="현재 필터 조건의 결과를 CSV 로 (최대 1만 건)"
+        >
+          📥 CSV
+        </button>
       </div>
 
       {loading ? (
@@ -1857,13 +1893,37 @@ function BackupsPanel() {
     }
   }
 
+  async function downloadFull() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await admin.downloadFullBackup();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <SectionCard
       title="DB 백업"
       right={
-        <button type="button" className="admin-btn" onClick={trigger} disabled={busy}>
-          {busy ? "백업 중…" : "지금 백업"}
-        </button>
+        <>
+          <button
+            type="button"
+            className="admin-btn"
+            onClick={downloadFull}
+            disabled={busy}
+            title="SQLite + uploads 를 한 zip 으로 다운로드 (#106)"
+            style={{ marginRight: 6 }}
+          >
+            📦 전체 백업 zip
+          </button>
+          <button type="button" className="admin-btn" onClick={trigger} disabled={busy}>
+            {busy ? "백업 중…" : "지금 백업"}
+          </button>
+        </>
       }
     >
       <div className="pm-help" style={{ marginBottom: 8 }}>

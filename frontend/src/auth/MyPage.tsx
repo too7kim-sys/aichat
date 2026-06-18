@@ -17,10 +17,34 @@ export function MyPage({ onBack }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  type Sess = Awaited<ReturnType<typeof auth.listMySessions>>["items"][number];
+  const [sessions, setSessions] = useState<Sess[]>([]);
+  const [revoking, setRevoking] = useState(false);
 
   useEffect(() => {
     auth.myAudit(20).then(setEvents).catch(() => {});
+    auth
+      .listMySessions()
+      .then((r) => setSessions(r.items))
+      .catch(() => setSessions([]));
   }, []);
+
+  async function revokeOtherDevices() {
+    if (!window.confirm(
+      "다른 디바이스에서 로그인된 세션을 모두 끊을까요?  현재 사용 중인 토큰도 함께 끊겨 다시 로그인해야 합니다.",
+    )) return;
+    setRevoking(true);
+    try {
+      await auth.logoutAllOtherDevices();
+      window.alert("다른 디바이스 세션을 모두 끊었습니다. 다시 로그인해 주세요.");
+      // 본인 토큰도 invalidate 되므로 곧장 로그아웃 화면으로.
+      logout();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRevoking(false);
+    }
+  }
 
   if (!user) return null;
 
@@ -42,8 +66,8 @@ export function MyPage({ onBack }: Props) {
 
   async function changePassword(e: FormEvent) {
     e.preventDefault();
-    if (newPw.length < 8) {
-      setError("새 비밀번호는 8자 이상이어야 합니다");
+    if (newPw.length < 10) {
+      setError("새 비밀번호는 10자 이상이어야 합니다");
       return;
     }
     setSaving(true);
@@ -176,6 +200,47 @@ export function MyPage({ onBack }: Props) {
             {error || message}
           </div>
         )}
+
+        <div className="mypage-section">
+          <h2>활성 세션</h2>
+          <p className="mypage-hint">
+            최근 로그인 기록 — IP / User-Agent / 시각.  의심스러운 항목이
+            있으면 아래 버튼으로 다른 디바이스 토큰을 모두 끊고 다시
+            로그인하세요.
+          </p>
+          {sessions.length === 0 ? (
+            <p className="mypage-hint">기록 없음</p>
+          ) : (
+            <ul className="audit-list">
+              {sessions.map((s) => (
+                <li key={s.id}>
+                  <span className={`audit-badge audit-${s.active ? "ok" : "stale"}`}>
+                    {s.active ? "활성" : "끊김"}
+                  </span>
+                  <span className="audit-time">
+                    {s.created_at
+                      ? new Date(s.created_at).toLocaleString("ko-KR")
+                      : "—"}
+                  </span>
+                  <span className="audit-meta">
+                    {s.ip}
+                    {s.user_agent && ` · ${s.user_agent.slice(0, 80)}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mypage-form-row" style={{ marginTop: 8 }}>
+            <button
+              className="logout"
+              onClick={revokeOtherDevices}
+              disabled={revoking}
+              type="button"
+            >
+              {revoking ? "끊는 중…" : "🚪 다른 디바이스 모두 로그아웃"}
+            </button>
+          </div>
+        </div>
 
         <div className="mypage-section mypage-danger">
           <h2>위험 구역</h2>

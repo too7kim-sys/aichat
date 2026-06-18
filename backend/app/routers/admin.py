@@ -804,10 +804,13 @@ async def list_audit(
     limit: int = 100,
     event: str | None = None,
     user_q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     _staff: models.User = Depends(require_staff),
     db: AsyncSession = Depends(get_db),
 ):
-    """감사 로그 검색. `event` 와 `user_q`(email 부분 일치) 로 좁힐 수
+    """감사 로그 검색. `event` + `user_q` (이메일 부분 일치) + 날짜
+    범위(`date_from` / `date_to`, ISO 8601 또는 YYYY-MM-DD) 로 좁힐 수
     있고 항상 최신순. 기본 100건."""
     limit = max(1, min(int(limit or 100), 500))
 
@@ -820,6 +823,18 @@ async def list_audit(
             .where(models.User.email.ilike(f"%{user_q.strip()}%"))
         )
         q = q.where(models.AuditLog.user_id.in_(sub))
+    if date_from:
+        try:
+            dt = datetime.fromisoformat(date_from)
+            q = q.where(models.AuditLog.created_at >= dt)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.fromisoformat(date_to)
+            q = q.where(models.AuditLog.created_at <= dt)
+        except ValueError:
+            pass
     rows = (await db.execute(q.limit(limit))).scalars().all()
 
     user_ids = {r.user_id for r in rows if r.user_id}
@@ -846,6 +861,84 @@ async def list_audit(
         }
         for r in rows
     ]
+
+
+@router.get("/audit.csv")
+async def export_audit_csv(
+    event: str | None = None,
+    user_q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """감사 로그를 CSV 로 내보내기 (최대 10,000 행).  컬럼은 list_audit
+    응답과 동일.  엑셀이 한글을 깨지 않도록 UTF-8 BOM 을 붙인다."""
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    q = select(models.AuditLog).order_by(models.AuditLog.created_at.desc())
+    if event:
+        q = q.where(models.AuditLog.event == event.strip())
+    if user_q and user_q.strip():
+        sub = (
+            select(models.User.id)
+            .where(models.User.email.ilike(f"%{user_q.strip()}%"))
+        )
+        q = q.where(models.AuditLog.user_id.in_(sub))
+    if date_from:
+        try:
+            q = q.where(
+                models.AuditLog.created_at >= datetime.fromisoformat(date_from)
+            )
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            q = q.where(
+                models.AuditLog.created_at <= datetime.fromisoformat(date_to)
+            )
+        except ValueError:
+            pass
+    rows = (await db.execute(q.limit(10_000))).scalars().all()
+
+    user_ids = {r.user_id for r in rows if r.user_id}
+    emails: dict[str, str] = {}
+    if user_ids:
+        for uid, em in (
+            await db.execute(
+                select(models.User.id, models.User.email)
+                .where(models.User.id.in_(user_ids))
+            )
+        ).all():
+            emails[uid] = em
+
+    buf = io.StringIO()
+    buf.write("﻿")  # UTF-8 BOM — Excel 한글 호환.
+    w = csv.writer(buf)
+    w.writerow(
+        ["시각", "이벤트", "사용자", "IP", "User-Agent", "상세"],
+    )
+    for r in rows:
+        w.writerow([
+            r.created_at.isoformat() if r.created_at else "",
+            r.event,
+            emails.get(r.user_id or "", "—"),
+            r.ip,
+            r.user_agent,
+            r.detail,
+        ])
+    buf.seek(0)
+    today = datetime.utcnow().strftime("%Y%m%d")
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="audit-{today}.csv"',
+        },
+    )
 
 
 # ── 강제 로그아웃 + 토큰 무효화 ─────────────────────────────────────────
@@ -1067,6 +1160,84 @@ async def create_backup(
         "backup_dir": str(base),
         "source": str(db_path),
     }
+
+
+@router.get("/backups/_full.zip")
+async def download_full_backup(
+    _admin: models.User = Depends(require_admin),
+):
+    """SQLite DB + 업로드 디렉터리(/data/docs) 를 zip 한 스트림으로 다운로드 (#106).
+    중간에 파일을 임시 저장하지 않고 곧장 응답 스트림으로 흘려보냄.
+
+    IMPORTANT: 이 라우트는 반드시 `/backups/{name}` 보다 먼저 선언돼야 한다 —
+    FastAPI 가 등록 순서대로 매칭하기 때문에 그렇지 않으면 `_full.zip` 이
+    name path-param 으로 빨려 들어간다."""
+    import io
+    import zipfile
+    from pathlib import Path
+
+    from fastapi.responses import StreamingResponse
+
+    # 1) DB 파일 경로 해석 — POST /backups 와 동일한 로직.
+    url = settings.database_url
+    db_path: Path | None = None
+    if "sqlite" in url and ":///" in url:
+        raw_db = url.split(":///", 1)[1]
+        p = Path(raw_db).expanduser()
+        if not p.is_absolute():
+            from .. import __file__ as _app_init
+            backend_root = Path(_app_init).resolve().parent.parent
+            p = (backend_root / p).resolve()
+        else:
+            p = p.resolve()
+        if p.is_file():
+            db_path = p
+    # 2) 업로드 디렉터리.
+    uploads_dir = Path(settings.rag_upload_dir).expanduser().resolve()
+
+    # SQLite WAL checkpoint 후 zip — 누락 방지.
+    if db_path is not None:
+        import sqlite3
+        try:
+            c = sqlite3.connect(str(db_path), timeout=10)
+            try:
+                c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                c.close()
+        except sqlite3.Error as exc:
+            log.warning("WAL checkpoint 실패: %s — 백업 진행", exc)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        if db_path is not None:
+            zf.write(db_path, arcname=f"db/{db_path.name}")
+        if uploads_dir.is_dir():
+            for fp in uploads_dir.rglob("*"):
+                if not fp.is_file():
+                    continue
+                try:
+                    arc = "uploads/" + str(fp.relative_to(uploads_dir))
+                    zf.write(fp, arcname=arc)
+                except (OSError, ValueError):
+                    # 권한 / 심볼릭 링크 깨짐 — 한 파일만 건너뛰고 계속.
+                    continue
+        # 메타 파일 — 복구 시점에 어떤 디렉터리에서 가져왔는지 기억.
+        meta = (
+            f"aichat full backup\n"
+            f"created_at: {datetime.now(timezone.utc).isoformat()}\n"
+            f"db_url: {url}\n"
+            f"uploads_dir: {uploads_dir}\n"
+        )
+        zf.writestr("MANIFEST.txt", meta)
+    buf.seek(0)
+    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="aichat-full-{ts}.zip"',
+        },
+    )
 
 
 @router.get("/backups/{name}")

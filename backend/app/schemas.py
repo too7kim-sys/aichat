@@ -614,7 +614,7 @@ class ProviderInfo(BaseModel):
 
 class SignupRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=10, max_length=128)
     name: str = Field(default="", max_length=80)
     # Optional free-text reason the applicant gives — surfaces in
     # the admin approval queue. Capped at 1000 chars so the UI
@@ -756,7 +756,7 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     token: str = Field(min_length=8, max_length=128)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
 
 
 class AuthResponse(BaseModel):
@@ -769,7 +769,7 @@ class AuthResponse(BaseModel):
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=80)
     current_password: str | None = None
-    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+    new_password: str | None = Field(default=None, min_length=10, max_length=128)
 
 
 class AuditEvent(BaseModel):

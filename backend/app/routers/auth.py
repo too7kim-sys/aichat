@@ -20,7 +20,12 @@ from ..email import (
     send_verify_email,
 )
 from ..security import validate_password
-from ._rate_limit import enforce_rate_limit
+from ._rate_limit import (
+    check_account_lockout,
+    enforce_rate_limit,
+    record_login_failure,
+    reset_login_failures,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -119,18 +124,23 @@ async def login(
 ):
     enforce_rate_limit("login", request, limit=10, window_seconds=60)
     email = payload.email.lower()
+    # IP rate-limit 외에 계정 단위 잠금도 검사 (#102) — 사전 등록된
+    # 이메일을 다른 IP 들로 분산 공격하는 경우를 막는다.
+    check_account_lockout(email)
     user = (
         await db.execute(select(models.User).where(models.User.email == email))
     ).scalar_one_or_none()
     # Equalise timing whether or not the email exists.
     if user is None:
         dummy_verify()
+        record_login_failure(email)
         await audit.record(
             db, request, audit.LOGIN_FAIL, detail=f"unknown email / {email}"
         )
         await db.commit()
         raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다")
     if not verify_password(payload.password, user.password_hash):
+        record_login_failure(email)
         await audit.record(
             db, request, audit.LOGIN_FAIL, user_id=user.id, detail="bad password"
         )
@@ -177,9 +187,63 @@ async def login(
         )
 
     await audit.record(db, request, audit.LOGIN_OK, user_id=user.id)
+    reset_login_failures(email)
     await db.commit()
     access, expires = create_access_token(user.id)
     return schemas.AuthResponse(user=user, access_token=access, expires_at=expires)
+
+
+@router.post("/logout-all-other-devices", status_code=204)
+async def logout_all_other_devices(
+    request: Request,
+    user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """현재 사용자가 다른 기기에서 발급받은 모든 JWT 를 무효화 (#104).
+    호출한 토큰 자체도 cutoff 직전에 발급된 것이 아니면 함께 끊긴다 —
+    스마트폰을 잃어버린 경우의 안전망."""
+    user.tokens_invalidated_at = datetime.now(timezone.utc)
+    await audit.record(
+        db, request, "logout_all_self", user_id=user.id,
+        detail="사용자 자가 전체 로그아웃",
+    )
+    await db.commit()
+
+
+@router.get("/sessions")
+async def my_sessions(
+    user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """내 최근 login_ok 기록 — 'IP, User-Agent, 시각' 을 보여 주는
+    간소화된 '활성 세션' 뷰 (#104).  서버가 JTI 를 추적하지 않으므로
+    실제 활성 토큰 목록은 아니지만, 의심 로그인 탐지에는 충분."""
+    rows = (
+        await db.execute(
+            select(models.AuditLog)
+            .where(
+                models.AuditLog.user_id == user.id,
+                models.AuditLog.event == "login_ok",
+            )
+            .order_by(models.AuditLog.created_at.desc())
+            .limit(20)
+        )
+    ).scalars().all()
+    cutoff = user.tokens_invalidated_at
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "ip": r.ip,
+                "user_agent": r.user_agent,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "active": (cutoff is None) or (
+                    r.created_at and r.created_at >= cutoff.replace(tzinfo=None)
+                ),
+            }
+            for r in rows
+        ],
+    }
 
 
 # ── Email verification ────────────────────────────────────────────

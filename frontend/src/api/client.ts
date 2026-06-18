@@ -17,6 +17,19 @@ function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+/** Browser-side helper for "download this blob as a file" — used by
+ *  CSV/zip endpoints that stream their response (#101, #106). */
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export class HttpError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -269,6 +282,20 @@ export const auth = {
   deleteMe: () => json<void>("/me", { method: "DELETE" }),
   myAudit: (limit = 50) =>
     json<AuditEvent[]>(`/me/audit?limit=${limit}`),
+  /** 내 최근 login_ok 기록 — IP / User-Agent / 활성 여부 (#104). */
+  listMySessions: () =>
+    json<{
+      items: {
+        id: string;
+        ip: string;
+        user_agent: string;
+        created_at: string | null;
+        active: boolean;
+      }[];
+    }>("/auth/sessions"),
+  /** 다른 디바이스의 내 세션을 모두 끊기 (#104). */
+  logoutAllOtherDevices: () =>
+    json<void>("/auth/logout-all-other-devices", { method: "POST" }),
 
   resendVerify: () =>
     json<void>("/auth/verify-email/send", { method: "POST" }),
@@ -309,11 +336,19 @@ export const admin = {
     return json<AdminUser[]>(`/admin/users${qs ? "?" + qs : ""}`);
   },
   pendingCount: () => json<{ count: number }>("/admin/pending-count"),
-  listAudit: (opts?: { event?: string; userQ?: string; limit?: number }) => {
+  listAudit: (opts?: {
+    event?: string;
+    userQ?: string;
+    limit?: number;
+    dateFrom?: string;
+    dateTo?: string;
+  }) => {
     const params = new URLSearchParams();
     if (opts?.event) params.set("event", opts.event);
     if (opts?.userQ) params.set("user_q", opts.userQ);
     if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.dateFrom) params.set("date_from", opts.dateFrom);
+    if (opts?.dateTo) params.set("date_to", opts.dateTo);
     const qs = params.toString();
     return json<Array<{
       id: string;
@@ -325,6 +360,43 @@ export const admin = {
       detail: string;
       created_at: string | null;
     }>>(`/admin/audit${qs ? "?" + qs : ""}`);
+  },
+  /** 감사 로그 CSV 내보내기 (#101) — 같은 필터 그대로, 브라우저에서
+   *  파일로 떨어진다. */
+  exportAuditCsv: async (opts?: {
+    event?: string;
+    userQ?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (opts?.event) params.set("event", opts.event);
+    if (opts?.userQ) params.set("user_q", opts.userQ);
+    if (opts?.dateFrom) params.set("date_from", opts.dateFrom);
+    if (opts?.dateTo) params.set("date_to", opts.dateTo);
+    const qs = params.toString();
+    const res = await fetch(
+      `${BASE}/admin/audit.csv${qs ? "?" + qs : ""}`,
+      { credentials: "include", headers: authHeaders() },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    triggerDownload(blob, `audit-${today}.csv`);
+  },
+  /** 전체 백업 zip 다운로드 (#106) — SQLite + uploads/ 를 하나의 zip 으로. */
+  downloadFullBackup: async () => {
+    const res = await fetch(`${BASE}/admin/backups/_full.zip`, {
+      credentials: "include",
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const ts = new Date()
+      .toISOString()
+      .replace(/[-:T]/g, "")
+      .slice(0, 15);
+    triggerDownload(blob, `aichat-full-${ts}.zip`);
   },
   forceLogoutUser: (userId: string) =>
     json<{

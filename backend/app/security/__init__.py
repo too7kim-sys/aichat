@@ -36,14 +36,32 @@ def _classes(s: str) -> set[str]:
     return out
 
 
+def _has_long_run(pw: str, max_run: int = 3) -> bool:
+    """`max_run` 보다 더 연속된 동일 글자가 있는지 (#103)."""
+    if not pw:
+        return False
+    last = pw[0]
+    run = 1
+    for ch in pw[1:]:
+        if ch == last:
+            run += 1
+            if run > max_run:
+                return True
+        else:
+            last = ch
+            run = 1
+    return False
+
+
 def validate_password(
     pw: str,
     *,
     email: str | None = None,
     name: str | None = None,
 ) -> None:
-    if len(pw) < 8:
-        raise ValueError("비밀번호는 8자 이상이어야 합니다")
+    # #103: 폐쇄망 정책 강화 — 최소 10자, 같은 글자 4회 연속 금지.
+    if len(pw) < 10:
+        raise ValueError("비밀번호는 10자 이상이어야 합니다")
     if len(pw) > 128:
         raise ValueError("비밀번호가 너무 깁니다 (128자 이하)")
     if pw.lower() in _COMMON:
@@ -52,6 +70,8 @@ def validate_password(
         raise ValueError(
             "영문 대/소문자, 숫자, 기호 중 두 종류 이상을 포함해야 합니다"
         )
+    if _has_long_run(pw, 3):
+        raise ValueError("같은 글자를 4회 이상 연속해서 쓸 수 없습니다")
     lowered = pw.lower()
     if email:
         local = email.split("@", 1)[0].lower()
