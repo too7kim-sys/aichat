@@ -286,6 +286,20 @@ class Settings(BaseSettings):
     # 와 일치). 관리자 화면에서 백업 트리거 + 목록 + 다운로드.
     backup_dir: str = "../backups"
 
+    # 관측/모니터링 (#116~#120).
+    # RequestLog 보존 기간 — 모든 API 요청을 한 줄씩 기록하므로 디스크
+    # 비용이 크다.  7일 = ~150만 row (요청 200/s 가정) 까지 부담 적음.
+    request_log_retention_days: int = 7
+    # 'Slow request' 임계치 (ms).  이보다 큰 요청만 Slow request 패널에.
+    slow_request_ms: int = 500
+    # 외부 알림 (#120) — 폐쇄망 사내 webhook(보통 사내 슬랙/이메일 게이트).
+    # 비우면 비활성화.  POST {kind, title, body, ts} JSON.
+    webhook_alert_url: str = ""
+    # 알림을 트리거하는 임계치들.  하나라도 hit 되면 webhook 으로 발송.
+    webhook_disk_pct: float = 90.0
+    webhook_error_rate_pct: float = 5.0
+    webhook_check_interval_seconds: int = 300
+
     # 워크스페이스에서 자동 단위테스트 실행을 허용할지. 켜면 사용자가
     # 패치 적용 후 `pytest` / `npm test` / `cargo test` 같은 알려진
     # 러너를 워크스페이스 안에서 한 번 돌려 결과를 볼 수 있다. 운영

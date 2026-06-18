@@ -529,6 +529,63 @@ export const admin = {
         body: JSON.stringify({ project_ids: projectIds }),
       },
     ),
+  // ── 관측/모니터링 (#116~#120) ──────────────────────────────
+  listSlowRequests: (opts?: { limit?: number; thresholdMs?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.thresholdMs) params.set("threshold_ms", String(opts.thresholdMs));
+    const qs = params.toString();
+    return json<{
+      threshold_ms: number;
+      items: Array<{
+        id: string;
+        method: string;
+        path: string;
+        status_code: number;
+        latency_ms: number;
+        user_email: string;
+        ip: string | null;
+        created_at: string | null;
+      }>;
+    }>(`/admin/requests/slow${qs ? "?" + qs : ""}`);
+  },
+  endpointStats: (hours = 24) =>
+    json<{
+      hours: number;
+      items: Array<{
+        method: string;
+        path: string;
+        count: number;
+        p50: number;
+        p95: number;
+        p99: number;
+        errors_5xx: number;
+        error_rate_pct: number;
+      }>;
+    }>(`/admin/requests/stats?hours=${hours}`),
+  sloDashboard: () =>
+    json<{
+      now: string;
+      h24: { total: number; success_pct: number; error_5xx_pct: number; avg_latency_ms: number };
+      d7: { total: number; success_pct: number; error_5xx_pct: number; avg_latency_ms: number };
+      trend_24h: Array<{ label: string; total: number; errors_5xx: number; avg_latency_ms: number }>;
+      trend_7d: Array<{ label: string; total: number; errors_5xx: number; avg_latency_ms: number }>;
+    }>("/admin/requests/slo"),
+  listWebhooks: (limit = 50) =>
+    json<Array<{
+      id: string;
+      kind: string;
+      title: string;
+      body: string | null;
+      target_url: string;
+      status: string;
+      response_code: number | null;
+      error: string | null;
+      attempts: number;
+      created_at: string | null;
+    }>>(`/admin/webhooks/recent?limit=${limit}`),
+  testWebhook: () =>
+    json<void>("/admin/webhooks/test", { method: "POST" }),
   listErrors: (limit = 50) =>
     json<{
       transcripts: Array<{

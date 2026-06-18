@@ -1076,3 +1076,59 @@ class SearchQualityLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
     )
+
+
+# ── 요청 트레이싱 (#116) ─────────────────────────────────────
+class RequestLog(Base):
+    """모든 API 요청 한 줄.  ErrorLog 는 실패만 잡고 이 테이블은 성공/
+    실패 모두 잡아 throughput·latency 분석에 사용.
+
+    보존 기간은 settings.request_log_retention_days (기본 7일) — 너무
+    오래 쌓이면 디스크 + 인덱스 비용.  middleware 가 /health 등 noisy
+    경로는 기록 스킵, status_code/path 는 인덱스해서 admin 통계 쿼리가
+    빠르게 동작하도록.
+    """
+
+    __tablename__ = "request_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    method: Mapped[str] = mapped_column(String(10), index=True)
+    # 라우트 패턴 우선 (e.g. /api/sessions/{id}).  치환된 실제 경로보다
+    # 그룹 통계에 유리 — request.scope['route'].path 가 있으면 그것을,
+    # 없으면 url.path 그대로 (정규화: 36자 UUID 는 {id} 로 치환).
+    path: Mapped[str] = mapped_column(String(255), index=True)
+    status_code: Mapped[int] = mapped_column(index=True)
+    latency_ms: Mapped[int] = mapped_column(default=0)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+
+# ── 웹훅 알림 큐 (#120) ──────────────────────────────────────
+class WebhookDelivery(Base):
+    """발송된(혹은 실패한) 외부 알림.  admin 이 'webhook 동작했나?' 점검
+    할 수 있게 결과를 남긴다.  status='pending' 행은 백그라운드 잡이
+    재시도, 'sent' / 'failed' 는 종착 상태."""
+
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_url: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    response_code: Mapped[int | None] = mapped_column(nullable=True)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    attempts: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )

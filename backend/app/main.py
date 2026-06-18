@@ -48,6 +48,14 @@ async def lifespan(app: FastAPI):
         await prune_old(getattr(settings, "error_log_retention_days", 30))
     except Exception as exc:  # noqa: BLE001
         log.warning("ErrorLog prune failed: %s", exc)
+    # 요청 트레이싱 보존 정리 (#116).
+    try:
+        from .request_log import cleanup_request_log
+        purged = await cleanup_request_log()
+        if purged:
+            log.info("RequestLog prune: %d rows", purged)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("RequestLog prune failed: %s", exc)
     # 휴지통 30일 지난 세션 영구 삭제 (#31).
     try:
         from .routers.sessions import purge_expired_trash
@@ -75,6 +83,7 @@ async def lifespan(app: FastAPI):
     import asyncio
     scheduler_task = None
     wf_scheduler_task = None
+    webhook_task = None
     if _RAG_AVAILABLE:
         try:
             from .rag.indexer import scheduler_loop
@@ -86,11 +95,18 @@ async def lifespan(app: FastAPI):
         wf_scheduler_task = asyncio.create_task(wf_loop())
     except Exception as exc:  # noqa: BLE001
         log.warning("workflow scheduler not started: %s", exc)
+    # 외부 알림 probe (#120) — webhook_alert_url 비어 있으면 즉시 no-op.
+    if (settings.webhook_alert_url or "").strip():
+        try:
+            from .webhook import probe_loop as _probe
+            webhook_task = asyncio.create_task(_probe())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("webhook probe not started: %s", exc)
 
     try:
         yield
     finally:
-        for t in (scheduler_task, wf_scheduler_task):
+        for t in (scheduler_task, wf_scheduler_task, webhook_task):
             if t is None:
                 continue
             t.cancel()
@@ -232,7 +248,11 @@ app = FastAPI(title="Chat", lifespan=lifespan)
 # 추가해야 하지만, 다른 미들웨어가 던지는 예외도 잡고 싶으면 가장
 # 안쪽에 둬야 함 → '안쪽' 에 두기 위해 가장 *먼저* 등록.
 from .error_log import ErrorLogMiddleware
+from .request_log import RequestLogMiddleware
 app.add_middleware(ErrorLogMiddleware)
+# RequestLogMiddleware 는 ErrorLogMiddleware 바깥에 — 에러가 raise 돼도
+# 응답 status code 가 결정된 뒤 latency 를 찍을 수 있도록.
+app.add_middleware(RequestLogMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
