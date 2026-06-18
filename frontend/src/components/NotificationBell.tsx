@@ -56,12 +56,25 @@ export function NotificationBell() {
       try {
         const u = new URL(it.link, window.location.origin);
         const cw = u.searchParams.get("cowork");
+        const adminTab = u.searchParams.get("admin");
+        let handled = false;
         if (cw === "actions") {
           window.dispatchEvent(new CustomEvent("cowork:open-actions"));
+          handled = true;
         } else if (cw === "workflows" || cw === "approvals") {
           window.dispatchEvent(new CustomEvent("cowork:open-approvals"));
+          handled = true;
         } else if (cw === "teams") {
           window.dispatchEvent(new CustomEvent("cowork:open-teams"));
+          handled = true;
+        }
+        if (adminTab) {
+          // 관리자 페이지 진입 + 탭 힌트.  AdminPage 가 location 의
+          // ?admin= 을 읽어 해당 view 로 시작.
+          window.dispatchEvent(new CustomEvent("nav:admin-tab", {
+            detail: { tab: adminTab },
+          }));
+          handled = true;
         }
         const target = u.searchParams.get("target");
         if (target?.startsWith("session:")) {
@@ -70,6 +83,16 @@ export function NotificationBell() {
               detail: { sessionId: target.slice("session:".length) },
             }),
           );
+          handled = true;
+        }
+        // 일치하는 핸들러가 없으면 그냥 navigate — 외부 링크 / 새 escape
+        // hatch.  link 가 우리 origin 안이면 SPA 점프, 밖이면 새 탭.
+        if (!handled) {
+          if (u.origin === window.location.origin) {
+            window.location.href = it.link;
+          } else {
+            window.open(it.link, "_blank", "noopener");
+          }
         }
       } catch {
         /* 잘못된 link — 무시 */

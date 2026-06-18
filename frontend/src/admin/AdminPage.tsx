@@ -39,6 +39,15 @@ const VIEW_LABELS: Record<View, string> = {
   monitor: "관측/모니터링",
 };
 
+// 12 개로 늘어난 탭을 4 개 카테고리로 묶어 헤더 가로 폭이 폭주하지
+// 않게.  카테고리 안에서는 dropdown 으로 진입.
+const VIEW_GROUPS: { label: string; views: View[] }[] = [
+  { label: "사용자", views: ["users", "roles", "sessions"] },
+  { label: "지식 / 답변", views: ["knowledge", "quality", "rag"] },
+  { label: "관측", views: ["monitor", "audit", "ops", "usage"] },
+  { label: "운영", views: ["errors", "integrity"] },
+];
+
 const TAB_LABELS: Record<Tab, string> = {
   pending: "승인 대기",
   approved: "활성",
@@ -310,16 +319,69 @@ export function AdminPage({ onBack }: Props) {
         <h1>권한 관리</h1>
         <p>사용자의 권한을 부여·회수하고 가입 신청을 검토합니다.</p>
         <div className="admin-view-tabs">
-          {(Object.keys(VIEW_LABELS) as View[]).map((v) => (
-            <button
-              key={v}
-              type="button"
-              className={`admin-view-tab${view === v ? " active" : ""}`}
-              onClick={() => setView(v)}
-            >
-              {VIEW_LABELS[v]}
-            </button>
-          ))}
+          {VIEW_GROUPS.map((g) => {
+            const activeInGroup = g.views.includes(view);
+            return (
+              <div
+                key={g.label}
+                className={`admin-view-group${activeInGroup ? " active" : ""}`}
+                style={{ position: "relative", display: "inline-block" }}
+              >
+                <details>
+                  <summary
+                    className={`admin-view-tab${activeInGroup ? " active" : ""}`}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    {g.label}
+                    {activeInGroup && (
+                      <span style={{ marginLeft: 6, opacity: 0.7 }}>
+                        — {VIEW_LABELS[view]}
+                      </span>
+                    )}
+                  </summary>
+                  <div
+                    className="admin-view-group-menu"
+                    style={{
+                      position: "absolute",
+                      background: "var(--bg-panel, #fff)",
+                      border: "1px solid var(--border, #ddd)",
+                      borderRadius: 6,
+                      padding: 4,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                      zIndex: 10,
+                      minWidth: 180,
+                      marginTop: 2,
+                    }}
+                  >
+                    {g.views.map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        className={`admin-view-tab${view === v ? " active" : ""}`}
+                        onClick={(e) => {
+                          setView(v);
+                          // close <details>
+                          (e.currentTarget.closest("details") as HTMLDetailsElement | null)
+                            ?.removeAttribute("open");
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "6px 10px",
+                          border: "none",
+                          background: "transparent",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {VIEW_LABELS[v]}
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            );
+          })}
         </div>
       </header>
 

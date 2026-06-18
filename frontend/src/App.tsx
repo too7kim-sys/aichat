@@ -9,7 +9,6 @@ import { ArtifactProvider, useArtifacts } from "./artifact/ArtifactContext";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AuthForm } from "./auth/AuthForm";
 import { ForgotPasswordForm } from "./auth/ForgotPasswordForm";
-import { AdminPage } from "./admin/AdminPage";
 import { MyPage } from "./auth/MyPage";
 import { SharedSessionView } from "./SharedSessionView";
 import { ResetPasswordForm } from "./auth/ResetPasswordForm";
@@ -30,6 +29,12 @@ import type { ChatProject, ProviderInfo, Session } from "./types";
 // chat UI loads instantly; the panel chunk fetches on first use.
 const ArtifactPanel = lazy(() =>
   import("./artifact/ArtifactPanel").then((m) => ({ default: m.ArtifactPanel }))
+);
+
+// AdminPage 는 평소엔 안 쓰는 화면이라 별도 chunk 로 — 일반 사용자가
+// 받지 않게.  내부 import 한 무거운 모듈(ProjectModal 등) 도 같이 분리됨.
+const AdminPage = lazy(() =>
+  import("./admin/AdminPage").then((m) => ({ default: m.AdminPage }))
 );
 
 export default function App() {
@@ -133,7 +138,11 @@ function AuthGate() {
   }
   if (view === "mypage") return <MyPage onBack={() => setView("chat")} />;
   if (view === "admin")
-    return <AdminPage onBack={() => setView("chat")} />;
+    return (
+      <Suspense fallback={<div style={{ padding: 24 }}>관리자 화면 로딩 중…</div>}>
+        <AdminPage onBack={() => setView("chat")} />
+      </Suspense>
+    );
   // 공유 링크 진입 (#38) — /share/<token> URL 이면 SharedSessionView 로.
   const sharePath = window.location.pathname.match(/^\/share\/([\w-]+)/);
   if (sharePath) {
@@ -382,15 +391,19 @@ function AppInner({
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // 가벼운 토스트 — 어디서든 window.dispatchEvent("chat:toast",
-  // { detail: { text } }) 만 쏘면 우측 하단에 뜬다. 공유 링크 복사,
-  // 자잘한 안내 등에 사용. 2.4 초 후 자동 사라짐.
+  // { detail: <string | { text: string }> }) 만 쏘면 우측 하단에 뜬다.
+  // 두 가지 detail shape 모두 받아 — 외부 호출자가 매번 객체로 감싸는
+  // 보일러플레이트를 줄임.  2.4 초 후 자동 사라짐.
   const [toast, setToast] = useState<string | null>(null);
   useEffect(() => {
     let tid: number | undefined;
     function onToast(e: Event) {
-      const ev = e as CustomEvent<{ text: string }>;
-      if (!ev.detail?.text) return;
-      setToast(ev.detail.text);
+      const ev = e as CustomEvent<string | { text?: string }>;
+      const d = ev.detail;
+      const text =
+        typeof d === "string" ? d : (d && typeof d.text === "string" ? d.text : "");
+      if (!text) return;
+      setToast(text);
       window.clearTimeout(tid);
       tid = window.setTimeout(() => setToast(null), 2400);
     }
