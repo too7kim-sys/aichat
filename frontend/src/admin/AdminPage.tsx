@@ -1592,7 +1592,10 @@ function AuditPanel() {
       ) : err ? (
         <div className="admin-empty admin-error">오류: {err}</div>
       ) : rows.length === 0 ? (
-        <div className="admin-empty">조건에 맞는 기록이 없습니다.</div>
+        <div className="admin-empty admin-empty-soft">
+          조건에 맞는 감사 로그가 없습니다.  필터(이벤트·이메일·날짜) 를
+          비우면 최근 전체 활동이 보입니다.
+        </div>
       ) : (
         <table className="admin-table admin-error-table">
           <thead>
@@ -1832,7 +1835,10 @@ function ModelUsagePanel() {
       {loading ? (
         <div className="admin-empty">불러오는 중…</div>
       ) : rows.length === 0 ? (
-        <div className="admin-empty">기록이 없습니다.</div>
+        <div className="admin-empty admin-empty-soft">
+          선택한 기간에 모델 호출 기록이 없어요.  기간을 늘리거나 채팅이
+          몇 건 쌓인 후 다시 확인해 보세요.
+        </div>
       ) : (
         <>
           <table className="admin-table admin-error-table">
@@ -1893,7 +1899,9 @@ function UserActivityPanel() {
       }
     >
       {rows.length === 0 ? (
-        <div className="admin-empty">기록이 없습니다.</div>
+        <div className="admin-empty admin-empty-soft">
+          선택한 기간에 활동한 사용자가 없습니다.  기간을 늘려 보세요.
+        </div>
       ) : (
         <table className="admin-table admin-error-table">
           <thead>
@@ -2228,7 +2236,10 @@ function RagQualityPanel({
       {err ? (
         <div className="admin-empty admin-error">오류: {err}</div>
       ) : rows.length === 0 ? (
-        <div className="admin-empty">기록이 없습니다.</div>
+        <div className="admin-empty admin-empty-soft">
+          검색 품질 로그가 아직 비어 있어요.  채팅에서 지식베이스 검색이
+          한 번 일어나야 첫 행이 쌓입니다.
+        </div>
       ) : (
         <table className="admin-table admin-error-table">
           <thead>
@@ -2419,7 +2430,10 @@ function MonitorPanel() {
         </select>
       </div>
       {stats.length === 0 ? (
-        <div className="admin-empty">기록 없음</div>
+        <div className="admin-empty admin-empty-soft">
+          선택한 기간에 요청 기록이 없습니다.  middleware 가 자동으로 모든
+          API 호출을 기록하므로 기간을 늘려 보세요.
+        </div>
       ) : (
         <table className="admin-table admin-error-table">
           <thead>
@@ -2878,7 +2892,13 @@ function QualityPanel() {
 
       {tab === "escalated" ? (
         escalations.length === 0 ? (
-          <div className="admin-empty">✓ 처리 대기 중 escalation 없음</div>
+          <div className="admin-empty admin-empty-soft">
+            ✓ 사용자가 '⚠️ AI 가 못 풀었어요' 로 표시한 답변이 아직 없습니다.
+            <div className="pm-help" style={{ marginTop: 4 }}>
+              사용자가 답변 옆 ⚠️ 버튼을 누르면 여기 모이고 관리자에게 알림이
+              발송됩니다.
+            </div>
+          </div>
         ) : (
           <table className="admin-table admin-error-table">
             <thead>

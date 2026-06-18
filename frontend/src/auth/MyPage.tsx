@@ -210,7 +210,9 @@ export function MyPage({ onBack }: Props) {
             로그인하세요.
           </p>
           {sessions.length === 0 ? (
-            <p className="mypage-hint">기록 없음</p>
+            <p className="mypage-hint">
+              아직 로그인 기록이 없거나 로그를 가져올 수 없어요.
+            </p>
           ) : (
             <ul className="audit-list">
               {sessions.map((s) => (

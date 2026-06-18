@@ -561,6 +561,15 @@ function CodePane({
           <div className="sidebar-empty">
             사내 Git 레포를 clone해 코드 분석·수정 흐름을 시작하세요. 카드를
             클릭하면 프로젝트 전체가 새 채팅에 자동 첨부됩니다.
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setModalOpen(true)}
+              >
+                <IconPlus size={14} /> 첫 워크스페이스 추가
+              </button>
+            </div>
           </div>
         ) : (
           <ul className="proj-sidebar-list">
@@ -1315,6 +1324,15 @@ function CoworkPane({
             <div className="sidebar-empty">
               프롬프트와 (선택) 지식베이스를 묶어 정해진 시각에 자동
               실행할 수 있어요. 결과는 새 채팅 세션으로 남습니다.
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => setWorkflowEdit("new")}
+                >
+                  <IconPlus size={14} /> 첫 워크플로 만들기
+                </button>
+              </div>
             </div>
           ) : (
             <ul className="cowork-list">
@@ -1402,7 +1420,16 @@ function CoworkPane({
           {prompts.length === 0 ? (
             <div className="sidebar-empty">
               자주 쓰는 질문을 템플릿으로 저장해두면 채팅 입력창에서
-              한 번에 끼울 수 있어요.
+              <kbd>/</kbd> 키로 한 번에 끼울 수 있어요.
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => setPromptEdit("new")}
+                >
+                  <IconPlus size={14} /> 첫 프롬프트 만들기
+                </button>
+              </div>
             </div>
           ) : (
             <ul className="cowork-list">

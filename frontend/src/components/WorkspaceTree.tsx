@@ -326,7 +326,13 @@ export function WorkspaceTree({
       {loading ? (
         <div className="ws-tree-loading">트리 로드 중…</div>
       ) : tree.length === 0 ? (
-        <div className="ws-tree-loading">파일이 없습니다</div>
+        <div className="ws-tree-loading">
+          <div>📂 빈 워크스페이스</div>
+          <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+            AI 가 답변에 <code>{`# file: 경로`}</code> 주석으로 코드를 적으면
+            저장 버튼 한 번에 트리에 들어옵니다.
+          </div>
+        </div>
       ) : (
         <TreeList
           items={tree}
