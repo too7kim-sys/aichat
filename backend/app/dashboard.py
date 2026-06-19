@@ -3,6 +3,12 @@
 쿼리는 모두 인덱스 친화적인 GROUP BY 한 번으로 끝나도록 작성. 큰
 운영 (수십만 메시지) 에서도 한 화면 polling 비용이 가볍게 들어간다.
 
+성능 메모:
+  · Message.created_at / Session.created_at 가 모두 인덱스이므로 WHERE
+    created_at >= since 는 인덱스 스캔. 풀 스캔 X.
+  · _parse_rates() 결과는 module 로컬에 lru_cache 로 보관 — env 가
+    프로세스 수명 내내 안 바뀌므로 매 호출 파싱 의미 없음.
+
 비용 계산:
   · 자체 호스팅 (Ollama) 은 호출 비용 0 이지만 운영 보고서를 위해
     .env 의 MODEL_COST_RATES (모델명: 입력단가/출력단가, KRW per
@@ -11,8 +17,8 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +29,7 @@ from .config import settings
 log = logging.getLogger("uvicorn.error")
 
 
+@lru_cache(maxsize=1)
 def _parse_rates() -> dict[str, tuple[float, float]]:
     """.env 의 MODEL_COST_RATES 를 파싱.
 

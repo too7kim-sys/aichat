@@ -699,6 +699,32 @@ async def init_db() -> None:
             )
         except Exception:  # noqa: BLE001 — table may not exist yet (fresh DB).
             pass
+        # dashboard.py 의 'WHERE created_at >= since' 패턴을 위한 인덱스.
+        # 모델 정의에는 index=True 가 있지만 create_all 은 이미 존재하는
+        # 테이블에 새 인덱스를 자동 생성하지 않으므로 명시적 ALTER.
+        try:
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_messages_created_at "
+                "ON messages(created_at)"
+            )
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_sessions_created_at "
+                "ON sessions(created_at)"
+            )
+            # 복합 (user_id, created_at) — dashboard 의 'session JOIN
+            # message GROUP BY user_id' 패턴이 user_id 로 묶고 created_at
+            # 으로 필터하는 경로.
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_sessions_user_created "
+                "ON sessions(user_id, created_at)"
+            )
+            # AuditLog 로그인 카운트 — event + created_at 복합.
+            await conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_audit_event_created "
+                "ON audit_log(event, created_at)"
+            )
+        except Exception:  # noqa: BLE001 — 정상.  IF NOT EXISTS 가드.
+            pass
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:

@@ -243,7 +243,10 @@ class Session(Base):
     passphrase_hash: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 대시보드/검색 시 'WHERE created_at >= since' 가속.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
@@ -735,7 +738,10 @@ class Message(Base):
     )
     # 자유 태그 (#32) — JSON 문자열로 직렬화된 string[].  최대 8개.
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 대시보드의 'WHERE created_at >= since' 가 풀 스캔이 되지 않게 인덱스.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True,
+    )
 
     session: Mapped[Session] = relationship(back_populates="messages")
 
