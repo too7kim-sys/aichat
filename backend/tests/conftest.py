@@ -51,20 +51,38 @@ def app(tmp_path):
     교체하고, get_db 도 오버라이드.  매 테스트가 깨끗한 DB 를 받음."""
     db_file = tmp_path / "test.db"
     test_url = f"sqlite+aiosqlite:///{db_file}"
-    engine = create_async_engine(test_url, connect_args={"check_same_thread": False})
+    # timeout=30: 잠금 충돌 시 30초까지 기다림.  WAL 만으로는 writer 직렬
+    # 화에서 milli- 단위 지연이 누적될 수 있음.
+    engine = create_async_engine(
+        test_url,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+
+    # PRAGMA 를 매 새 connection 마다 셋팅.  sync engine 의 event 인터페이스
+    # 를 통해 async pool 안의 raw sqlite3 connection 에 직접 적용.
+    from sqlalchemy import event as _event
+    @_event.listens_for(engine.sync_engine, "connect")
+    def _set_pragma(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.execute("PRAGMA busy_timeout=30000")
+        cur.close()
+
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
-    # 테이블 생성 — 새 이벤트 루프에서 한 번 돌림.
+    # 테이블 생성 + WAL 셋업 — 새 이벤트 루프에서 한 번 돌림.
     async def _setup():
         async with engine.begin() as conn:
+            # WAL 로 concurrent reader/writer — RequestLogMiddleware 가
+            # 백그라운드 task 로 RequestLog 를 쓰는 동안 foreground
+            # 요청이 'database is locked' 으로 깨지지 않게.
+            await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+            await conn.exec_driver_sql("PRAGMA synchronous=NORMAL")
+            await conn.exec_driver_sql("PRAGMA busy_timeout=10000")
             await conn.run_sync(Base.metadata.create_all)
-        await engine.dispose()  # connection 닫고 새로 시작
 
     asyncio.new_event_loop().run_until_complete(_setup())
-
-    # 테이블 만들고 dispose 했으니 새 엔진/factory 로 갈아끼움.
-    engine = create_async_engine(test_url, connect_args={"check_same_thread": False})
-    factory = async_sessionmaker(engine, expire_on_commit=False)
 
     # SessionLocal 을 테스트 엔진의 sessionmaker 로 교체.
     orig_session_local = _db.SessionLocal

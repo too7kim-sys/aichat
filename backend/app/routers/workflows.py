@@ -40,12 +40,26 @@ async def _load(
 async def _serialize(
     db: AsyncSession, wf: models.Workflow
 ) -> schemas.WorkflowOut:
-    out = schemas.WorkflowOut.model_validate(wf)
-    if wf.prompt_vars:
+    # prompt_vars 는 DB 에서 JSON 문자열로 저장.  Pydantic v2 의 model_
+    # validate 가 str→dict 자동 변환을 안 하므로 미리 파싱한 뒤 모델
+    # 의 raw 컬럼을 잠시 비워 두고 validate, 다시 값을 채워 넣는다.
+    raw_vars = wf.prompt_vars
+    parsed_vars: dict | None = None
+    if raw_vars:
         try:
-            out.prompt_vars = json.loads(wf.prompt_vars)
+            parsed_vars = json.loads(raw_vars)
+            if not isinstance(parsed_vars, dict):
+                parsed_vars = None
         except Exception:  # noqa: BLE001
-            out.prompt_vars = None
+            parsed_vars = None
+    # Pydantic 의 from_attributes 는 wf.prompt_vars 를 읽기에 일단 None 으
+    # 로 가린 뒤 validate, 그 다음 파싱된 dict 를 박는다.
+    wf.prompt_vars = None  # type: ignore[assignment]
+    try:
+        out = schemas.WorkflowOut.model_validate(wf)
+    finally:
+        wf.prompt_vars = raw_vars  # 원상복구 (세션 dirty 추적이 영향받지 않게).
+    out.prompt_vars = parsed_vars
     # Pull the prompt name + project name in one batch so the UI can
     # render labels without an extra fetch per row.
     p = (
