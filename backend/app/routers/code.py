@@ -28,6 +28,80 @@ class _WorkspaceSaveFile(BaseModel):
 
 class _WorkspaceRevert(BaseModel):
     path: str = Field(min_length=1, max_length=500)
+
+
+# 워크스페이스 git/file 조작 엔드포인트의 공통 입력 — path 한 줄만
+# 받는 단순 케이스가 다수 (file-resurrect / ai-refactor / ai-tests 등).
+class _PathOnly(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+
+
+class _SwitchBranch(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    create: bool = False
+
+
+class _CreatePath(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    kind: str = Field(default="file", pattern=r"^(file|dir)$")
+
+
+class _RenamePath(BaseModel):
+    src: str = Field(min_length=1, max_length=500)
+    dst: str = Field(min_length=1, max_length=500)
+
+
+class _Replace(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    replacement: str = Field(default="", max_length=2000)
+    regex: bool = False
+    case_sensitive: bool = False
+    dry_run: bool = True
+
+
+class _StashSave(BaseModel):
+    message: str = Field(default="", max_length=200)
+
+
+class _StashApply(BaseModel):
+    ref: str = Field(min_length=1, max_length=120)
+    pop: bool = True
+
+
+class _ConflictResolve(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    # 충돌 해결 시 보내는 새 본문 — save-file 과 같은 500KB 상한.
+    content: str = Field(max_length=_MAX_SAVE_FILE_BYTES * 2)
+
+
+class _CustomTaskRun(BaseModel):
+    task_id: str = Field(min_length=1, max_length=64)
+
+
+class _TagCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    message: str = Field(default="", max_length=500)
+    ref: str = Field(default="HEAD", max_length=120)
+
+
+class _BranchOp(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class _CherryPick(BaseModel):
+    sha: str = Field(min_length=4, max_length=64, pattern=r"^[0-9a-f]+$")
+
+
+class _GitReset(BaseModel):
+    sha: str = Field(default="HEAD~1", max_length=64)
+    mode: str = Field(default="soft", pattern=r"^(soft|mixed|hard)$")
+
+
+class _BulkDelete(BaseModel):
+    # 한 번에 200개 한도 — 그 이상은 실수 / 자동화 폭주 가능성이 큼.
+    paths: list[str] = Field(min_length=1, max_length=200)
+
+
 from pathlib import Path
 
 from ..code.workspace import (
@@ -1206,12 +1280,12 @@ async def workspace_branches(
 @router.post("/workspaces/{workspace_id}/switch-branch")
 async def workspace_switch_branch(
     workspace_id: str,
-    payload: dict,
+    payload: _SwitchBranch,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    name = (payload.get("name") or "").strip()
-    create = bool(payload.get("create"))
+    name = payload.name.strip()
+    create = payload.create
     if not name:
         raise HTTPException(400, "브랜치 이름이 필요해요")
     ws = await _fetch_workspace_owned_by(workspace_id, user, db)
@@ -1287,7 +1361,7 @@ async def workspace_commit_detail(
 @router.post("/workspaces/{workspace_id}/path")
 async def workspace_create_path(
     workspace_id: str,
-    payload: dict,
+    payload: _CreatePath,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1295,8 +1369,8 @@ async def workspace_create_path(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
-    rel = (payload.get("path") or "").strip()
-    kind = payload.get("kind") or "file"
+    rel = payload.path.strip()
+    kind = payload.kind
     if not rel:
         raise HTTPException(400, "path 가 비어 있어요")
     if kind not in {"file", "dir"}:
@@ -1331,7 +1405,7 @@ async def workspace_delete_path(
 @router.patch("/workspaces/{workspace_id}/path")
 async def workspace_rename_path(
     workspace_id: str,
-    payload: dict,
+    payload: _RenamePath,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1339,8 +1413,8 @@ async def workspace_rename_path(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
-    src = (payload.get("src") or "").strip()
-    dst = (payload.get("dst") or "").strip()
+    src = payload.src.strip()
+    dst = payload.dst.strip()
     if not src or not dst:
         raise HTTPException(400, "src, dst 둘 다 필요해요")
     try:
@@ -1355,7 +1429,7 @@ async def workspace_rename_path(
 @router.post("/workspaces/{workspace_id}/replace")
 async def workspace_replace(
     workspace_id: str,
-    payload: dict,
+    payload: _Replace,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1363,11 +1437,11 @@ async def workspace_replace(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌습니다")
-    query = payload.get("query") or ""
-    replacement = payload.get("replacement") or ""
-    regex = bool(payload.get("regex"))
-    case_sensitive = bool(payload.get("case_sensitive"))
-    dry_run = bool(payload.get("dry_run", True))
+    query = payload.query
+    replacement = payload.replacement
+    regex = payload.regex
+    case_sensitive = payload.case_sensitive
+    dry_run = payload.dry_run
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None,
@@ -1440,7 +1514,7 @@ async def workspace_stashes(
 @router.post("/workspaces/{workspace_id}/stash")
 async def workspace_stash_save(
     workspace_id: str,
-    payload: dict,
+    payload: _StashSave,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1450,7 +1524,7 @@ async def workspace_stash_save(
         raise HTTPException(400, "git 워크스페이스가 아니에요")
     try:
         return await asyncio.get_running_loop().run_in_executor(
-            None, stash_save, dest, payload.get("message") or ""
+            None, stash_save, dest, payload.message
         )
     except RuntimeError as exc:
         raise HTTPException(409, str(exc))
@@ -1459,7 +1533,7 @@ async def workspace_stash_save(
 @router.post("/workspaces/{workspace_id}/stash/apply")
 async def workspace_stash_apply(
     workspace_id: str,
-    payload: dict,
+    payload: _StashApply,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1467,8 +1541,8 @@ async def workspace_stash_apply(
     dest = Path(ws.local_path)
     if not dest.is_dir() or not is_git_workdir(dest):
         raise HTTPException(400, "git 워크스페이스가 아니에요")
-    ref = (payload.get("ref") or "").strip()
-    pop = bool(payload.get("pop", True))
+    ref = payload.ref.strip()
+    pop = payload.pop
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, stash_apply, dest, ref, pop
@@ -1539,7 +1613,7 @@ async def workspace_conflict_versions(
 @router.post("/workspaces/{workspace_id}/conflict/resolve")
 async def workspace_conflict_resolve(
     workspace_id: str,
-    payload: dict,
+    payload: _ConflictResolve,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1547,10 +1621,13 @@ async def workspace_conflict_resolve(
     dest = Path(ws.local_path)
     if not dest.is_dir() or not is_git_workdir(dest):
         raise HTTPException(400, "git 워크스페이스가 아니에요")
-    path = (payload.get("path") or "").strip()
-    content = payload.get("content") or ""
+    path = payload.path.strip()
+    content = payload.content
     if not path:
         raise HTTPException(400, "path 가 필요해요")
+    # UTF-8 바이트 길이 추가 검증 — 500KB 상한.
+    if len(content.encode("utf-8")) > _MAX_SAVE_FILE_BYTES:
+        raise HTTPException(413, "파일이 너무 큽니다 (최대 500KB).")
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, mark_conflict_resolved, dest, path, content
@@ -1586,7 +1663,7 @@ async def workspace_custom_tasks(
 @router.post("/workspaces/{workspace_id}/custom-tasks/run")
 async def workspace_custom_task_run(
     workspace_id: str,
-    payload: dict,
+    payload: _CustomTaskRun,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1599,7 +1676,7 @@ async def workspace_custom_task_run(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
-    task_id = (payload.get("task_id") or "").strip()
+    task_id = payload.task_id.strip()
     if not task_id:
         raise HTTPException(400, "task_id 가 필요해요")
     try:
@@ -1614,7 +1691,7 @@ async def workspace_custom_task_run(
 @router.post("/workspaces/{workspace_id}/ai-refactor")
 async def workspace_ai_refactor(
     workspace_id: str,
-    payload: dict,
+    payload: _PathOnly,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1622,7 +1699,7 @@ async def workspace_ai_refactor(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
-    path = (payload.get("path") or "").strip()
+    path = payload.path.strip()
     if not path:
         raise HTTPException(400, "path 가 필요해요")
     try:
@@ -1644,7 +1721,7 @@ async def workspace_ai_refactor(
 @router.post("/workspaces/{workspace_id}/ai-tests")
 async def workspace_ai_tests(
     workspace_id: str,
-    payload: dict,
+    payload: _PathOnly,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1652,7 +1729,7 @@ async def workspace_ai_tests(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
-    path = (payload.get("path") or "").strip()
+    path = payload.path.strip()
     if not path:
         raise HTTPException(400, "path 가 필요해요")
     try:
@@ -1757,7 +1834,7 @@ async def workspace_tags(
 @router.post("/workspaces/{workspace_id}/tag")
 async def workspace_tag_create(
     workspace_id: str,
-    payload: dict,
+    payload: _TagCreate,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1765,9 +1842,9 @@ async def workspace_tag_create(
     dest = Path(ws.local_path)
     if not dest.is_dir() or not is_git_workdir(dest):
         raise HTTPException(400, "git 워크스페이스가 아니에요")
-    name = (payload.get("name") or "").strip()
-    message = payload.get("message") or ""
-    ref = (payload.get("ref") or "HEAD").strip()
+    name = payload.name.strip()
+    message = payload.message
+    ref = payload.ref.strip()
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, tag_create, dest, name, message, ref
@@ -1802,7 +1879,7 @@ async def workspace_tag_delete(
 @router.post("/workspaces/{workspace_id}/tag/push")
 async def workspace_tag_push(
     workspace_id: str,
-    payload: dict,
+    payload: _BranchOp,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1828,7 +1905,7 @@ async def workspace_tag_push(
                     f"{u.scheme}://{quote(ws.auth_username)}:{quote(token)}"
                     f"@{u.netloc}{u.path}"
                 )
-    name = (payload.get("name") or "").strip()
+    name = payload.name.strip()
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, tag_push, dest, name, push_url
@@ -1843,7 +1920,7 @@ async def workspace_tag_push(
 @router.post("/workspaces/{workspace_id}/ai-document")
 async def workspace_ai_document(
     workspace_id: str,
-    payload: dict,
+    payload: _PathOnly,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1851,7 +1928,7 @@ async def workspace_ai_document(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
-    path = (payload.get("path") or "").strip()
+    path = payload.path.strip()
     if not path:
         raise HTTPException(400, "path 가 필요해요")
     try:
@@ -1920,7 +1997,7 @@ async def workspace_dependencies(
 @router.post("/workspaces/{workspace_id}/cherry-pick")
 async def workspace_cherry_pick(
     workspace_id: str,
-    payload: dict,
+    payload: _CherryPick,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1928,7 +2005,7 @@ async def workspace_cherry_pick(
     dest = Path(ws.local_path)
     if not dest.is_dir() or not is_git_workdir(dest):
         raise HTTPException(400, "git 워크스페이스가 아니에요")
-    sha = (payload.get("sha") or "").strip()
+    sha = payload.sha.strip()
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, git_cherry_pick, dest, sha
@@ -1942,7 +2019,7 @@ async def workspace_cherry_pick(
 @router.post("/workspaces/{workspace_id}/reset")
 async def workspace_reset(
     workspace_id: str,
-    payload: dict,
+    payload: _GitReset,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -1950,8 +2027,8 @@ async def workspace_reset(
     dest = Path(ws.local_path)
     if not dest.is_dir() or not is_git_workdir(dest):
         raise HTTPException(400, "git 워크스페이스가 아니에요")
-    sha = (payload.get("sha") or "HEAD~1").strip()
-    mode = (payload.get("mode") or "soft").strip()
+    sha = payload.sha.strip()
+    mode = payload.mode.strip()
     try:
         return await asyncio.get_running_loop().run_in_executor(
             None, git_reset, dest, sha, mode
@@ -2173,7 +2250,7 @@ async def workspace_import_zip(
 @router.post("/workspaces/{workspace_id}/bulk-delete")
 async def workspace_bulk_delete(
     workspace_id: str,
-    payload: dict,
+    payload: _BulkDelete,
     db: AsyncSession = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -2181,10 +2258,9 @@ async def workspace_bulk_delete(
     dest = Path(ws.local_path)
     if not dest.is_dir():
         raise HTTPException(409, "워크스페이스 디렉터리가 사라졌어요")
-    paths = payload.get("paths") or []
-    if not isinstance(paths, list) or len(paths) == 0:
+    paths = [p for p in payload.paths if p]
+    if not paths:
         raise HTTPException(400, "paths 가 비어 있어요")
-    paths = [str(p) for p in paths[:200]]
     return await asyncio.get_running_loop().run_in_executor(
         None, bulk_delete, dest, paths
     )
