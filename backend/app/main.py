@@ -80,23 +80,28 @@ async def lifespan(app: FastAPI):
     # Start the RAG scheduler if qdrant-client is installed. Guarded
     # behind the same import block as the projects router so the app
     # stays up when the optional dep is missing.
+    # 테스트에서는 무한 루프 스케줄러를 띄우지 않도록 가드 — pytest 가
+    # AICHAT_NO_BACKGROUND_TASKS 를 env 에 박아 두면 모두 스킵.
     import asyncio
+    import os as _os
     scheduler_task = None
     wf_scheduler_task = None
     webhook_task = None
-    if _RAG_AVAILABLE:
+    _skip_bg = _os.environ.get("AICHAT_NO_BACKGROUND_TASKS") == "1"
+    if not _skip_bg and _RAG_AVAILABLE:
         try:
             from .rag.indexer import scheduler_loop
             scheduler_task = asyncio.create_task(scheduler_loop())
         except Exception as exc:  # noqa: BLE001
             log.warning("RAG scheduler not started: %s", exc)
-    try:
-        from .workflows.scheduler import scheduler_loop as wf_loop
-        wf_scheduler_task = asyncio.create_task(wf_loop())
-    except Exception as exc:  # noqa: BLE001
-        log.warning("workflow scheduler not started: %s", exc)
+    if not _skip_bg:
+        try:
+            from .workflows.scheduler import scheduler_loop as wf_loop
+            wf_scheduler_task = asyncio.create_task(wf_loop())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("workflow scheduler not started: %s", exc)
     # 외부 알림 probe (#120) — webhook_alert_url 비어 있으면 즉시 no-op.
-    if (settings.webhook_alert_url or "").strip():
+    if not _skip_bg and (settings.webhook_alert_url or "").strip():
         try:
             from .webhook import probe_loop as _probe
             webhook_task = asyncio.create_task(_probe())

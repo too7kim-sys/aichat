@@ -2225,6 +2225,11 @@ def start_backup_scheduler() -> None:
     global _backup_scheduler_started
     if _backup_scheduler_started:
         return
+    # 테스트 환경에서는 무한 루프 task 를 띄우지 않음 — pytest 가 lifespan
+    # shutdown 단계에서 무한 대기.
+    import os as _os
+    if _os.environ.get("AICHAT_NO_BACKGROUND_TASKS") == "1":
+        return
     _backup_scheduler_started = True
     import asyncio as _aio
 

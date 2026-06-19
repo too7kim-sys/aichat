@@ -29,3 +29,7 @@ psutil==6.0.0
 # 회의록/강의 전사 (선택) — pip install faster-whisper pyannote.audio
 # 무거운 의존성이라 requirements 본문엔 포함 안 함; .env의
 # ENABLE_TRANSCRIPTION=true 일 때만 모듈을 로드합니다.
+
+# 테스트 — 본 코드엔 영향 없지만 pip install -r 시 함께 설치.
+pytest==8.3.3
+pytest-asyncio==0.24.0
