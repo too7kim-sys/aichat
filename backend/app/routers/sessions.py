@@ -80,6 +80,38 @@ async def _load_owned(db: AsyncSession, session_id: str, user_id: str) -> models
     return session
 
 
+@router.get(
+    "/_starred",
+    response_model=list[schemas.MessageOut],
+)
+async def list_starred_messages(
+    db: AsyncSession = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """사용자가 별표한 메시지 모음 (최신순). 사이드바의 "별표한 답변"
+    탭이 사용. 다른 세션의 메시지를 한 화면에 모으는 게 핵심.
+
+    IMPORTANT: 이 라우트는 반드시 `/{session_id}` 보다 *위* 에 있어야 함
+    — FastAPI 가 등록 순서대로 매칭하기 때문에 그렇지 않으면 `_starred`
+    가 session_id path-param 으로 빨려 들어가 404 가 됨."""
+    from sqlalchemy.orm import aliased
+    SessAlias = aliased(models.Session)
+    rows = (
+        await db.execute(
+            select(models.Message)
+            .join(SessAlias, models.Message.session_id == SessAlias.id)
+            .where(
+                SessAlias.user_id == user.id,
+                models.Message.starred.is_(True),
+            )
+            .order_by(models.Message.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return rows
+
+
 @router.get("/{session_id}", response_model=schemas.SessionDetail)
 async def get_session(
     session_id: str,
@@ -295,33 +327,6 @@ async def ack_escalation(
     msg.escalation_ack_by_id = user.id
     await db.commit()
 
-
-@router.get(
-    "/_starred",
-    response_model=list[schemas.MessageOut],
-)
-async def list_starred_messages(
-    db: AsyncSession = Depends(get_db),
-    user: models.User = Depends(get_current_user),
-    limit: int = Query(100, ge=1, le=500),
-):
-    """사용자가 별표한 메시지 모음 (최신순). 사이드바의 "별표한 답변"
-    탭이 사용. 다른 세션의 메시지를 한 화면에 모으는 게 핵심."""
-    from sqlalchemy.orm import aliased
-    SessAlias = aliased(models.Session)
-    rows = (
-        await db.execute(
-            select(models.Message)
-            .join(SessAlias, models.Message.session_id == SessAlias.id)
-            .where(
-                SessAlias.user_id == user.id,
-                models.Message.starred.is_(True),
-            )
-            .order_by(models.Message.created_at.desc())
-            .limit(max(1, min(int(limit or 100), 500)))
-        )
-    ).scalars().all()
-    return rows
 
 
 @router.get("/{session_id}/export.docx")
