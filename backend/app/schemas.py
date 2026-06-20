@@ -100,6 +100,8 @@ class SessionOut(BaseModel):
     # 세션 비밀번호 잠금 (#52) — 해시 자체는 노출 안 함, 잠금 여부만.
     # Session 모델의 @property has_passphrase 가 채워줌.
     has_passphrase: bool = False
+    # 챗봇 페르소나 (#125) — 적용된 페르소나 id.  NULL = 기본.
+    persona_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -116,10 +118,14 @@ class SessionCreate(BaseModel):
     # When set, the new session is filed under this chat project so
     # "+ 새 대화" inside a project folder lands in that folder.
     chat_project_id: str | None = None
+    # 페르소나 (#125) — 새 세션에 적용.
+    persona_id: str | None = None
 
 
 class SessionUpdate(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    # 페르소나 변경 — UI 의 헤더 picker 가 PATCH.  빈 문자열 = 제거.
+    persona_id: str | None = None
 
 
 class MessageUpdate(BaseModel):

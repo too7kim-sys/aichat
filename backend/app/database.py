@@ -93,6 +93,16 @@ async def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS ix_sessions_workflow_id "
                     "ON sessions(workflow_id)"
                 )
+            if "persona_id" not in existing:
+                # 챗봇 페르소나 (#125) — session 에 적용된 system 메시지
+                # 템플릿.  chat router 가 매 요청에 prepend.
+                await conn.exec_driver_sql(
+                    "ALTER TABLE sessions ADD COLUMN persona_id VARCHAR(36)"
+                )
+                await conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_sessions_persona_id "
+                    "ON sessions(persona_id)"
+                )
             if "pinned" not in existing:
                 # 사이드바 고정 (#29).  pinned=1 인 세션은 상단에 따로
                 # 노출되고 updated_at 으로 정렬됨.

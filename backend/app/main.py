@@ -12,7 +12,7 @@ from .database import init_db
 from .providers.registry import all_providers
 from .routers import (
     admin, api_keys, auth, chat, chat_projects, code, cowork, files, macros,
-    ollama, prompts, search, sessions, snippets, transcripts, workflows,
+    ollama, personas, prompts, search, sessions, snippets, transcripts, workflows,
 )
 
 # RAG router pulls in qdrant-client. Import lazily so a missing
@@ -299,6 +299,7 @@ app.include_router(ollama.router)
 app.include_router(code.router)
 app.include_router(admin.router)
 app.include_router(prompts.router)
+app.include_router(personas.router)
 app.include_router(macros.router)
 app.include_router(macros.sys_router)
 app.include_router(api_keys.router)

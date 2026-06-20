@@ -1309,6 +1309,20 @@ async def chat_single(
         if cp_instr:
             history.insert(0, ChatMessage(role="system", content=cp_instr))
 
+    # 챗봇 페르소나 (#125) — session.persona_id 가 가리키는 페르소나의
+    # system_prompt 를 가장 앞에 prepend.  사용자가 "코드 리뷰어",
+    # "마케팅 카피라이터" 같은 톤·역할을 선택한 결과.
+    if session.persona_id:
+        persona = await db.scalar(
+            select(models.Persona).where(
+                models.Persona.id == session.persona_id
+            )
+        )
+        if persona is not None:
+            history.insert(
+                0, ChatMessage(role="system", content=persona.system_prompt),
+            )
+
     # Anti-hallucination ruleset. Inserted in front of any other system
     # message so the model reads it first.
     if settings.accuracy_strict:

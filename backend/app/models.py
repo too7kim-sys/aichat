@@ -230,6 +230,13 @@ class Session(Base):
         ForeignKey("workflows.id", ondelete="SET NULL"),
         nullable=True, index=True,
     )
+    # 챗봇 페르소나 (#125) — 세션에 적용된 system 메시지 템플릿.
+    # 새 메시지마다 chat router 가 이 페르소나의 system_prompt 를
+    # prepend.  사용자가 헤더에서 바꿔도 그 이후 메시지부터 반영.
+    persona_id: Mapped[str | None] = mapped_column(
+        ForeignKey("personas.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     # 사용자가 사이드바 상단에 고정한 세션 (#29).
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     # 휴지통 (#31). NULL = 정상, 값 있으면 삭제된 시각.  30일 지나면
@@ -1162,4 +1169,44 @@ class WebhookDelivery(Base):
     attempts: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
+    )
+
+
+# ── 페르소나 (#125) ─────────────────────────────────────────
+class Persona(Base):
+    """챗봇 페르소나 — 세션에 적용할 system 메시지 템플릿.
+
+    Prompt 와의 차이:
+      · Prompt 는 사용자가 composer 에 '/code' 로 끼우는 본문.
+      · Persona 는 세션 전체에 적용되는 페르소나 ("코드 리뷰어"
+        "마케팅 카피라이터" 등).  채팅 헤더에서 선택.
+
+    공유 모델:
+      · is_shared=False  — 개인 페르소나.
+      · is_shared=True   — 관리자가 등록한 공용 페르소나, 모든 사용자
+        의 picker 에 표시.
+    """
+
+    __tablename__ = "personas"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # 사용자에게 보여줄 이름 (예: "코드 리뷰어").
+    name: Mapped[str] = mapped_column(String(120))
+    # 한 줄 설명 (선택).
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 이모지/아이콘 — 헤더의 페르소나 칩에 표시.  비우면 기본 아이콘.
+    emoji: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # 시스템 메시지 본문 — 새 채팅 시 prepend 됨.
+    system_prompt: Mapped[str] = mapped_column(Text)
+    is_shared: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # 팀 공유 (#89 패턴).
+    team_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )

@@ -54,6 +54,8 @@ export interface Session {
   deleted_at?: string | null;
   /** 세션 비밀번호 잠금 여부 (#52). */
   has_passphrase?: boolean;
+  /** 적용된 챗봇 페르소나 id (#125).  null = 기본. */
+  persona_id?: string | null;
   created_at: string;
   updated_at: string;
 }

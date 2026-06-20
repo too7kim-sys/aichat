@@ -882,6 +882,21 @@ export interface Prompt {
   updated_at: string;
 }
 
+/** 챗봇 페르소나 (#125) — 세션 전체에 적용되는 system 메시지 템플릿. */
+export interface Persona {
+  id: string;
+  name: string;
+  description: string | null;
+  emoji: string | null;
+  system_prompt: string;
+  is_shared: boolean;
+  team_id: string | null;
+  /** 호출자가 만든 페르소나인지.  공유 페르소나는 read-only. */
+  owned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Workflow {
   id: string;
   name: string;
@@ -1088,10 +1103,15 @@ export const api = {
     }),
   revokeApiKey: (id: string) =>
     json<void>(`/keys/${id}`, { method: "DELETE" }),
-  updateSession: (id: string, title: string) =>
+  updateSession: (
+    id: string,
+    payload: string | { title?: string; persona_id?: string | null },
+  ) =>
+    // Old callsites pass a string (title only) — keep that working;
+    // newer callsites pass an object to also set persona_id.
     json<Session>(`/sessions/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ title }),
+      body: JSON.stringify(typeof payload === "string" ? { title: payload } : payload),
     }),
   /** Edit a message in place — the chat bubble's pencil action
    *  posts the new content here so the user can fix a mis-
@@ -1662,6 +1682,38 @@ export const api = {
       bundle_max_total_bytes: number;
       bundle_max_per_file_bytes: number;
     }>("/code/_constraints"),
+  // Personas (#125) — 세션에 적용할 system 메시지 템플릿
+  listPersonas: () => json<Persona[]>("/personas"),
+  createPersona: (payload: {
+    name: string;
+    description?: string;
+    emoji?: string;
+    system_prompt: string;
+    is_shared?: boolean;
+    team_id?: string | null;
+  }) =>
+    json<Persona>("/personas", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updatePersona: (
+    id: string,
+    payload: {
+      name: string;
+      description?: string;
+      emoji?: string;
+      system_prompt: string;
+      is_shared?: boolean;
+      team_id?: string | null;
+    },
+  ) =>
+    json<Persona>(`/personas/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  deletePersona: (id: string) =>
+    json<void>(`/personas/${id}`, { method: "DELETE" }),
+
   // Prompts (personal + shared)
   listPrompts: () => json<Prompt[]>("/prompts"),
   createPrompt: (payload: {

@@ -61,6 +61,7 @@ async def create_session(
         title=payload.title,
         user_id=user.id,
         chat_project_id=payload.chat_project_id,
+        persona_id=payload.persona_id or None,
     )
     db.add(session)
     await db.commit()
@@ -138,7 +139,31 @@ async def update_session(
     user: models.User = Depends(get_current_user),
 ):
     session = await _load_owned(db, session_id, user.id)
-    session.title = payload.title.strip()
+    if payload.title is not None:
+        session.title = payload.title.strip()
+    if payload.persona_id is not None:
+        # 빈 문자열 → NULL (페르소나 해제).  그 외엔 페르소나 접근 권한 확인.
+        new_pid: str | None = payload.persona_id.strip() or None
+        if new_pid:
+            persona = await db.scalar(
+                select(models.Persona).where(models.Persona.id == new_pid)
+            )
+            if persona is None:
+                raise HTTPException(400, "페르소나가 존재하지 않아요.")
+            if persona.user_id != user.id and not persona.is_shared:
+                # 팀 페르소나는 멤버십 체크.
+                if persona.team_id:
+                    in_team = await db.scalar(
+                        select(models.TeamMember).where(
+                            models.TeamMember.team_id == persona.team_id,
+                            models.TeamMember.user_id == user.id,
+                        )
+                    )
+                    if in_team is None:
+                        raise HTTPException(403, "이 페르소나를 적용할 권한이 없어요.")
+                else:
+                    raise HTTPException(403, "이 페르소나를 적용할 권한이 없어요.")
+        session.persona_id = new_pid
     await db.commit()
     await db.refresh(session)
     return session
