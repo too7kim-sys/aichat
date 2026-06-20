@@ -29,7 +29,7 @@ import {
   TimelinePanel,
   TodoPanel,
   recordRecentFile,
-} from "./WorkspaceTools";
+} from "./workspaceTools";
 import { useAuth } from "../auth/AuthContext";
 import {
   IconAlertTriangle,
