@@ -29,6 +29,7 @@ import { CommentThread } from "./CoworkPanels";
 import { EmptyGreeting } from "./chat/EmptyGreeting";
 import { ExportSessionMenu } from "./chat/ExportSessionMenu";
 import { MicButton } from "./chat/MicButton";
+import { PersonaPicker } from "./chat/PersonaPicker";
 import { RagChunksBox } from "./chat/RagChunksBox";
 import { SlashPromptPicker } from "./chat/SlashPromptPicker";
 import { SourcesBox } from "./chat/SourcesBox";
@@ -1238,6 +1239,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           )}
         </div>
         <div className="chat-header-right">
+          <PersonaPicker
+            sessionId={session.id}
+            currentPersonaId={session.persona_id ?? null}
+            onPersonaChanged={(personaId) =>
+              setSession((prev) =>
+                prev ? { ...prev, persona_id: personaId } : prev,
+              )
+            }
+          />
           <button
             type="button"
             className="panel-toggle"
