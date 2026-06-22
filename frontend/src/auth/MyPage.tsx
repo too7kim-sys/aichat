@@ -286,6 +286,33 @@ function labelFor(event: string): string {
 }
 
 
+/** 만료일 셀 렌더 — 7일 이내면 '⚠️ N일 남음', 지났으면 '🚫 만료됨'.
+ *  키 회전 정책을 가진 환경에서 위험 상태를 한눈에 잡으려고. */
+function renderExpiryCell(iso: string | null) {
+  if (!iso) return <span className="apikey-expiry-never">무기한</span>;
+  const at = new Date(iso);
+  const now = Date.now();
+  const diffMs = at.getTime() - now;
+  const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  const dateStr = at.toLocaleDateString();
+  if (diffMs <= 0) {
+    return (
+      <span className="apikey-expiry expired" title={dateStr}>
+        🚫 만료됨
+      </span>
+    );
+  }
+  if (days <= 7) {
+    return (
+      <span className="apikey-expiry warn" title={dateStr}>
+        ⚠️ {days}일 남음
+      </span>
+    );
+  }
+  return <span className="apikey-expiry ok">{dateStr}</span>;
+}
+
+
 // ── API 키 발급 (#45) ──────────────────────────────────────
 // 외부 시스템 (워크플로 자동화·사내 봇 등) 이 X-API-Key 헤더로 호출.
 function ApiKeysPanel() {
@@ -300,6 +327,9 @@ function ApiKeysPanel() {
   const [keys, setKeys] = useState<Key[]>([]);
   const [loading, setLoading] = useState(true);
   const [label, setLabel] = useState("");
+  // null = 무기한.  발급 시점에 사용자가 만료 기간을 골라 백엔드에
+  // `expires_days` 로 전달.
+  const [expiresDays, setExpiresDays] = useState<number | null>(null);
   const [issued, setIssued] = useState<{ token: string; label: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -321,7 +351,7 @@ function ApiKeysPanel() {
   async function create(e: FormEvent) {
     e.preventDefault();
     try {
-      const r = await api.createApiKey(label, null);
+      const r = await api.createApiKey(label, expiresDays);
       setIssued({ token: r.token, label: r.label });
       setLabel("");
       await refresh();
@@ -353,6 +383,20 @@ function ApiKeysPanel() {
           onChange={(e) => setLabel(e.target.value)}
           maxLength={80}
         />
+        <select
+          value={expiresDays ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            setExpiresDays(v === "" ? null : Number(v));
+          }}
+          title="만료 기한 — 외부 시스템 키 회전 정책에 맞춰"
+        >
+          <option value="">무기한</option>
+          <option value="30">30일 후 만료</option>
+          <option value="90">90일 후 만료</option>
+          <option value="180">180일 후 만료</option>
+          <option value="365">1년 후 만료</option>
+        </select>
         <button type="submit" className="apikey-create">
           + 새 키 발급
         </button>
@@ -406,11 +450,7 @@ function ApiKeysPanel() {
                     ? new Date(k.last_used_at).toLocaleString()
                     : "—"}
                 </td>
-                <td>
-                  {k.expires_at
-                    ? new Date(k.expires_at).toLocaleDateString()
-                    : "무기한"}
-                </td>
+                <td>{renderExpiryCell(k.expires_at)}</td>
                 <td>
                   <button
                     type="button"

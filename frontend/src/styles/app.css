@@ -9813,6 +9813,38 @@ body {
   background: rgba(220, 38, 38, 0.08);
 }
 
+/* 키 만료 상태 배지 — 7일 이하 = 경고, 0일 이하 = 만료. */
+.apikey-expiry { font-size: 12px; }
+.apikey-expiry.ok { color: var(--text); }
+.apikey-expiry.warn {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.10);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.apikey-expiry.expired {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.10);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.apikey-expiry-never {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 12px;
+}
+.apikey-form select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+
 /* 슬래시 picker '팀' 배지 (#48). */
 .slash-picker-badge {
   background: var(--accent);
