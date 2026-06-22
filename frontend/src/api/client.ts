@@ -474,6 +474,19 @@ export const admin = {
       last_message_at: string | null;
       last_login_at: string | null;
     }>>(`/admin/user-activity?days=${days}&limit=${limit}`),
+  activityTimeline: (days = 30) =>
+    json<{
+      days: number;
+      dau: number;
+      wau: number;
+      mau: number;
+      daily: Array<{
+        day: string;
+        logins: number;
+        messages: number;
+        active_users: number;
+      }>;
+    }>(`/admin/activity-timeline?days=${days}`),
   listBackups: () =>
     json<{
       backup_dir: string;

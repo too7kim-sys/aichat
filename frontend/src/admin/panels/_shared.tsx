@@ -19,16 +19,25 @@ export function SectionCard({
 }
 
 export function Stat({ label, value, note, pct }: {
-  label: string; value: string; note: string; pct: number;
+  label: string; value: string; note: string;
+  /** 0~100 사용률 막대.  undefined 면 막대 자체를 숨김 (DAU/WAU 같이
+   *  비율이 의미 없는 절대값 카드용). */
+  pct?: number;
 }) {
-  const tone = pct > 85 ? "danger" : pct > 70 ? "warn" : "ok";
+  const tone = pct == null
+    ? "ok"
+    : pct > 85 ? "danger"
+    : pct > 70 ? "warn"
+    : "ok";
   return (
     <div className={`ops-stat ops-${tone}`}>
       <div className="ops-stat-label">{label}</div>
       <div className="ops-stat-value">{value}</div>
-      <div className="ops-stat-bar">
-        <div className="ops-stat-bar-fill" style={{ width: `${Math.min(100, pct)}%` }} />
-      </div>
+      {pct != null && (
+        <div className="ops-stat-bar">
+          <div className="ops-stat-bar-fill" style={{ width: `${Math.min(100, pct)}%` }} />
+        </div>
+      )}
       <div className="ops-stat-note">{note}</div>
     </div>
   );

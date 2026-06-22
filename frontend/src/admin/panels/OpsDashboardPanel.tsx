@@ -15,6 +15,7 @@ export function OpsDashboardPanel() {
         </div>
       </div>
       <SystemResourcesPanel />
+      <ActivityTimelinePanel />
       <ModelUsagePanel />
       <UserActivityPanel />
       <BackupsPanel />
@@ -80,6 +81,132 @@ function SystemResourcesPanel() {
     </SectionCard>
   );
 }
+
+/** 활동 추이 — DAU/WAU/MAU 스탯 + 일별 로그인·메시지 sparkline.
+ *  audit_log 의 login_ok 와 user-역할 메시지의 createed_at 시계열을
+ *  합쳐 운영자가 추세를 한 눈에 볼 수 있게 한다. */
+function ActivityTimelinePanel() {
+  type Tl = Awaited<ReturnType<typeof admin.activityTimeline>>;
+  const [tl, setTl] = useState<Tl | null>(null);
+  const [days, setDays] = useState(30);
+  const [loading, setLoading] = useState(false);
+  async function refresh() {
+    setLoading(true);
+    try { setTl(await admin.activityTimeline(days)); }
+    catch { /* ignore */ }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [days]);
+
+  return (
+    <SectionCard
+      title={`활동 추이 (최근 ${days}일)`}
+      right={
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={7}>최근 7일</option>
+          <option value={14}>최근 14일</option>
+          <option value={30}>최근 30일</option>
+          <option value={90}>최근 90일</option>
+        </select>
+      }
+    >
+      {loading && !tl ? (
+        <div className="admin-empty">불러오는 중…</div>
+      ) : !tl ? (
+        <div className="admin-empty">불러올 수 없어요.</div>
+      ) : (
+        <>
+          <div className="ops-grid">
+            <Stat label="DAU (24h)" value={String(tl.dau)}
+                  note="최근 24시간 안에 로그인하거나 메시지를 보낸 고유 사용자 수" />
+            <Stat label="WAU (7d)" value={String(tl.wau)}
+                  note="최근 7일 안에 활동한 고유 사용자 수" />
+            <Stat label="MAU (30d)" value={String(tl.mau)}
+                  note="최근 30일 안에 활동한 고유 사용자 수" />
+          </div>
+          <Sparkline
+            label="일별 로그인"
+            values={tl.daily.map((d) => d.logins)}
+            labels={tl.daily.map((d) => d.day)}
+            color="#3b82f6"
+          />
+          <Sparkline
+            label="일별 메시지"
+            values={tl.daily.map((d) => d.messages)}
+            labels={tl.daily.map((d) => d.day)}
+            color="#10b981"
+          />
+          <Sparkline
+            label="일별 활성 사용자"
+            values={tl.daily.map((d) => d.active_users)}
+            labels={tl.daily.map((d) => d.day)}
+            color="#f59e0b"
+          />
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
+/** 라이브러리 없는 가벼운 SVG sparkline + bar + 최댓값 라벨.
+ *  너비는 컨테이너에 100%, 높이는 고정 — 작은 추세 시각화 용도. */
+function Sparkline({
+  label, values, labels, color,
+}: {
+  label: string;
+  values: number[];
+  labels: string[];
+  color: string;
+}) {
+  const max = Math.max(1, ...values);
+  const total = values.reduce((a, b) => a + b, 0);
+  const W = 600;
+  const H = 60;
+  const step = values.length > 1 ? W / (values.length - 1) : W;
+  const pts = values
+    .map((v, i) => `${(i * step).toFixed(1)},${(H - (v / max) * (H - 6) - 3).toFixed(1)}`)
+    .join(" ");
+  return (
+    <div className="ops-sparkline">
+      <div className="ops-sparkline-head">
+        <span className="ops-sparkline-label">{label}</span>
+        <span className="ops-sparkline-summary">
+          합계 <b>{total.toLocaleString()}</b> · 최댓값 <b>{max.toLocaleString()}</b>
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="ops-sparkline-svg"
+        role="img"
+        aria-label={`${label} ${values.length}일 추이`}
+      >
+        <polyline
+          points={pts}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+        />
+        {values.map((v, i) => (
+          <circle
+            key={i}
+            cx={(i * step).toFixed(1)}
+            cy={(H - (v / max) * (H - 6) - 3).toFixed(1)}
+            r={1.6}
+            fill={color}
+          >
+            <title>{`${labels[i]}: ${v.toLocaleString()}`}</title>
+          </circle>
+        ))}
+      </svg>
+      <div className="ops-sparkline-axis">
+        <span>{labels[0]}</span>
+        <span>{labels[labels.length - 1]}</span>
+      </div>
+    </div>
+  );
+}
+
 
 function ModelUsagePanel() {
   type Row = Awaited<ReturnType<typeof admin.modelUsage>>[number];

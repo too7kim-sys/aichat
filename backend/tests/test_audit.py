@@ -126,3 +126,43 @@ def test_audit_event_filter_only_returns_matching(client):
     rows = client.get("/api/admin/audit?event=signup", headers=h).json()
     assert len(rows) >= 1
     assert all(r["event"] == "signup" for r in rows)
+
+
+def test_activity_timeline_returns_dau_wau_mau(client):
+    """activity-timeline 엔드포인트 — 신규 가입자 1명 + 로그인 1번 →
+    DAU/WAU/MAU 모두 1, daily 배열 길이 == days+1 (오늘 포함)."""
+    h = _admin_header(client)
+    client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "Strong-Pwd-1234!"},
+    )
+    res = client.get("/api/admin/activity-timeline?days=7", headers=h)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["days"] == 7
+    assert body["dau"] >= 1
+    assert body["wau"] >= 1
+    assert body["mau"] >= 1
+    assert isinstance(body["daily"], list)
+    # 7일 윈도우 + 오늘 → 8개 행 (양 끝 포함).
+    assert len(body["daily"]) == 8
+    # 각 행이 day / logins / messages / active_users 키 보유.
+    for d in body["daily"]:
+        for k in ("day", "logins", "messages", "active_users"):
+            assert k in d
+
+
+def test_activity_timeline_requires_staff(client):
+    """일반 사용자 차단."""
+    _admin_header(client)
+    other = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "x@example.com",
+            "password": "Strong-Pwd-1234!",
+            "name": "X",
+        },
+    )
+    h = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    res = client.get("/api/admin/activity-timeline?days=7", headers=h)
+    assert res.status_code in (401, 403)

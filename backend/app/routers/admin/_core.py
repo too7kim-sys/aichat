@@ -1107,7 +1107,7 @@ async def get_system_resources(
     _staff: models.User = Depends(require_staff),
 ):
     """CPU / 메모리 / 디스크 / GPU 현재 스냅샷. 폴링 5~10초 간격 권장."""
-    from .. import system_resources
+    from ... import system_resources
     return system_resources.snapshot(["/", "/data"])
 
 
@@ -1118,7 +1118,7 @@ async def get_model_usage(
     db: AsyncSession = Depends(get_db),
 ):
     """모델별 호출 횟수 + 출력 토큰 + 평균 지연 + 추정 비용."""
-    from .. import dashboard
+    from ... import dashboard
     return await dashboard.model_usage_stats(db, days=max(1, min(int(days), 365)))
 
 
@@ -1130,8 +1130,20 @@ async def get_user_activity(
     db: AsyncSession = Depends(get_db),
 ):
     """사용자별 메시지·세션·로그인 활동 요약. 최근 활동 우선."""
-    from .. import dashboard
+    from ... import dashboard
     return await dashboard.user_activity_summary(db, days=days, limit=limit)
+
+
+@router.get("/activity-timeline")
+async def get_activity_timeline(
+    days: int = Query(30, ge=1, le=180),
+    _staff: models.User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """일자별 로그인·메시지 카운트 + DAU/WAU/MAU 스냅샷.  운영자가
+    추세를 한 눈에 보도록 sparkline 용 시계열."""
+    from ... import dashboard
+    return await dashboard.activity_timeline(db, days=days)
 
 
 @router.get("/backups")

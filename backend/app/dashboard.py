@@ -205,3 +205,129 @@ async def user_activity_summary(
         reverse=True,
     )
     return out[:limit]
+
+
+async def activity_timeline(
+    db: AsyncSession,
+    *,
+    days: int = 30,
+) -> dict:
+    """일자별 로그인 / 고유 활성 사용자 + DAU/WAU/MAU 스냅샷.
+
+    audit_log 의 login_ok 와 Message.created_at 두 신호를 모두 사용 —
+    토큰 갱신만 하고 메시지 안 보낸 사용자, 그 반대 둘 다 잡힘.
+    빈 날짜는 0 으로 채워 sparkline 이 끊기지 않게.
+    """
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=max(1, days))).replace(
+        hour=0, minute=0, second=0, microsecond=0,
+    )
+
+    # 일별 로그인 수 + 그날 로그인한 고유 user_id 수.
+    day_col = func.date(models.AuditLog.created_at)
+    login_rows = (
+        await db.execute(
+            select(
+                day_col.label("d"),
+                func.count(models.AuditLog.id).label("logins"),
+                func.count(func.distinct(models.AuditLog.user_id)).label("users"),
+            )
+            .where(
+                models.AuditLog.event == "login_ok",
+                models.AuditLog.created_at >= since,
+            )
+            .group_by(day_col)
+        )
+    ).all()
+    login_by_day: dict[str, dict[str, int]] = {
+        str(r.d): {"logins": int(r.logins or 0), "login_users": int(r.users or 0)}
+        for r in login_rows
+    }
+
+    # 일별 메시지 작성자 (= 활동한 사용자) 수.  Message.role='user' 만
+    # 잡아 어시스턴트 자동 응답이 활성도로 카운트되지 않게.
+    msg_day = func.date(models.Message.created_at)
+    msg_rows = (
+        await db.execute(
+            select(
+                msg_day.label("d"),
+                func.count(func.distinct(models.Session.user_id)).label("users"),
+                func.count(models.Message.id).label("messages"),
+            )
+            .join(models.Session, models.Session.id == models.Message.session_id)
+            .where(
+                models.Message.role == "user",
+                models.Message.created_at >= since,
+            )
+            .group_by(msg_day)
+        )
+    ).all()
+    msg_by_day: dict[str, dict[str, int]] = {
+        str(r.d): {
+            "msg_users": int(r.users or 0),
+            "messages": int(r.messages or 0),
+        }
+        for r in msg_rows
+    }
+
+    # 날짜축 — 빈 날은 0 으로 채워 sparkline 이 일자별로 정렬되게.
+    daily: list[dict] = []
+    cursor = since
+    while cursor <= now:
+        key = cursor.date().isoformat()
+        lg = login_by_day.get(key, {})
+        mg = msg_by_day.get(key, {})
+        # active_users = 로그인 OR 메시지 작성한 고유 사용자 — 두 집합의
+        # union 을 정확히 잡으려면 user_id 자체를 모아야 하지만, 그러면
+        # 행이 비대해진다.  근사로 max(login_users, msg_users) 사용 —
+        # 같은 user 가 양쪽 모두 잡혀도 중복 1로 처리되는 데 충분히
+        # 가깝다.
+        active = max(
+            int(lg.get("login_users", 0)),
+            int(mg.get("msg_users", 0)),
+        )
+        daily.append({
+            "day": key,
+            "logins": int(lg.get("logins", 0)),
+            "messages": int(mg.get("messages", 0)),
+            "active_users": active,
+        })
+        cursor += timedelta(days=1)
+
+    async def _unique_users_within(td: timedelta) -> int:
+        cutoff = now - td
+        # 로그인 신호.
+        login_uids = set(
+            (await db.execute(
+                select(func.distinct(models.AuditLog.user_id))
+                .where(
+                    models.AuditLog.event == "login_ok",
+                    models.AuditLog.created_at >= cutoff,
+                    models.AuditLog.user_id.isnot(None),
+                )
+            )).scalars().all()
+        )
+        # 메시지 작성 신호.
+        msg_uids = set(
+            (await db.execute(
+                select(func.distinct(models.Session.user_id))
+                .join(
+                    models.Message,
+                    models.Message.session_id == models.Session.id,
+                )
+                .where(
+                    models.Message.role == "user",
+                    models.Message.created_at >= cutoff,
+                    models.Session.user_id.isnot(None),
+                )
+            )).scalars().all()
+        )
+        return len(login_uids | msg_uids)
+
+    return {
+        "days": days,
+        "daily": daily,
+        "dau": await _unique_users_within(timedelta(days=1)),
+        "wau": await _unique_users_within(timedelta(days=7)),
+        "mau": await _unique_users_within(timedelta(days=30)),
+    }
