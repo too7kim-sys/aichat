@@ -3839,6 +3839,47 @@ body {
   font: inherit;
   font-size: 13px;
 }
+
+/* 감사 로그 이벤트별 카운트 칩 — 현재 페이지의 결과 위에 떠 클릭
+ * 으로 그 이벤트만 좁힘.  '필터' 영역과 표 사이의 미니 요약. */
+.admin-audit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.admin-audit-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.admin-audit-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.admin-audit-chip.active {
+  background: var(--accent-soft, rgba(64, 128, 200, 0.10));
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.admin-audit-chip b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.admin-audit-chip.active b { color: var(--accent); font-weight: 700; }
+.admin-audit-event {
+  display: inline-block;
+  font-size: 12px;
+}
 .admin-btn-danger {
   color: #c0392b !important;
   border-color: #c0392b !important;

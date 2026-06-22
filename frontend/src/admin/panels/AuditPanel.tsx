@@ -1,7 +1,33 @@
 /** 감사 로그 뷰어 — event / 이메일 / 날짜 범위 필터 + CSV 내보내기. */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { admin } from "../../api/client";
 import { errorToast } from "../../lib/toast";
+
+/** 백엔드 audit.record 의 event code → 한글 라벨.  알 수 없는 코드는
+ *  원본을 그대로 보여줘 새 이벤트가 추가돼도 화면이 깨지지 않게. */
+const EVENT_LABELS: Record<string, string> = {
+  signup: "회원가입",
+  signup_fail: "가입 실패",
+  login_ok: "로그인",
+  login_fail: "로그인 실패",
+  password_change: "비밀번호 변경",
+  name_change: "이름 변경",
+  account_delete: "계정 삭제",
+  user_approved: "사용자 승인",
+  user_rejected: "사용자 거절",
+  user_role_changed: "역할 변경",
+  user_roles_changed: "역할(추가) 변경",
+  user_suspended: "계정 정지",
+  user_unsuspended: "정지 해제",
+  role_created: "역할 생성",
+  role_updated: "역할 수정",
+  role_deleted: "역할 삭제",
+  settings_changed: "설정 변경",
+};
+
+function eventLabel(code: string): string {
+  return EVENT_LABELS[code] ?? code;
+}
 
 export function AuditPanel() {
   type Row = Awaited<ReturnType<typeof admin.listAudit>>[number];
@@ -48,6 +74,15 @@ export function AuditPanel() {
     }
   }
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+
+  // 현재 화면에 잡힌 행들로 이벤트별 카운트 — 칩 클릭으로 그 이벤트만
+  // 필터하도록 한다. 빠르게 "오늘 로그인 몇 건" 같은 감을 보여주는
+  // 용도라 서버에 별도 집계 호출은 하지 않는다.
+  const eventCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) m.set(r.event, (m.get(r.event) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [rows]);
 
   return (
     <div className="admin-errors">
@@ -101,6 +136,32 @@ export function AuditPanel() {
         </button>
       </div>
 
+      {/* 현재 결과의 이벤트별 카운트 칩 — 클릭으로 필터.  rows.length 가
+          0 이면 숨김. */}
+      {rows.length > 0 && (
+        <div className="admin-audit-chips" role="group" aria-label="이벤트 빠른 필터">
+          <button
+            type="button"
+            className={`admin-audit-chip${!event ? " active" : ""}`}
+            onClick={() => { setEvent(""); refresh(); }}
+            title="모든 이벤트"
+          >
+            전체 <b>{rows.length}</b>
+          </button>
+          {eventCounts.map(([code, n]) => (
+            <button
+              type="button"
+              key={code}
+              className={`admin-audit-chip${event === code ? " active" : ""}`}
+              onClick={() => { setEvent(code); refresh(); }}
+              title={code}
+            >
+              {eventLabel(code)} <b>{n}</b>
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="admin-empty">불러오는 중…</div>
       ) : err ? (
@@ -115,7 +176,7 @@ export function AuditPanel() {
           <thead>
             <tr>
               <th style={{ width: "16%" }}>시각</th>
-              <th style={{ width: "12%" }}>이벤트</th>
+              <th style={{ width: "16%" }}>이벤트</th>
               <th style={{ width: "20%" }}>사용자</th>
               <th style={{ width: "12%" }}>IP</th>
               <th>상세</th>
@@ -127,7 +188,9 @@ export function AuditPanel() {
                 <td className="admin-error-when">
                   {r.created_at ? new Date(r.created_at).toLocaleString() : "-"}
                 </td>
-                <td><code>{r.event}</code></td>
+                <td title={r.event}>
+                  <span className="admin-audit-event">{eventLabel(r.event)}</span>
+                </td>
                 <td className="admin-error-who" title={r.user_id ?? ""}>{r.user_email}</td>
                 <td><code>{r.ip || "-"}</code></td>
                 <td>{r.detail || "—"}</td>
