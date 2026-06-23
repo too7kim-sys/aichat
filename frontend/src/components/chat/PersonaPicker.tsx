@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Persona } from "../../api/client";
 import { errorToast, infoToast } from "../../lib/toast";
+import { IconEdit, IconPersona, IconTrash } from "../Icon";
 
 interface Props {
   sessionId: string;
@@ -60,10 +61,18 @@ export function PersonaPicker({
       >
         {current ? (
           <>
-            {current.emoji || "🎭"} {current.name}
+            {current.emoji ? (
+              <span className="persona-picker-icon">{current.emoji}</span>
+            ) : (
+              <IconPersona size={14} />
+            )}
+            <span>{current.name}</span>
           </>
         ) : (
-          <>🎭 페르소나</>
+          <>
+            <IconPersona size={14} />
+            <span>페르소나</span>
+          </>
         )}
       </button>
       {open && (
@@ -86,7 +95,9 @@ export function PersonaPicker({
                 className={`persona-picker-row${currentPersonaId === null ? " active" : ""}`}
                 onClick={() => apply(null)}
               >
-                <span className="persona-picker-emoji">⚪</span>
+                <span className="persona-picker-emoji">
+                  <IconPersona size={14} />
+                </span>
                 <span className="persona-picker-name">기본 (페르소나 없음)</span>
               </button>
             </li>
@@ -98,7 +109,9 @@ export function PersonaPicker({
                   onClick={() => apply(p.id)}
                   title={p.description || p.system_prompt.slice(0, 200)}
                 >
-                  <span className="persona-picker-emoji">{p.emoji || "🎭"}</span>
+                  <span className="persona-picker-emoji">
+                    {p.emoji ? p.emoji : <IconPersona size={14} />}
+                  </span>
                   <span className="persona-picker-name">
                     {p.name}
                     {p.is_shared && <span className="persona-picker-badge">공유</span>}
@@ -113,8 +126,9 @@ export function PersonaPicker({
                       setEditingPersona(p);
                     }}
                     title="편집"
+                    aria-label="페르소나 편집"
                   >
-                    ✎
+                    <IconEdit size={13} />
                   </button>
                 )}
               </li>
@@ -290,7 +304,7 @@ function PersonaEditModal({
                 onClick={remove}
                 disabled={busy}
               >
-                🗑 삭제
+                <IconTrash size={13} /> 삭제
               </button>
             )}
             <div className="cp-edit-actions-right">

@@ -306,3 +306,137 @@ export function IconThumbsDown({ size, ...rest }: IconProps) {
     </svg>
   );
 }
+
+// ── 채팅 헤더용 추가 아이콘 ─────────────────────────────────────────────
+// Lucide 와 같은 24×24 / 2px stroke 기준.  채팅·관리자 화면의 이모지를
+// 일관된 톤으로 교체하기 위해 추가.
+
+export function IconLock({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+export function IconUnlock({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+    </svg>
+  );
+}
+
+export function IconMessageSquare({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+export function IconBarChart({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <line x1="12" y1="20" x2="12" y2="10" />
+      <line x1="18" y1="20" x2="18" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="16" />
+    </svg>
+  );
+}
+
+export function IconType({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <polyline points="4 7 4 4 20 4 20 7" />
+      <line x1="9" y1="20" x2="15" y2="20" />
+      <line x1="12" y1="4" x2="12" y2="20" />
+    </svg>
+  );
+}
+
+export function IconShare({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  );
+}
+
+export function IconKey({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <path d="M21 2l-9.6 9.6" />
+      <circle cx="7.5" cy="15.5" r="5.5" />
+      <path d="M15.5 7.5l3 3" />
+    </svg>
+  );
+}
+
+export function IconMoreHorizontal({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="5" cy="12" r="1.4" />
+      <circle cx="19" cy="12" r="1.4" />
+    </svg>
+  );
+}
+
+export function IconSun({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <circle cx="12" cy="12" r="4" />
+      <line x1="12" y1="2" x2="12" y2="5" />
+      <line x1="12" y1="19" x2="12" y2="22" />
+      <line x1="2" y1="12" x2="5" y2="12" />
+      <line x1="19" y1="12" x2="22" y2="12" />
+      <line x1="4.93" y1="4.93" x2="7.05" y2="7.05" />
+      <line x1="16.95" y1="16.95" x2="19.07" y2="19.07" />
+      <line x1="4.93" y1="19.07" x2="7.05" y2="16.95" />
+      <line x1="16.95" y1="7.05" x2="19.07" y2="4.93" />
+    </svg>
+  );
+}
+
+export function IconMoon({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
+export function IconMonitor({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  );
+}
+
+export function IconShield({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+// 페르소나 기본 아이콘 — Persona 데이터에 emoji 가 없을 때.
+export function IconPersona({ size, ...rest }: IconProps) {
+  return (
+    <svg {...base(size)} {...rest}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M20 21a8 8 0 0 0-16 0" />
+    </svg>
+  );
+}

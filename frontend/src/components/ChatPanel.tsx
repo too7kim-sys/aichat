@@ -7,6 +7,7 @@ import { useIsMobile } from "../lib/useIsMobile";
 import { useAuth } from "../auth/AuthContext";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
+  IconBarChart,
   IconBookOpen,
   IconCheckCircle,
   IconCode,
@@ -15,10 +16,17 @@ import {
   IconFolder,
   IconGlobe,
   IconImage,
+  IconKey,
+  IconLock,
+  IconMessageSquare,
+  IconMoreHorizontal,
   IconPaperclip,
   IconSearch,
   IconSend,
+  IconShare,
   IconSparkles,
+  IconType,
+  IconUnlock,
   IconX,
 } from "./Icon";
 import type { LocalAttachment } from "../export/MergeAttachmentsDialog";
@@ -1278,7 +1286,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 aria-expanded={moreOpen}
                 title="더보기"
               >
-                ⋯
+                <IconMoreHorizontal size={16} />
               </button>
             )}
             <div className={`chat-header-more${moreOpen ? " open" : ""}`}>
@@ -1296,7 +1304,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             title="이 대화에서 검색 (Ctrl/⌘+F)"
             aria-label="대화 내 검색"
           >
-            <IconSearch size={13} /> 찾기
+            <IconSearch size={14} />
+            <span>찾기</span>
           </button>
           <button
             type="button"
@@ -1305,7 +1314,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             title={locked ? "대화 잠금 해제" : "대화 잠금 — 실수 편집·삭제 방지"}
             aria-label={locked ? "대화 잠금 해제" : "대화 잠금"}
           >
-            {locked ? "🔒 잠김" : "🔓"}
+            {locked ? <IconLock size={14} /> : <IconUnlock size={14} />}
+            <span>{locked ? "잠김" : "잠금"}</span>
           </button>
           <button
             type="button"
@@ -1314,7 +1324,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             title="이 세션에 코멘트 남기기 (팀원과 공유)"
             aria-label="세션 코멘트"
           >
-            💬
+            <IconMessageSquare size={14} />
+            <span>코멘트</span>
           </button>
           <div className="chat-stats-wrap" ref={statsRef}>
             <button
@@ -1324,7 +1335,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               title="이 세션의 통계"
               aria-label="세션 통계"
             >
-              📊
+              <IconBarChart size={14} />
+              <span>통계</span>
             </button>
             {statsOpen && session && (() => {
               const msgs = session.messages;
@@ -1385,7 +1397,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               title="글자 크기 / 줄 간격"
               aria-label="글자 크기 설정"
             >
-              Aa
+              <IconType size={14} />
+              <span>글자</span>
             </button>
             {typoOpen && (
               <div className="chat-typo-popover" role="dialog">
@@ -1452,7 +1465,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             }}
             title="이 대화의 공유 링크 (로그인된 사용자 읽기 전용)"
           >
-            🔗 공유
+            <IconShare size={14} />
+            <span>공유</span>
           </button>
           <button
             type="button"
@@ -1490,7 +1504,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
             }}
             title={session.has_passphrase ? "잠금 해제" : "세션 비밀번호 잠금"}
           >
-            {session.has_passphrase ? "🔐 잠김" : "🔓"}
+            {session.has_passphrase ? <IconKey size={14} /> : <IconUnlock size={14} />}
+            <span>{session.has_passphrase ? "비번 잠김" : "비번 잠금"}</span>
           </button>
             </div>
           </div>

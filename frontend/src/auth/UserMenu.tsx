@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { IconUsers } from "../components/Icon";
+import {
+  IconMonitor,
+  IconMoon,
+  IconShield,
+  IconSun,
+  IconUsers,
+} from "../components/Icon";
 import { useAuth } from "./AuthContext";
 import { TeamsPanel } from "../components/CoworkPanels";
 
@@ -75,7 +81,8 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
               setTeamsOpen(true);
             }}
           >
-            👥 팀 관리
+            <IconUsers size={14} />
+            <span>팀 관리</span>
           </button>
           <button
             className="user-menu-item"
@@ -95,8 +102,11 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
                   type="button"
                   className={`user-menu-theme-chip${theme === t ? " picked" : ""}`}
                   onClick={() => setTheme(t)}
+                  title={t === "light" ? "라이트 테마" : t === "dark" ? "다크 테마" : "시스템 설정 따름"}
+                  aria-label={t === "light" ? "라이트" : t === "dark" ? "다크" : "시스템"}
                 >
-                  {t === "light" ? "☀ 라이트" : t === "dark" ? "🌙 다크" : "💻 시스템"}
+                  {t === "light" ? <IconSun size={13} /> : t === "dark" ? <IconMoon size={13} /> : <IconMonitor size={13} />}
+                  <span>{t === "light" ? "라이트" : t === "dark" ? "다크" : "시스템"}</span>
                 </button>
               ))}
             </div>
@@ -107,7 +117,9 @@ export function UserMenu({ onOpenMyPage, onOpenAdmin }: Props) {
             onClick={togglePii}
             title="전화번호·주민번호·이메일·카드번호 후보를 가림"
           >
-            🔒 개인정보 마스킹 {piiMask ? "ON" : "OFF"}
+            <IconShield size={14} />
+            <span>개인정보 마스킹</span>
+            <span className="user-menu-toggle-state">{piiMask ? "ON" : "OFF"}</span>
           </button>
           {onOpenAdmin && (user.role === "admin" || user.role === "moderator") && (
             <button
