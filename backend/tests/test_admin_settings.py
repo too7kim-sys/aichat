@@ -80,3 +80,41 @@ def test_files_cleanup_max_length(client):
         json={"project_ids": too_many},
     )
     assert res.status_code == 422
+
+
+def test_errors_panel_endpoint_returns_shape(client):
+    """오류 모니터링 패널의 백엔드 — GET /admin/errors 가 200.
+    상대 import 'from ..error_log' 이 app.routers.error_log 를 찾아
+    ImportError 로 500 떨어지던 회귀 가드."""
+    h = _admin_header(client)
+    res = client.get("/api/admin/errors", headers=h)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    for k in ("transcripts", "projects", "workflows", "app_errors"):
+        assert k in body, f"missing key {k}"
+        assert isinstance(body[k], list)
+
+
+def test_user_activity_endpoint_returns_list(client):
+    """비슷한 패턴 — 'from .. import dashboard' 회귀 가드."""
+    h = _admin_header(client)
+    res = client.get("/api/admin/user-activity?days=7&limit=50", headers=h)
+    assert res.status_code == 200, res.text
+    assert isinstance(res.json(), list)
+
+
+def test_model_usage_endpoint_returns_list(client):
+    """'from .. import dashboard' 회귀 가드 — model-usage 도 같은 경로."""
+    h = _admin_header(client)
+    res = client.get("/api/admin/model-usage?days=7", headers=h)
+    assert res.status_code == 200, res.text
+    assert isinstance(res.json(), list)
+
+
+def test_system_resources_endpoint_returns_dict(client):
+    """'from .. import system_resources' 회귀 가드."""
+    h = _admin_header(client)
+    res = client.get("/api/admin/system-resources", headers=h)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert "cpu" in body and "memory" in body

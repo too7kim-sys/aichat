@@ -282,7 +282,7 @@ async def workspace_constraints(
     show the user what's possible BEFORE they submit, and preflight
     obvious violations (host not allowed / path not under any
     configured root)."""
-    from ..code import workspace as ws_module
+    from ...code import workspace as ws_module
     return {
         "allowed_hosts": settings.workspace_allowed_host_list,
         "local_roots": settings.workspace_local_root_list,

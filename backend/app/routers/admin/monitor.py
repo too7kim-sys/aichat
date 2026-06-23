@@ -246,7 +246,7 @@ async def test_webhook(
     url = (settings.webhook_alert_url or "").strip()
     if not url:
         raise HTTPException(400, "webhook_alert_url 이 설정돼 있지 않습니다 (.env).")
-    from .. import webhook as _wh
+    from ... import webhook as _wh
     await _wh.dispatch(
         kind="test", title="aichat 웹훅 테스트",
         body="이 메시지는 관리자가 수동으로 보낸 테스트입니다.",

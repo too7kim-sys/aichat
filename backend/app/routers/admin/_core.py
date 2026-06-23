@@ -819,7 +819,7 @@ async def list_errors(
 
 async def _list_app_errors(limit: int) -> list[dict]:
     """ErrorLog 최근 N개 — 관리자 패널의 '백엔드 일반 오류' 섹션용."""
-    from ..error_log import recent as _recent
+    from ...error_log import recent as _recent
     return await _recent(limit)
 
 
@@ -1383,7 +1383,7 @@ async def health_check(
     import httpx as _httpx
     from datetime import datetime as _dt, timedelta as _td
 
-    from ..config import settings as _settings
+    from ...config import settings as _settings
 
     async def _ollama() -> dict:
         try:
