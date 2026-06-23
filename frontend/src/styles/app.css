@@ -801,10 +801,8 @@ body {
   /* outer header spans the full width so the bottom border reaches
      both edges; horizontal alignment of the actual title + actions
      happens inside .chat-header-inner, which matches the
-     messages-inner container (max-width + auto margin + side
-     padding). Vertical padding is tight so the title bar doesn't
-     eat into the messages area. */
-  padding: 6px 0;
+     messages-inner container. */
+  padding: 10px 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   flex-shrink: 0;
@@ -1854,11 +1852,12 @@ body {
 /* ── Editable title ───────────────────────────────── */
 .chat-title {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  color: var(--text);
   cursor: text;
-  padding: 2px 8px;
+  padding: 4px 10px;
   border-radius: 6px;
   transition: background 0.12s;
   max-width: 60%;
@@ -2936,13 +2935,23 @@ body {
 .admin-shell {
   min-height: 100vh;
   background: var(--bg);
-  padding: 32px 24px 80px;
-  max-width: 1080px;
+  padding: 40px 32px 80px;
+  max-width: 1120px;
   margin: 0 auto;
   color: var(--text);
 }
-.admin-header h1 { margin: 4px 0 4px; font-size: 22px; font-weight: 700; }
-.admin-header p { margin: 0 0 16px; color: var(--text-muted); font-size: 13px; }
+.admin-header h1 {
+  margin: 12px 0 6px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.admin-header p {
+  margin: 0 0 20px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
 .admin-back {
   background: transparent;
   border: 1px solid var(--border);
@@ -2959,27 +2968,29 @@ body {
  * the existing user list and the new 역할 코드 management table. */
 .admin-view-tabs {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   margin-top: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
   border-bottom: 1px solid var(--border);
 }
 .admin-view-tab {
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 8px 14px;
+  padding: 10px 14px;
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
   margin-bottom: -1px;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 .admin-view-tab:hover { color: var(--text); }
 .admin-view-tab.active {
-  color: var(--accent);
+  color: var(--text);
   border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
 /* Email verification badge sits inline with the email address. */
@@ -3307,13 +3318,18 @@ body {
 .admin-error-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 18px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 .admin-error-section h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
+  letter-spacing: -0.005em;
 }
 
 .admin-error-table {
@@ -4086,22 +4102,33 @@ body {
 .admin-btn {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 4px 12px;
+  border-radius: 6px;
+  padding: 6px 12px;
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 120ms ease, border-color 120ms ease;
 }
-.admin-btn:hover:not(:disabled) { background: var(--bg-sidebar); }
+.admin-btn:hover:not(:disabled) {
+  background: var(--bg-sidebar);
+  border-color: var(--border-strong);
+}
 .admin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .admin-btn-primary {
-  background: #16a34a;
-  border-color: #16a34a;
-  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
 }
-.admin-btn-primary:hover:not(:disabled) { background: #15803d; }
+.admin-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
 .admin-btn-danger {
   background: #dc2626;
   border-color: #dc2626;
