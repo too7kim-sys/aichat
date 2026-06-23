@@ -12,6 +12,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { errorToast, infoToast } from "../lib/toast";
+import { useIsMobile } from "../lib/useIsMobile";
 import { IconCheck, IconPlus, IconX } from "../components/Icon";
 import { ProjectModal } from "../components/ProjectModal";
 import { RolePickerModal } from "../components/RolePickerModal";
@@ -37,24 +38,6 @@ interface Props {
 type View = "users" | "roles" | "knowledge" | "errors" | "audit" | "sessions" | "ops" | "quality" | "usage" | "rag" | "integrity" | "monitor";
 
 type Tab = "pending" | "approved" | "suspended" | "rejected" | "all";
-
-/** 모바일 뷰포트 감지 — 가로 스크롤로 풀어 dropdown 클리핑 회피용.
- *  720 이하 = 모바일.  미디어쿼리 변경에 즉시 반응하도록 listener. */
-function useIsMobile(): boolean {
-  const [mobile, setMobile] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(max-width: 720px)").matches;
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 720px)");
-    const onChange = () => setMobile(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return mobile;
-}
-
 
 const VIEW_LABELS: Record<View, string> = {
   users: "사용자",

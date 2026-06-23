@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { api } from "../api/client";
 import { copyText } from "../lib/clipboard";
 import { errorToast, infoToast } from "../lib/toast";
+import { useIsMobile } from "../lib/useIsMobile";
 import { useAuth } from "../auth/AuthContext";
 import type { ProviderInfo, SessionDetail } from "../types";
 import {
@@ -232,6 +233,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   // ── 세션 통계 카드 (#26) ────────────────────────────────
   const [statsOpen, setStatsOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  // 모바일 헤더 오버플로 (찾기/잠금/공유/타이포/… 8개 보조 액션을
+  // ⋯ 버튼 한 곳에 모아 헤더 줄바꿈 폭주를 막음).  데스크탑은 그대로.
+  const isMobile = useIsMobile();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!moreRef.current?.contains(e.target as Node)) setMoreOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [moreOpen]);
+  // 라우트 폭 변경으로 모바일 → 데스크탑 전환 시 popover 자동 닫기.
+  useEffect(() => { if (!isMobile) setMoreOpen(false); }, [isMobile]);
   // 헤더 popover 들의 click-outside / Esc 처리 (UI 최적화).
   useEffect(() => {
     if (!typoOpen && !statsOpen) return;
@@ -1248,6 +1264,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               )
             }
           />
+          {/* 모바일에선 8개 보조 액션 (찾기/잠금/코멘트/통계/타이포/
+              공유/세션 잠금/내보내기) 을 ⋯ 더보기 popover 로 모아
+              헤더 줄바꿈 폭주를 막음.  데스크탑은 div 가 display:
+              contents 라 자식들이 자연스럽게 inline 으로 들어감. */}
+          <div className="chat-header-more-wrap" ref={moreRef}>
+            {isMobile && (
+              <button
+                type="button"
+                className={`panel-toggle chat-header-more-toggle${moreOpen ? " active" : ""}`}
+                onClick={() => setMoreOpen((v) => !v)}
+                aria-label="더보기"
+                aria-expanded={moreOpen}
+                title="더보기"
+              >
+                ⋯
+              </button>
+            )}
+            <div className={`chat-header-more${moreOpen ? " open" : ""}`}>
           <button
             type="button"
             className="panel-toggle"
@@ -1257,6 +1291,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
                 if (nv) window.setTimeout(() => searchInputRef.current?.focus(), 0);
                 return nv;
               });
+              if (isMobile) setMoreOpen(false);
             }}
             title="이 대화에서 검색 (Ctrl/⌘+F)"
             aria-label="대화 내 검색"
@@ -1457,6 +1492,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           >
             {session.has_passphrase ? "🔐 잠김" : "🔓"}
           </button>
+            </div>
+          </div>
           {session.workspace_id && (
             <button
               type="button"

@@ -2271,6 +2271,52 @@ body {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+/* 채팅 헤더 ⋯ 오버플로 (모바일) — 데스크탑에선 래퍼가 display:contents
+ * 라 자식들이 부모 flex 의 inline 항목으로 자연 배치.  ⋯ 토글도 숨김.
+ * 모바일에선 래퍼가 anchored absolute popover 의 기준이 되고, .open
+ * 일 때만 보조 액션 8개가 세로로 펼쳐짐. */
+.chat-header-more-wrap { display: contents; }
+.chat-header-more { display: contents; }
+.chat-header-more-toggle { display: none; }
+@media (max-width: 720px) {
+  .chat-header-more-wrap {
+    display: inline-block;
+    position: relative;
+  }
+  .chat-header-more {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+    padding: 6px;
+    z-index: 60;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    min-width: 200px;
+  }
+  .chat-header-more.open { display: flex; }
+  .chat-header-more .panel-toggle {
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  /* 내부에 자체 popover 를 가진 stats/typo 가 모바일 오버플로 안에서
+   * 열리면 absolute 가 viewport 끝으로 흘러나가지 않게 좌측 정렬. */
+  .chat-header-more .chat-stats-popover,
+  .chat-header-more .chat-typo-popover {
+    right: auto;
+    left: 0;
+  }
+  .chat-header-more-toggle { display: inline-flex; }
+}
 /* 헤더 panel-toggle 들이 너무 두툼하면 가로폭을 잡아 먹어 한 줄에
  * 못 들어감 — 패딩·폰트를 살짝 줄여 한 줄 유지율 ↑. */
 .chat-header-right .panel-toggle {
