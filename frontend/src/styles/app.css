@@ -11381,3 +11381,77 @@ body {
   font-style: italic;
 }
 
+
+/* ─────────────────────────────────────────────────────────────
+ * 모바일 전수 다듬기 (≤720px) — popover 가 viewport 끝으로
+ * 흘러나가거나 좁은 화면 테이블이 가로로 잘리는 케이스 일괄 정리.
+ * 전체 화면 점검 리포트 기반.
+ * ───────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  /* 1. 우측 정렬 absolute popover 들이 viewport 밖으로 흘러나가는
+   *    것을 방지.  min-width 가 폰 가로 폭(360px) 의 70% 를 넘으면
+   *    부모 기준 우측 정렬 + 좌측 음수 위치로 일부 잘림.  여기선
+   *    공통적으로 max-width 를 'viewport 폭 - 24px' 로 clamp 하고
+   *    우측이 화면 안에 들어오도록 보강. */
+  .popover,
+  .persona-picker-pop {
+    max-width: calc(100vw - 24px);
+    min-width: 0;
+  }
+  .searchbar-panel {
+    /* desktop: width: min(560px, 92vw).  모바일에선 좌/우 6px 여백
+     * 정도만 두고 가로 폭 거의 다 차지. */
+    width: calc(100vw - 12px);
+    left: -6px;
+    right: auto;
+  }
+
+  /* 2. 슬래시 picker — composer 폭에 맞춰 좌우 0 으로 이미 펼쳐져
+   *    있지만, 안의 긴 prompt body 스니펫이 한 줄로 흐를 때 가로
+   *    오버플로 → 부모 컨테이너 안에서 스크롤되도록. */
+  .slash-picker {
+    max-width: 100vw;
+  }
+  .slash-picker ul { overflow-x: hidden; }
+  .slash-picker-snippet {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 3. admin-table 외 다른 표들 — 데스크탑 폭 가정으로 작성돼
+   *    좁은 화면에서 컬럼이 잘림.  부모를 스크롤 컨테이너로 만들어
+   *    가로 스와이프로 모든 컬럼 접근 가능하게.  block 변경 시
+   *    border-collapse 가 무너지지 않도록 안전한 wrapper 트릭. */
+  .apikey-table,
+  .ws-stats-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  .apikey-table thead,
+  .apikey-table tbody,
+  .apikey-table tr,
+  .ws-stats-table thead,
+  .ws-stats-table tbody,
+  .ws-stats-table tr {
+    display: table;
+    width: 100%;
+    table-layout: auto;
+  }
+
+  /* 4. 운영 대시보드 카드 grid — 220px 최소 폭이 360px 폰에선
+   *    한 카드만 들어가고 나머지 공간이 빈 채로 남음.  더 좁은
+   *    minmax 로 2 컬럼이 자연스럽게 만들어지도록. */
+  .ops-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+
+  /* 5. CodeWorkspaceModal — 480 이하에서도 사이드 + 본문 한 줄이
+   *    답답.  900px 분기에서 이미 1열로 떨어지지만, 도움말 텍스트가
+   *    overflow 로 잘리지 않도록 wrap 보장. */
+  .cw-body { gap: 8px; }
+  .cw-body > * { min-width: 0; }
+}
