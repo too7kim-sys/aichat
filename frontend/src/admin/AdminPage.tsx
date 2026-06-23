@@ -38,6 +38,24 @@ type View = "users" | "roles" | "knowledge" | "errors" | "audit" | "sessions" | 
 
 type Tab = "pending" | "approved" | "suspended" | "rejected" | "all";
 
+/** 모바일 뷰포트 감지 — 가로 스크롤로 풀어 dropdown 클리핑 회피용.
+ *  720 이하 = 모바일.  미디어쿼리 변경에 즉시 반응하도록 listener. */
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 720px)").matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 720px)");
+    const onChange = () => setMobile(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return mobile;
+}
+
+
 const VIEW_LABELS: Record<View, string> = {
   users: "사용자",
   roles: "역할 코드",
@@ -78,6 +96,7 @@ const STATUS_BADGE: Record<UserStatus, string> = {
 };
 
 export function AdminPage({ onBack }: Props) {
+  const isMobile = useIsMobile();
   const { user: me } = useAuth();
   const [tab, setTab] = useState<Tab>("pending");
   const [query, setQuery] = useState("");
@@ -327,7 +346,21 @@ export function AdminPage({ onBack }: Props) {
         <h1>권한 관리</h1>
         <p>사용자의 권한을 부여·회수하고 가입 신청을 검토합니다.</p>
         <div className="admin-view-tabs">
-          {VIEW_GROUPS.map((g) => {
+          {/* 모바일에선 그룹 dropdown 이 부모 가로-스크롤 컨테이너에 잘려
+              안 보이는 문제가 있어, viewport 가 720 이하면 12개 sub-tab
+              을 그냥 평탄하게 펼쳐 노출 (가로 스크롤로 접근). */}
+          {isMobile
+            ? VIEW_GROUPS.flatMap((g) => g.views).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`admin-view-tab${view === v ? " active" : ""}`}
+                  onClick={() => setView(v)}
+                >
+                  {VIEW_LABELS[v]}
+                </button>
+              ))
+            : VIEW_GROUPS.map((g) => {
             const activeInGroup = g.views.includes(view);
             return (
               <div
