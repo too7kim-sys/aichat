@@ -165,9 +165,49 @@ export function CoworkPane({
 
   async function startRecording() {
     if (recording) return;
+    // 보안 컨텍스트 / API 지원 사전 진단 — 브라우저가 'mediaDevices'
+    // 를 안 노출하면 그냥 await 가 'undefined' 의 .getUserMedia 에서
+    // 죽어 사용자에게 의미 없는 TypeError 가 노출됨.  먼저 가드.
+    if (typeof window === "undefined" || !window.isSecureContext) {
+      errorToast(
+        "녹음 불가",
+        new Error(
+          "보안 컨텍스트(HTTPS 또는 localhost) 가 아니라 마이크 접근이 차단됐어요.  HTTPS 로 접속해 다시 시도하세요.",
+        ),
+      );
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      errorToast(
+        "녹음 불가",
+        new Error(
+          "이 브라우저는 getUserMedia 를 지원하지 않거나 권한 정책 (Permissions-Policy: microphone) 으로 막혀 있어요.",
+        ),
+      );
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      errorToast(
+        "녹음 불가",
+        new Error("이 브라우저는 MediaRecorder 를 지원하지 않아요 (구형 iOS Safari 등). 파일 업로드를 사용해 주세요."),
+      );
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      // 브라우저별 지원 codec 골라 webm/mp4 어느 쪽이든 백엔드가 받아
+      // 들이게.  지원 안 하는 mimeType 을 명시하면 MediaRecorder 자체
+      // 생성에 실패하므로 isTypeSupported 로 한 번 거른다.
+      const candidates = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+        "audio/ogg;codecs=opus",
+      ];
+      const picked = candidates.find(
+        (t) => typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(t),
+      );
+      const rec = picked ? new MediaRecorder(stream, { mimeType: picked }) : new MediaRecorder(stream);
       recordChunksRef.current = [];
       rec.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data);
@@ -178,7 +218,15 @@ export function CoworkPane({
           type: recordChunksRef.current[0]?.type || "audio/webm",
         });
         recordChunksRef.current = [];
-        await uploadBlob(blob, `녹음-${new Date().toISOString().slice(0, 16)}.webm`);
+        // 확장자도 실제 mimeType 에 맞춰 결정 — Safari 가 audio/mp4
+        // 로 잡혔는데 .webm 으로 올리면 백엔드 _AUDIO_EXTS 검사에서
+        // 통과하더라도 ffmpeg/whisper 가 헷갈릴 수 있음.
+        const ext = blob.type.includes("mp4")
+          ? "mp4"
+          : blob.type.includes("ogg")
+          ? "ogg"
+          : "webm";
+        await uploadBlob(blob, `녹음-${new Date().toISOString().slice(0, 16)}.${ext}`);
       };
       rec.start(1000);
       recorderRef.current = rec;
@@ -186,7 +234,18 @@ export function CoworkPane({
       setRecordStartedAt(Date.now());
       setRecordElapsedSec(0);
     } catch (e) {
-      errorToast("마이크 접근 실패", e);
+      // DOMException 별 원인 분기 — 사용자에게 어떤 행동이 필요한지
+      // 안내.
+      let msg = e instanceof Error ? e.message : String(e);
+      const name = e instanceof DOMException ? e.name : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        msg = "마이크 권한이 거절됐어요. 브라우저 주소창의 자물쇠 아이콘에서 마이크 권한을 '허용' 으로 바꿔 주세요.";
+      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+        msg = "사용 가능한 마이크 장치를 찾지 못했어요. 마이크가 연결돼 있는지 확인하세요.";
+      } else if (name === "NotReadableError") {
+        msg = "다른 앱이 마이크를 점유 중이에요. 화상회의 / 음성 앱을 종료 후 다시 시도하세요.";
+      }
+      errorToast("마이크 접근 실패", new Error(msg));
     }
   }
 
