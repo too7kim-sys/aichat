@@ -222,9 +222,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         h["X-Frame-Options"] = "DENY"
         # Strip referrer for cross-origin navigations.
         h["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Lock down powerful features we don't use.
+        # Lock down powerful features we don't use.  microphone 은
+        # 회의록 녹음 / 음성 입력에서 same-origin(self) 으로 필요하므로
+        # 허용.  geolocation/camera/payment/usb 는 전혀 안 써서 차단.
+        # 주의: microphone=() (빈 allowlist) 로 두면 self 까지 막혀
+        # HTTPS 에서도 getUserMedia 가 거부된다 — 반드시 (self).
         h["Permissions-Policy"] = (
-            "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+            "geolocation=(), microphone=(self), camera=(), payment=(), usb=()"
         )
         # CSP only for HTML responses; APIs don't need it.
         ctype = h.get("content-type", "")

@@ -33,3 +33,24 @@ def test_health_endpoint_unauthenticated_safe(client):
     """admin/health 는 staff 필요.  무인증이면 401."""
     res = client.get("/api/admin/health")
     assert res.status_code == 401
+
+
+def test_security_headers_present(client):
+    """SecurityHeadersMiddleware 가 핵심 헤더를 박는지 회귀 가드."""
+    res = client.get("/openapi.json")
+    h = res.headers
+    assert h.get("x-content-type-options") == "nosniff"
+    assert h.get("x-frame-options") == "DENY"
+    assert "referrer-policy" in h
+
+
+def test_permissions_policy_allows_self_microphone(client):
+    """Permissions-Policy 가 microphone=(self) 여야 — 빈 allowlist 로
+    두면 HTTPS 에서도 회의록 녹음 / 음성 입력의 getUserMedia 가 막힘
+    (회귀 가드).  camera/geolocation 은 전 오리진 차단 유지."""
+    res = client.get("/openapi.json")
+    pp = res.headers.get("permissions-policy", "")
+    assert "microphone=(self)" in pp, pp
+    # 안 쓰는 기능은 빈 allowlist 로 차단된 채여야.
+    assert "camera=()" in pp
+    assert "geolocation=()" in pp
