@@ -24,11 +24,13 @@ _locked_until: dict[str, float] = {}
 
 
 def _client_ip(request: Request) -> str:
-    # Prefer X-Forwarded-For first hop when behind a reverse proxy; falls
-    # back to the direct peer.
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",", 1)[0].strip()
+    # request.client.host 만 신뢰한다.  raw X-Forwarded-For 헤더를
+    # 직접 파싱하면, 프록시 없이 직접 노출된 배포에서 공격자가 헤더를
+    # 위조해 IP 레이트리밋을 우회(매 요청 다른 가짜 IP)할 수 있다.
+    # 신뢰된 리버스 프록시 뒤에서는 uvicorn 의 --proxy-headers +
+    # --forwarded-allow-ips 가 XFF 의 실제 클라이언트 IP 를
+    # request.client.host 에 안전하게 채워준다 (IPAllowlistMiddleware
+    # 와 동일한 정책).
     return request.client.host if request.client else "anonymous"
 
 

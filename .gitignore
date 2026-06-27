@@ -7,6 +7,8 @@ venv/
 
 # Env / secrets
 .env
+# JWT_SECRET 미설정 시 백엔드가 자동 생성·영속화하는 시크릿 — 절대 커밋 금지.
+.jwt_secret
 *.db
 *.db-shm
 *.db-wal

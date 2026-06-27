@@ -17,9 +17,10 @@ ACCOUNT_DELETE = "account_delete"
 
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",", 1)[0].strip()[:64]
+    # request.client.host 만 신뢰 — raw X-Forwarded-For 를 그대로 쓰면
+    # 감사 로그의 IP 를 공격자가 위조할 수 있다 (헤더만 바꿔 추적 회피
+    # /타인 IP 모함).  프록시 뒤에서는 uvicorn --proxy-headers 가
+    # request.client.host 에 실제 IP 를 채운다.
     return (request.client.host if request.client else "")[:64]
 
 

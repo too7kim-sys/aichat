@@ -29,14 +29,68 @@ from .schemas import ProviderInfo
 log = logging.getLogger("uvicorn.error")
 
 
+def _resolve_jwt_secret() -> None:
+    """JWT_SECRET 이 레포에 공개된 기본 placeholder 면, LAN 내 누구나
+    admin 토큰을 위조할 수 있다.  폐쇄망 운영에서 수동 .env 편집을
+    강제하면 잊고 그냥 띄우기 쉬우므로:
+
+      · 기본값이면 강한 랜덤 시크릿을 자동 생성하고
+      · backend/.jwt_secret 파일(0600)에 영속화해 재부팅해도 동일 →
+        기존 로그인 토큰이 유지되고
+      · settings.jwt_secret 을 런타임으로 교체 (auth 가 호출 시점에
+        읽으므로 첫 요청 전에 바꾸면 충분).
+
+    .env 에 진짜 JWT_SECRET 을 박아 두면 이 로직은 전혀 동작 안 함.
+    """
+    import os
+    import secrets
+    import stat
+    from pathlib import Path
+
+    if settings.jwt_secret != "dev-only-change-me":
+        return  # 운영자가 명시적으로 설정함 — 그대로 사용.
+
+    secret_path = Path(__file__).resolve().parent.parent / ".jwt_secret"
+    try:
+        if secret_path.is_file():
+            value = secret_path.read_text(encoding="utf-8").strip()
+            if value:
+                settings.jwt_secret = value
+                log.warning(
+                    "JWT_SECRET 미설정 — backend/.jwt_secret 의 영속 "
+                    "시크릿을 사용합니다.  운영 표준은 .env 의 JWT_SECRET "
+                    "직접 설정입니다."
+                )
+                return
+        value = secrets.token_urlsafe(48)
+        secret_path.write_text(value, encoding="utf-8")
+        try:
+            secret_path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        except OSError:
+            pass
+        settings.jwt_secret = value
+        log.warning(
+            "JWT_SECRET 미설정 — 강한 랜덤 시크릿을 생성해 "
+            "backend/.jwt_secret 에 저장했습니다 (0600).  공개된 기본값 "
+            "위조 위험은 사라졌지만, 운영 표준은 .env 의 JWT_SECRET 직접 "
+            "설정입니다."
+        )
+    except OSError as exc:
+        # 파일 영속화 실패 (읽기전용 FS 등) — 프로세스 수명 동안만
+        # 유효한 랜덤값이라도 공개 기본값보다 안전.  재부팅 시 토큰
+        # 무효화되는 트레이드오프를 경고.
+        settings.jwt_secret = secrets.token_urlsafe(48)
+        log.warning(
+            "JWT_SECRET 미설정 + .jwt_secret 영속화 실패(%s) — 이번 "
+            "프로세스 한정 랜덤 시크릿 사용.  재시작하면 기존 토큰이 "
+            "무효화됩니다.  .env 에 JWT_SECRET 을 설정하세요.",
+            exc,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.jwt_secret == "dev-only-change-me":
-        log.warning(
-            "JWT_SECRET is set to the default placeholder. Generate a strong "
-            "random value (python -c 'import secrets; print(secrets.token_urlsafe(48))') "
-            "and put it in backend/.env before exposing this service."
-        )
+    _resolve_jwt_secret()
     await init_db()
     # 백엔드 오류 캡처 — 미들웨어 + 로깅 핸들러 둘 다 활성.
     # init_db 가 ErrorLog 테이블을 만든 *뒤* 에 부착해야 첫 write 에서

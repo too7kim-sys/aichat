@@ -152,10 +152,8 @@ class ErrorLogMiddleware(BaseHTTPMiddleware):
 
 
 def _client_ip(request: Request) -> str | None:
-    # X-Forwarded-For 가 있으면 첫 hop, 없으면 직결 IP.
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    # request.client.host 만 신뢰 — raw XFF 는 위조 가능.  프록시
+    # 뒤에서는 uvicorn --proxy-headers 가 실제 IP 를 채운다.
     return request.client.host if request.client else None
 
 

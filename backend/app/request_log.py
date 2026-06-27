@@ -56,9 +56,8 @@ _SKIP_PREFIXES = (
 
 
 def _client_ip(request: Request) -> str | None:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",", 1)[0].strip()
+    # request.client.host 만 신뢰 — raw XFF 는 위조 가능.  프록시
+    # 뒤에서는 uvicorn --proxy-headers 가 실제 IP 를 채운다.
     return request.client.host if request.client else None
 
 
