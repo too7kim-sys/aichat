@@ -152,3 +152,58 @@ def ensure_public_url(url: str) -> None:
     parsed = urlparse(url)
     ensure_public_host(parsed.hostname)
 
+
+def resolve_and_pin(host: str | None) -> str:
+    """Resolve `host` **once**, verify every returned address is public,
+    and return a single validated IP literal to connect to.
+
+    ensure_public_host() 는 검증만 하고 IP 를 버리기 때문에, 호출부가
+    그 뒤 hostname 으로 다시 연결하면 DNS 를 재해석한다 — 검증 시점과
+    연결 시점 사이에 응답이 바뀌는 DNS 리바인딩(TOCTOU) 창이 열린다.
+    이 함수는 **한 번의 getaddrinfo 결과**를 검증하고 그 IP 를 그대로
+    반환하므로, 호출부가 이 IP 로 직접 연결하면 재해석 자체가 없어
+    리바인딩이 불가능하다.  TLS(SNI/인증서)는 호출부가 원 hostname 을
+    유지하면 정상 검증된다.
+
+    반환: 안전한 IP 문자열.  하나라도 내부 주소로 해석되면
+    UnsafeTargetError.
+    """
+    if not host:
+        raise UnsafeTargetError("호스트가 비어 있습니다")
+
+    # Literal IP — DNS 없이 검증 후 그대로.
+    try:
+        ip = ipaddress.ip_address(host)
+        if _is_blocked_ip(ip):
+            raise UnsafeTargetError(f"내부 IP는 사용할 수 없습니다: {host}")
+        return host
+    except ValueError:
+        pass
+
+    if host.lower() in {"localhost", "localhost.localdomain"}:
+        raise UnsafeTargetError("localhost 는 사용할 수 없습니다")
+
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise UnsafeTargetError(f"호스트 해석 실패: {host} ({exc})") from exc
+    if not infos:
+        raise UnsafeTargetError(f"호스트 해석 결과 없음: {host}")
+
+    pinned: str | None = None
+    for _fam, _stype, _proto, _canon, addr in infos:
+        ip_str = addr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        # 하나라도 내부면 즉시 거부 — 악의적 DNS 가 공인+내부 IP 를
+        # 섞어 반환해 우회하는 것을 막는다.
+        if _is_blocked_ip(ip):
+            raise UnsafeTargetError(f"내부 호스트로 해석됨: {host} → {ip_str}")
+        if pinned is None:
+            pinned = ip_str
+    if pinned is None:
+        raise UnsafeTargetError(f"유효한 IP 로 해석되지 않음: {host}")
+    return pinned
+

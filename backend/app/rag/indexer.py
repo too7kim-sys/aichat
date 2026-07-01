@@ -473,32 +473,42 @@ def _fetch_url_to_dir(url: str, dest: Path) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_URL_SCHEMES:
         raise RuntimeError(f"허용되지 않은 URL 스킴: {parsed.scheme}")
-    # SSRF 차단 — 내부망/loopback/link-local 거부. 리다이렉트도 같은
-    # 검증을 거치도록 follow_redirects=False 로 두고 한 hop 만 따라간다.
-    from ..security import UnsafeTargetError, ensure_public_url
-    try:
-        ensure_public_url(url)
-    except UnsafeTargetError as exc:
-        raise RuntimeError(f"URL 차단됨: {exc}") from exc
+    # SSRF 차단 — 내부망/loopback/link-local 거부.  DNS 리바인딩까지
+    # 막기 위해 hostname 을 한 번 해석·검증한 IP 로 '핀' 해서 연결하고,
+    # Host 헤더 + TLS SNI 는 원 hostname 을 유지한다 (인증서 정상 검증).
+    # 리다이렉트도 매 hop 같은 절차를 거치도록 follow_redirects=False.
+    from ..security import UnsafeTargetError, resolve_and_pin
+
+    def _pinned_get(c: "httpx.Client", target: str):
+        """target(hostname URL) 을 검증된 IP 로 직접 GET.  재해석 없음."""
+        p = urlparse(target)
+        if p.scheme not in _ALLOWED_URL_SCHEMES:
+            raise RuntimeError(f"허용되지 않은 URL 스킴: {p.scheme}")
+        host = p.hostname
+        ip = resolve_and_pin(host)  # 한 번 해석 + 검증 + 그 IP 반환
+        pinned_url = httpx.URL(target).copy_with(host=ip)
+        # Host 헤더로 가상호스트 라우팅 유지, sni_hostname 확장으로
+        # TLS SNI + 인증서 hostname 검증을 원래 이름으로 수행.
+        headers = {"Host": host} if host else {}
+        extensions = {"sni_hostname": host} if host else {}
+        return c.get(pinned_url, headers=headers, extensions=extensions)
+
     try:
         with httpx.Client(timeout=_URL_FETCH_TIMEOUT, follow_redirects=False) as c:
-            resp = c.get(url)
-            # 한 번까지 수동 redirect — 매번 ensure_public_url 로 재검증.
-            for _ in range(3):
-                if resp.status_code not in (301, 302, 303, 307, 308):
-                    break
-                loc = resp.headers.get("location")
-                if not loc:
-                    break
-                next_url = str(httpx.URL(url).join(loc))
-                try:
-                    ensure_public_url(next_url)
-                except UnsafeTargetError as exc:
-                    raise RuntimeError(
-                        f"redirect 차단됨: {exc}"
-                    ) from exc
-                url = next_url
-                resp = c.get(url)
+            try:
+                resp = _pinned_get(c, url)
+                # 최대 3 hop redirect — 매번 재검증 + 재핀.
+                for _ in range(3):
+                    if resp.status_code not in (301, 302, 303, 307, 308):
+                        break
+                    loc = resp.headers.get("location")
+                    if not loc:
+                        break
+                    # 상대 redirect 는 원 hostname URL 기준으로 join.
+                    url = str(httpx.URL(url).join(loc))
+                    resp = _pinned_get(c, url)
+            except UnsafeTargetError as exc:
+                raise RuntimeError(f"URL 차단됨: {exc}") from exc
     except httpx.HTTPError as exc:
         raise RuntimeError(f"URL fetch 실패: {exc}") from exc
     if resp.status_code != 200:
@@ -747,21 +757,31 @@ def _fetch_sftp_to_dir(connection_url: str, dest: Path, corpus_type: str) -> Non
     # SSRF 차단 — 사용자가 sftp://anon@internal-host:22/ 같은 URL 로
     # 내부망을 스캔/덤프하지 못하게 막는다. 정당한 사내 SFTP 서버를
     # 가리키는 경우에는 RAG_SFTP_HOST_ALLOWLIST 환경변수로 명시.
-    from ..security import UnsafeTargetError, ensure_public_host
+    from ..security import UnsafeTargetError, resolve_and_pin
     allow = {
         h.strip().lower()
         for h in (settings.rag_sftp_host_allowlist or "").split(",")
         if h.strip()
     }
+    # connect_host = 실제 연결 대상 IP.  hostname 을 한 번 해석해 그 IP
+    # 로 직접 연결하면 검증-후-재해석 사이의 DNS 리바인딩이 불가능하다.
     if allow:
         if (host or "").lower() not in allow:
             raise RuntimeError(
                 f"SFTP 호스트 미허용: {host}. RAG_SFTP_HOST_ALLOWLIST 에 "
                 f"추가 후 다시 시도하세요."
             )
+        # 허용목록의 사내 SFTP 는 내부 IP 가 정당하므로 public 검증은
+        # 적용하지 않고, 리바인딩 방지를 위한 IP 핀만 수행.
+        import socket as _socket
+        try:
+            infos = _socket.getaddrinfo(host, port, type=_socket.SOCK_STREAM)
+        except OSError as exc:
+            raise RuntimeError(f"SFTP 호스트 해석 실패: {host} ({exc})") from exc
+        connect_host = infos[0][4][0] if infos else host
     else:
         try:
-            ensure_public_host(host)
+            connect_host = resolve_and_pin(host)  # 공인 검증 + IP 핀
         except UnsafeTargetError as exc:
             raise RuntimeError(f"SFTP 호스트 차단됨: {exc}") from exc
 
@@ -772,7 +792,7 @@ def _fetch_sftp_to_dir(connection_url: str, dest: Path, corpus_type: str) -> Non
             "SFTP URL 에 비밀번호가 필요합니다 (sftp://user:pw@host/path)"
         )
 
-    transport = paramiko.Transport((host, port))
+    transport = paramiko.Transport((connect_host, port))
     transport.banner_timeout = _SFTP_CONNECT_TIMEOUT
     sftp: paramiko.SFTPClient | None = None
     file_count = 0
