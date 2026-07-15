@@ -68,10 +68,27 @@ def _validate_git_url(git_url: str) -> tuple[str, str]:
     if not parsed.hostname:
         raise ValueError("Git URL에 호스트가 없습니다")
     allowed = settings.workspace_allowed_host_list
-    if allowed and parsed.hostname not in allowed:
-        raise ValueError(
-            f"호스트 미허용: {parsed.hostname}. 허용 목록: {', '.join(allowed)}"
-        )
+    if allowed:
+        # 허용목록이 설정돼 있으면 그 목록만 신뢰 — 사내 git 서버가
+        # 내부 IP/호스트여도 관리자가 명시적으로 등록한 것이므로 허용.
+        if parsed.hostname not in allowed:
+            raise ValueError(
+                f"호스트 미허용: {parsed.hostname}. 허용 목록: {', '.join(allowed)}"
+            )
+    else:
+        # 허용목록이 비어 있으면(기본값) 임의 호스트가 통과하므로,
+        # 인증된 사용자가 git_url 로 내부망/메타데이터(169.254.169.254)
+        # /loopback 을 찌르는 SSRF 를 막는다.  RAG URL/SFTP 소스와 동일
+        # 정책 — 사내 git 을 정당하게 쓰려면 WORKSPACE_ALLOWED_HOSTS 에
+        # 그 호스트를 등록.
+        from ..security import UnsafeTargetError, ensure_public_host
+        try:
+            ensure_public_host(parsed.hostname)
+        except UnsafeTargetError as exc:
+            raise ValueError(
+                f"Git 호스트 차단됨: {exc}. 사내 git 서버는 "
+                f"WORKSPACE_ALLOWED_HOSTS 에 등록 후 사용하세요."
+            ) from exc
     return parsed.scheme, parsed.hostname
 
 
